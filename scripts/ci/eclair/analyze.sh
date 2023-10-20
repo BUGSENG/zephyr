@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" ; echo "${PWD}")"
 # Directory where to put all ECLAIR output and temporary files.
 ECLAIR_OUTPUT_DIR="${PWD}/ECLAIR/out"
 
-SDK_PATH=/opt/zephyr-sdk-0.15.1
+SDK_PATH=/opt/zephyr-sdk-0.16.3
 
 export CC_ALIASES=""
 export CXX_ALIASES=""
@@ -85,11 +85,11 @@ mkdir -p "${ECLAIR_DATA_DIR}"
 (
   # 1. Install west, and make sure ~/.local/bin is on your PATH environment
   # variable:
-  pip3 install --user -U west
   export PATH=~/.local/bin:"$PATH"
+  pip3 install --user -U west
 
   # 2. Get the Zephyr source code:
-  [ -d "${TOP}/.west" ] || west init -l "${TOP}/zephyr"
+  [ -d "${TOP}/.west" ] || west init -l "${TOP}"
   cd "${TOP}"
   west update
 
@@ -97,14 +97,13 @@ mkdir -p "${ECLAIR_DATA_DIR}"
   # load boilerplate code required for building Zephyr applications.
   west zephyr-export
 
-  # Zephyr’s scripts/requirements.txt file declares additional Python
+  # Zephyr's scripts/requirements.txt file declares additional Python
   # dependencies. Install them with pip3.
-  pip3 install --user -r "${TOP}/zephyr/scripts/requirements.txt"
+  pip3 install --user -r "${TOP}/scripts/requirements.txt"
 
-  cd zephyr
   # Perform the build (from scratch) in an ECLAIR environment.
   "${ECLAIR_BIN_DIR}/eclair_env"                   \
-      "-eval_file='${SCRIPT_DIR}/analysis.ecl'" \
+      "-eval_file='${SCRIPT_DIR}/ECLAIR/analysis.ecl'" \
       -- "${HERE}/build.sh"
 )
 
@@ -120,5 +119,5 @@ find "${ECLAIR_DATA_DIR}" -maxdepth 1 -name "FRAME.*.ecb" \
 JENKINS_XML="${PWD}/ECLAIR/jenkins.xml"
 "${ECLAIR_BIN_DIR}/eclair_report" \
     "-db='${PROJECT_ECD}'" \
-    "-eval_file='${SCRIPT_DIR}/report.ecl'" \
+    "-eval_file='${SCRIPT_DIR}/ECLAIR/report.ecl'" \
     "-reports_jenkins='${JENKINS_XML}'"

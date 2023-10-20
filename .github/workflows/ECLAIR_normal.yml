@@ -1,0 +1,39 @@
+name: "ECLAIR"
+on: [push]
+env:
+  GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+  ENABLE_ECLAIR_BOT: true
+  ECLAIR_OUT_DIR: ECLAIR_out
+jobs:
+  Analyze:
+    runs-on: eclairit
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          submodules: 'true'
+      - name: Build and analyze with ECLAIR
+        run: |
+          set -eu
+          ./scripts/ci/eclair/analyze.sh
+      - name: ECLAIR analysis log
+        if: always()
+        run: cat ${ECLAIR_OUT_DIR}/ANALYSIS.log
+      - name: ECLAIR report log
+        if: always()
+        run: cat ${ECLAIR_OUT_DIR}/REPORT.log
+      - name: Upload ECLAIR artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: artifacts
+          path: ${ECLAIR_OUT_DIR}*/
+      - name: Upload ECLAIR SARIF
+        uses: BUGSENG/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: ${ECLAIR_OUT_DIR}/reports.sarif
+          category: "eclair-normal"
+      - name: Publish ECLAIR results
+        env:
+          WTOKEN: ${{secrets.WTOKEN}}
+        run: ECLAIR/action_push.sh "${WTOKEN}" "${ECLAIR_OUT_DIR}"
