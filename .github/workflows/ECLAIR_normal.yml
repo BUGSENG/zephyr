@@ -14,7 +14,8 @@ jobs:
           submodules: 'true'
       - name: Build and analyze with ECLAIR
         run: |
-          echo "User: ${USER}"
+          env
+          echo "User: ~"
           file /opt/zephyr-sdk-0.16.3/aarch64-zephyr-elf/bin/aarch64-zephyr-elf-gcc
           /opt/zephyr-sdk-0.16.3/aarch64-zephyr-elf/bin/aarch64-zephyr-elf-gcc --version
           exit 1
