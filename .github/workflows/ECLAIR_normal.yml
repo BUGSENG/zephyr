@@ -14,10 +14,6 @@ jobs:
           submodules: 'true'
       - name: Build and analyze with ECLAIR
         run: |
-          env
-          echo "User: $(id)"
-          /opt/zephyr-sdk-0.16.3/aarch64-zephyr-elf/bin/aarch64-zephyr-elf-gcc --version
-          exit 1
           set -eu
           ./scripts/ci/eclair/analyze.sh
       - name: ECLAIR analysis log
