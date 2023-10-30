@@ -101,10 +101,12 @@ mkdir -p "${ECLAIR_DATA_DIR}"
   # dependencies. Install them with pip3.
   pip3 install --user -r "${TOP}/scripts/requirements.txt"
 
+  "${HERE}/build.sh"
+
   # Perform the build (from scratch) in an ECLAIR environment.
-  "${ECLAIR_BIN_DIR}/eclair_env"                   \
-      "-eval_file='${SCRIPT_DIR}/ECLAIR/analysis.ecl'" \
-      -- "${HERE}/build.sh"
+#   "${ECLAIR_BIN_DIR}/eclair_env"                   \
+#       "-eval_file='${SCRIPT_DIR}/ECLAIR/analysis.ecl'" \
+#       -- "${HERE}/build.sh"
 )
 
 # Create the project database.
