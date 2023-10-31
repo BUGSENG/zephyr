@@ -3,7 +3,7 @@ on: [push]
 env:
   GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
   ENABLE_ECLAIR_BOT: true
-  ECLAIR_OUT_DIR: ECLAIR_out
+  ECLAIR_OUTPUT_DIR: ECLAIR_out
 jobs:
   Analyze:
     runs-on: eclairit

@@ -25,8 +25,6 @@ ECLAIR_BIN_DIR="/opt/bugseng/eclair/bin"
 
 # Directory where this script resides: usually in a directory named "ECLAIR".
 SCRIPT_DIR="$(cd "$(dirname "$0")" ; echo "${PWD}")"
-# Directory where to put all ECLAIR output and temporary files.
-ECLAIR_OUTPUT_DIR="${PWD}/ECLAIR/out"
 
 SDK_PATH=/opt/zephyr-sdk-0.16.3
 
@@ -118,8 +116,6 @@ find "${ECLAIR_DATA_DIR}" -maxdepth 1 -name "FRAME.*.ecb" \
           -load=/dev/stdin
 
 # Create the Jenkins reports file.
-JENKINS_XML="${PWD}/ECLAIR/jenkins.xml"
 "${ECLAIR_BIN_DIR}/eclair_report" \
     "-db='${PROJECT_ECD}'" \
-    "-eval_file='${SCRIPT_DIR}/ECLAIR/report.ecl'" \
-    "-reports_jenkins='${JENKINS_XML}'"
+    "-eval_file='${SCRIPT_DIR}/ECLAIR/report.ecl'"
