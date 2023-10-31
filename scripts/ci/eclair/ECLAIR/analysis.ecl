@@ -10,4 +10,4 @@
 -enable=B.EXPLAIN
 
 -eval_file=MISRA_C_2012_selection.ecl
--eval_file=../ECLAIR_common_config/common_config.ecl
+-eval_file=common_config.ecl
