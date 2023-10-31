@@ -6,7 +6,7 @@ env:
   GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{github.event.pull_request.number}}
   GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
   ENABLE_ECLAIR_BOT: true
-  ECLAIR_OUT_DIR: ECLAIR_out
+  ECLAIR_OUTPUT_DIR: ECLAIR_out
 jobs:
   Analyze:
     runs-on: eclairit
