@@ -22,20 +22,20 @@ jobs:
           ./scripts/ci/eclair/analyze.sh
       - name: ECLAIR analysis log
         if: always()
-        run: cat ${ECLAIR_OUT_DIR}/ANALYSIS.log
+        run: cat ${ECLAIR_OUTPUT_DIR}/ANALYSIS.log
       - name: ECLAIR report log
         if: always()
-        run: cat ${ECLAIR_OUT_DIR}/REPORT.log
+        run: cat ${ECLAIR_OUTPUT_DIR}/REPORT.log
       - name: Upload ECLAIR artifacts
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: artifacts
-          path: ${ECLAIR_OUT_DIR}*/
+          path: ${ECLAIR_OUTPUT_DIR}*/
       - name: Upload ECLAIR SARIF
         uses: BUGSENG/codeql-action/upload-sarif@v2
         with:
-          sarif_file: ${ECLAIR_OUT_DIR}/reports.sarif
+          sarif_file: ${ECLAIR_OUTPUT_DIR}/reports.sarif
           category: "eclair-normal"
       - name: Publish ECLAIR results
         env:
@@ -44,4 +44,4 @@ jobs:
           PR_BASE_REF: ${{github.event.pull_request.base.ref}}
           PR_USER: ${{github.event.pull_request.user.login}}
           WTOKEN: ${{secrets.WTOKEN}}
-        run: ECLAIR/action_pull_request.sh "${WTOKEN}" "${ECLAIR_OUT_DIR}"
+        run: ECLAIR/action_pull_request.sh "${WTOKEN}" "${ECLAIR_OUTPUT_DIR}"
