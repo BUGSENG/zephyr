@@ -16,6 +16,7 @@ LOG_MODULE_REGISTER(net_mqtt_websocket, CONFIG_MQTT_LOG_LEVEL);
 #include <errno.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/mqtt.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/websocket.h>
 
 #include "mqtt_os.h"
@@ -77,7 +78,7 @@ int mqtt_client_websocket_connect(struct mqtt_client *client)
 		NET_ERR("Websocket connect failed (%d)",
 			 client->transport.websocket.sock);
 
-		(void)close(transport_sock);
+		(void)zsock_close(transport_sock);
 		return client->transport.websocket.sock;
 	}
 
@@ -108,7 +109,7 @@ int mqtt_client_websocket_write(struct mqtt_client *client, const uint8_t *data,
 }
 
 int mqtt_client_websocket_write_msg(struct mqtt_client *client,
-				    const struct msghdr *message)
+				    const struct net_msghdr *message)
 {
 	enum websocket_opcode opcode = WEBSOCKET_OPCODE_DATA_BINARY;
 	bool final = false;
@@ -174,8 +175,7 @@ int mqtt_client_websocket_disconnect(struct mqtt_client *client)
 
 	ret = websocket_disconnect(client->transport.websocket.sock);
 	if (ret < 0) {
-		NET_ERR("Websocket disconnect failed (%d)", ret);
-		return ret;
+		NET_DBG("Websocket disconnect failed (%d)", ret);
 	}
 
 	if (client->transport.type == MQTT_TRANSPORT_NON_SECURE_WEBSOCKET) {

@@ -12,7 +12,7 @@ A kernel object can be one of three classes of data:
   set of subsystems
 
 The set of known kernel objects and driver subsystems is defined in
-include/kernel.h as :c:enum:`k_objects`.
+:zephyr_file:`include/zephyr/sys/kobject.h` as :c:enum:`k_objects`.
 
 Kernel objects are completely opaque to user threads. User threads work
 with addresses to kernel objects when making API calls, but may never
@@ -186,6 +186,13 @@ available to user threads, however user threads may use
 :c:func:`k_object_release` to relinquish their own permissions on an
 object.
 
+Supervisor threads may use :c:func:`k_object_access_revoke_others` to revoke
+access from all threads except the caller. This is useful to reset the
+permissions of an object in cases where access was previously given to an
+untrusted user thread, which may have in turn given it to others.
+This API also reverts a public access state which may have been set previously
+via :c:func:`k_object_access_all_grant`.
+
 API calls from supervisor mode to set permissions on kernel objects that are
 not being tracked by the kernel will be no-ops. Doing the same from user mode
 will result in a fatal error for the calling thread.
@@ -210,7 +217,7 @@ Some objects will be implicitly initialized at boot:
   is run by the kernel early in the boot process.
 
 If a kernel object is initialized with a private static initializer, the object
-must have :c:func:`z_object_init` called on it at some point by a supervisor
+must have :c:func:`k_object_init` called on it at some point by a supervisor
 thread, otherwise the kernel will consider the object uninitialized if accessed
 by a user thread. This is very uncommon, typically only for kernel objects that
 are embedded within some larger struct and initialized statically.
@@ -228,7 +235,7 @@ are embedded within some larger struct and initialized statically.
     };
 
     ...
-    z_object_init(&my_foo.sem);
+    k_object_init(&my_foo.sem);
     ...
 
 

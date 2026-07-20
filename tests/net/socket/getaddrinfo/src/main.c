@@ -9,10 +9,12 @@ LOG_MODULE_REGISTER(net_test, CONFIG_NET_SOCKETS_LOG_LEVEL);
 
 #include <stdio.h>
 #include <zephyr/ztest_assert.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/sys/sem.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/dns_resolve.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net/net_log.h>
+#include <zephyr/net_buf.h>
 
 #include "../../socket_helpers.h"
 
@@ -31,10 +33,16 @@ static uint8_t recv_buf[MAX_BUF_SIZE];
 static int sock_v4;
 static int sock_v6;
 
-static struct sockaddr_in addr_v4;
-static struct sockaddr_in6 addr_v6;
+static struct net_sockaddr_in addr_v4;
+static struct net_sockaddr_in6 addr_v6;
 
 static int queries_received;
+static int expected_query_count =
+	CONFIG_NET_SOCKETS_DNS_BACKOFF_INTERVAL >= CONFIG_NET_SOCKETS_DNS_TIMEOUT ?
+	2 :
+	/* Calculate for both IPv4 and IPv6 so need to double the value */
+	2 * (LOG2CEIL(DIV_ROUND_UP(CONFIG_NET_SOCKETS_DNS_TIMEOUT,
+				   CONFIG_NET_SOCKETS_DNS_BACKOFF_INTERVAL) + 1));
 
 /* The semaphore is there to wait the data to be received. */
 static ZTEST_BMEM struct sys_sem wait_data;
@@ -56,7 +64,6 @@ static bool check_dns_query(uint8_t *buf, int buf_len)
 	 */
 	result = net_buf_alloc(&test_dns_msg_pool, K_FOREVER);
 	if (!result) {
-		ret = -ENOMEM;
 		return false;
 	}
 
@@ -90,7 +97,7 @@ static bool check_dns_query(uint8_t *buf, int buf_len)
 	/* In this test we are just checking if the query came to us in correct
 	 * form, we are not creating a DNS server implementation here.
 	 */
-	if (strncmp(result->data + 1, QUERY_HOST,
+	if (strncmp(result->data, QUERY_HOST,
 		    sizeof(QUERY_HOST) - 1)) {
 		net_buf_unref(result);
 		return false;
@@ -101,45 +108,49 @@ static bool check_dns_query(uint8_t *buf, int buf_len)
 	return true;
 }
 
-static int process_dns(void)
+static void process_dns(void *p1, void *p2, void *p3)
 {
-	struct pollfd pollfds[2];
-	struct sockaddr *addr;
-	socklen_t addr_len;
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	struct zsock_pollfd pollfds[2];
+	struct net_sockaddr *addr;
+	net_socklen_t addr_len;
 	int ret, idx;
 
 	NET_DBG("Waiting for IPv4 DNS packets on port %d",
-		ntohs(addr_v4.sin_port));
+		net_ntohs(addr_v4.sin_port));
 	NET_DBG("Waiting for IPv6 DNS packets on port %d",
-		ntohs(addr_v6.sin6_port));
+		net_ntohs(addr_v6.sin6_port));
 
 	while (true) {
 		memset(pollfds, 0, sizeof(pollfds));
 		pollfds[0].fd = sock_v4;
-		pollfds[0].events = POLLIN;
+		pollfds[0].events = ZSOCK_POLLIN;
 		pollfds[1].fd = sock_v6;
-		pollfds[1].events = POLLIN;
+		pollfds[1].events = ZSOCK_POLLIN;
 
 		NET_DBG("Polling...");
 
-		ret = poll(pollfds, ARRAY_SIZE(pollfds), -1);
+		ret = zsock_poll(pollfds, ARRAY_SIZE(pollfds), -1);
 		if (ret <= 0) {
 			continue;
 		}
 
 		for (idx = 0; idx < ARRAY_SIZE(pollfds); idx++) {
-			if (pollfds[idx].revents & POLLIN) {
+			if (pollfds[idx].revents & ZSOCK_POLLIN) {
 				if (pollfds[idx].fd == sock_v4) {
 					addr_len = sizeof(addr_v4);
-					addr = (struct sockaddr *)&addr_v4;
+					addr = (struct net_sockaddr *)&addr_v4;
 				} else {
 					addr_len = sizeof(addr_v6);
-					addr = (struct sockaddr *)&addr_v6;
+					addr = (struct net_sockaddr *)&addr_v6;
 				}
 
-				ret = recvfrom(pollfds[idx].fd,
-					       recv_buf, sizeof(recv_buf), 0,
-					       addr, &addr_len);
+				ret = zsock_recvfrom(pollfds[idx].fd,
+						     recv_buf, sizeof(recv_buf), 0,
+						     addr, &addr_len);
 				if (ret < 0) {
 					/* Socket error */
 					NET_ERR("DNS: Connection error (%d)",
@@ -157,8 +168,6 @@ static int process_dns(void)
 			}
 		}
 	}
-
-	return -errno;
 }
 
 K_THREAD_DEFINE(dns_server_thread_id, STACK_SIZE,
@@ -167,8 +176,8 @@ K_THREAD_DEFINE(dns_server_thread_id, STACK_SIZE,
 
 static void *test_getaddrinfo_setup(void)
 {
-	char str[INET6_ADDRSTRLEN], *addr_str;
-	struct sockaddr addr;
+	char str[NET_INET6_ADDRSTRLEN], *addr_str;
+	struct net_sockaddr addr;
 	int ret;
 
 	ret = net_ipaddr_parse(CONFIG_DNS_SERVER1,
@@ -176,10 +185,10 @@ static void *test_getaddrinfo_setup(void)
 			       &addr);
 	zassert_true(ret, "Cannot parse IP address %s", CONFIG_DNS_SERVER1);
 
-	if (addr.sa_family == AF_INET) {
-		memcpy(&addr_v4, net_sin(&addr), sizeof(struct sockaddr_in));
-	} else if (addr.sa_family == AF_INET6) {
-		memcpy(&addr_v6, net_sin6(&addr), sizeof(struct sockaddr_in6));
+	if (addr.sa_family == NET_AF_INET) {
+		memcpy(&addr_v4, net_sin(&addr), sizeof(struct net_sockaddr_in));
+	} else if (addr.sa_family == NET_AF_INET6) {
+		memcpy(&addr_v6, net_sin6(&addr), sizeof(struct net_sockaddr_in6));
 	}
 
 	ret = net_ipaddr_parse(CONFIG_DNS_SERVER2,
@@ -187,20 +196,20 @@ static void *test_getaddrinfo_setup(void)
 			       &addr);
 	zassert_true(ret, "Cannot parse IP address %s", CONFIG_DNS_SERVER2);
 
-	if (addr.sa_family == AF_INET) {
-		memcpy(&addr_v4, net_sin(&addr), sizeof(struct sockaddr_in));
-	} else if (addr.sa_family == AF_INET6) {
-		memcpy(&addr_v6, net_sin6(&addr), sizeof(struct sockaddr_in6));
+	if (addr.sa_family == NET_AF_INET) {
+		memcpy(&addr_v4, net_sin(&addr), sizeof(struct net_sockaddr_in));
+	} else if (addr.sa_family == NET_AF_INET6) {
+		memcpy(&addr_v6, net_sin6(&addr), sizeof(struct net_sockaddr_in6));
 	}
 
-	addr_str = inet_ntop(AF_INET, &addr_v4.sin_addr, str, sizeof(str));
-	NET_DBG("v4: [%s]:%d", addr_str, ntohs(addr_v4.sin_port));
+	addr_str = zsock_inet_ntop(NET_AF_INET, &addr_v4.sin_addr, str, sizeof(str));
+	NET_DBG("v4: [%s]:%d", addr_str, net_ntohs(addr_v4.sin_port));
 
 	sock_v4 = prepare_listen_sock_udp_v4(&addr_v4);
 	zassert_true(sock_v4 >= 0, "Invalid IPv4 socket");
 
-	addr_str = inet_ntop(AF_INET6, &addr_v6.sin6_addr, str, sizeof(str));
-	NET_DBG("v6: [%s]:%d", addr_str, ntohs(addr_v6.sin6_port));
+	addr_str = zsock_inet_ntop(NET_AF_INET6, &addr_v6.sin6_addr, str, sizeof(str));
+	NET_DBG("v6: [%s]:%d", addr_str, net_ntohs(addr_v6.sin6_port));
 
 	sock_v6 = prepare_listen_sock_udp_v6(&addr_v6);
 	zassert_true(sock_v6 >= 0, "Invalid IPv6 socket");
@@ -218,7 +227,7 @@ static void *test_getaddrinfo_setup(void)
 
 ZTEST(net_socket_getaddrinfo, test_getaddrinfo_ok)
 {
-	struct addrinfo *res = NULL;
+	struct zsock_addrinfo *res = NULL;
 
 	queries_received = 0;
 
@@ -228,64 +237,61 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_ok)
 	 * that the query triggered a function call to process_dns() function
 	 * and that it could parse the DNS query.
 	 */
-	(void)getaddrinfo(QUERY_HOST, NULL, NULL, &res);
-
-	if (sys_sem_count_get(&wait_data) != 2) {
-		zassert_true(false, "Did not receive all queries");
-	}
+	(void)zsock_getaddrinfo(QUERY_HOST, NULL, NULL, &res);
 
 	(void)sys_sem_take(&wait_data, K_NO_WAIT);
 	(void)sys_sem_take(&wait_data, K_NO_WAIT);
 
-	zassert_equal(queries_received, 2,
-		      "Did not receive both IPv4 and IPv6 query");
+	zassert_equal(queries_received, expected_query_count,
+		      "Did not receive both IPv4 and IPv6 query (got %d, expected %d)",
+		      queries_received, expected_query_count);
 
-	freeaddrinfo(res);
+	zsock_freeaddrinfo(res);
 }
 
 ZTEST(net_socket_getaddrinfo, test_getaddrinfo_cancelled)
 {
-	struct addrinfo *res = NULL;
+	struct zsock_addrinfo *res = NULL;
 	int ret;
 
-	ret = getaddrinfo(QUERY_HOST, NULL, NULL, &res);
-
-	if (sys_sem_count_get(&wait_data) != 2) {
-		zassert_true(false, "Did not receive all queries");
-	}
+	ret = zsock_getaddrinfo(QUERY_HOST, NULL, NULL, &res);
 
 	(void)sys_sem_take(&wait_data, K_NO_WAIT);
 	(void)sys_sem_take(&wait_data, K_NO_WAIT);
+
+	zassert_equal(queries_received, expected_query_count,
+		      "Did not receive both IPv4 and IPv6 query (got %d, expected %d)",
+		      queries_received, expected_query_count);
 
 	/* Without a local DNS server this request will be canceled. */
 	zassert_equal(ret, DNS_EAI_CANCELED, "Invalid result");
 
-	freeaddrinfo(res);
+	zsock_freeaddrinfo(res);
 }
 
 ZTEST(net_socket_getaddrinfo, test_getaddrinfo_no_host)
 {
-	struct addrinfo *res = NULL;
+	struct zsock_addrinfo *res = NULL;
 	int ret;
 
-	ret = getaddrinfo(NULL, NULL, NULL, &res);
+	ret = zsock_getaddrinfo(NULL, NULL, NULL, &res);
 
 	zassert_equal(ret, DNS_EAI_SYSTEM, "Invalid result");
 	zassert_equal(errno, EINVAL, "Invalid errno");
 	zassert_is_null(res, "ai_addr is not NULL");
 
-	freeaddrinfo(res);
+	zsock_freeaddrinfo(res);
 }
 
 ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv4)
 {
 	struct zsock_addrinfo *res = NULL;
-	struct sockaddr_in *saddr;
+	struct net_sockaddr_in *saddr;
 	int ret;
 
 	struct zsock_addrinfo hints = {
-		.ai_family = AF_INET,
-		.ai_socktype = SOCK_STREAM
+		.ai_family = NET_AF_INET,
+		.ai_socktype = NET_SOCK_STREAM
 	};
 
 	ret = zsock_getaddrinfo("1.2.3.255", "65534", NULL, &res);
@@ -293,32 +299,32 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv4)
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET, "");
-	zassert_equal(res->ai_socktype, SOCK_STREAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_TCP, "");
+	zassert_equal(res->ai_family, NET_AF_INET, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_STREAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_TCP, "");
 	zsock_freeaddrinfo(res);
 
 	ret = zsock_getaddrinfo("1.2.3.255", "65534", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET, "");
-	zassert_equal(res->ai_socktype, SOCK_STREAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_TCP, "");
+	zassert_equal(res->ai_family, NET_AF_INET, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_STREAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_TCP, "");
 	zsock_freeaddrinfo(res);
 
-	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_socktype = NET_SOCK_DGRAM;
 	ret = zsock_getaddrinfo("1.2.3.255", "65534", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET, "");
-	zassert_equal(res->ai_socktype, SOCK_DGRAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_UDP, "");
+	zassert_equal(res->ai_family, NET_AF_INET, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_DGRAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_UDP, "");
 
-	saddr = (struct sockaddr_in *)res->ai_addr;
-	zassert_equal(saddr->sin_family, AF_INET, "");
-	zassert_equal(saddr->sin_port, htons(65534), "");
+	saddr = (struct net_sockaddr_in *)res->ai_addr;
+	zassert_equal(saddr->sin_family, NET_AF_INET, "");
+	zassert_equal(saddr->sin_port, net_htons(65534), "");
 	zassert_equal(saddr->sin_addr.s4_addr[0], 1, "");
 	zassert_equal(saddr->sin_addr.s4_addr[1], 2, "");
 	zassert_equal(saddr->sin_addr.s4_addr[2], 3, "");
@@ -329,12 +335,12 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv4)
 ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv6)
 {
 	struct zsock_addrinfo *res = NULL;
-	struct sockaddr_in6 *saddr;
+	struct net_sockaddr_in6 *saddr;
 	int ret;
 
 	struct zsock_addrinfo hints = {
-		.ai_family = AF_INET6,
-		.ai_socktype = SOCK_STREAM
+		.ai_family = NET_AF_INET6,
+		.ai_socktype = NET_SOCK_STREAM
 	};
 
 	ret = zsock_getaddrinfo("[FEDC:BA98:7654:3210:FEDC:BA98:7654:3210]",
@@ -343,13 +349,13 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv6)
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET6, "");
-	zassert_equal(res->ai_socktype, SOCK_STREAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_TCP, "");
+	zassert_equal(res->ai_family, NET_AF_INET6, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_STREAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_TCP, "");
 
-	saddr = (struct sockaddr_in6 *)res->ai_addr;
-	zassert_equal(saddr->sin6_family, AF_INET6, "");
-	zassert_equal(saddr->sin6_port, htons(65534), "");
+	saddr = (struct net_sockaddr_in6 *)res->ai_addr;
+	zassert_equal(saddr->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr->sin6_port, net_htons(65534), "");
 	zassert_equal(saddr->sin6_addr.s6_addr[0], 0xFE, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[1], 0xDC, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[2], 0xBA, "");
@@ -374,13 +380,13 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv6)
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET6, "");
-	zassert_equal(res->ai_socktype, SOCK_STREAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_TCP, "");
+	zassert_equal(res->ai_family, NET_AF_INET6, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_STREAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_TCP, "");
 
-	saddr = (struct sockaddr_in6 *)res->ai_addr;
-	zassert_equal(saddr->sin6_family, AF_INET6, "");
-	zassert_equal(saddr->sin6_port, htons(65534), "");
+	saddr = (struct net_sockaddr_in6 *)res->ai_addr;
+	zassert_equal(saddr->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr->sin6_port, net_htons(65534), "");
 	zassert_equal(saddr->sin6_addr.s6_addr[0], 0x10, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[1], 0x80, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[2], 0x0, "");
@@ -400,19 +406,19 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv6)
 	zsock_freeaddrinfo(res);
 
 
-	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_socktype = NET_SOCK_DGRAM;
 	ret = zsock_getaddrinfo("[3ffe:2a00:100:7031::1]",
 			"65534", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET6, "");
-	zassert_equal(res->ai_socktype, SOCK_DGRAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_UDP, "");
+	zassert_equal(res->ai_family, NET_AF_INET6, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_DGRAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_UDP, "");
 
-	saddr = (struct sockaddr_in6 *)res->ai_addr;
-	zassert_equal(saddr->sin6_family, AF_INET6, "");
-	zassert_equal(saddr->sin6_port, htons(65534), "");
+	saddr = (struct net_sockaddr_in6 *)res->ai_addr;
+	zassert_equal(saddr->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr->sin6_port, net_htons(65534), "");
 	zassert_equal(saddr->sin6_addr.s6_addr[0], 0x3f, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[1], 0xfe, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[2], 0x2a, "");
@@ -436,9 +442,9 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv6)
 			"65534", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 
-	saddr = (struct sockaddr_in6 *)res->ai_addr;
-	zassert_equal(saddr->sin6_family, AF_INET6, "");
-	zassert_equal(saddr->sin6_port, htons(65534), "");
+	saddr = (struct net_sockaddr_in6 *)res->ai_addr;
+	zassert_equal(saddr->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr->sin6_port, net_htons(65534), "");
 	zassert_equal(saddr->sin6_addr.s6_addr[0], 0x10, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[1], 0x80, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[2], 0x0, "");
@@ -461,9 +467,9 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv6)
 	ret = zsock_getaddrinfo("[::192.9.5.5]", "65534", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 
-	saddr = (struct sockaddr_in6 *)res->ai_addr;
-	zassert_equal(saddr->sin6_family, AF_INET6, "");
-	zassert_equal(saddr->sin6_port, htons(65534), "");
+	saddr = (struct net_sockaddr_in6 *)res->ai_addr;
+	zassert_equal(saddr->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr->sin6_port, net_htons(65534), "");
 	zassert_equal(saddr->sin6_addr.s6_addr[0], 0x0, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[1], 0x0, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[2], 0x0, "");
@@ -487,9 +493,9 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv6)
 			"65534", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 
-	saddr = (struct sockaddr_in6 *)res->ai_addr;
-	zassert_equal(saddr->sin6_family, AF_INET6, "");
-	zassert_equal(saddr->sin6_port, htons(65534), "");
+	saddr = (struct net_sockaddr_in6 *)res->ai_addr;
+	zassert_equal(saddr->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr->sin6_port, net_htons(65534), "");
 	zassert_equal(saddr->sin6_addr.s6_addr[0], 0x0, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[1], 0x0, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[2], 0x0, "");
@@ -513,9 +519,9 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_num_ipv6)
 			"65534", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 
-	saddr = (struct sockaddr_in6 *)res->ai_addr;
-	zassert_equal(saddr->sin6_family, AF_INET6, "");
-	zassert_equal(saddr->sin6_port, htons(65534), "");
+	saddr = (struct net_sockaddr_in6 *)res->ai_addr;
+	zassert_equal(saddr->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr->sin6_port, net_htons(65534), "");
 	zassert_equal(saddr->sin6_addr.s6_addr[0], 0x20, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[1], 0x10, "");
 	zassert_equal(saddr->sin6_addr.s6_addr[2], 0x83, "");
@@ -540,7 +546,7 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_flags_numerichost)
 	int ret;
 	struct zsock_addrinfo *res = NULL;
 	struct zsock_addrinfo hints = {
-		.ai_flags = AI_NUMERICHOST,
+		.ai_flags = ZSOCK_AI_NUMERICHOST,
 	};
 
 	ret = zsock_getaddrinfo("foo.bar", "65534", &hints, &res);
@@ -558,7 +564,7 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_ipv4_hints_ipv6)
 {
 	struct zsock_addrinfo *res = NULL;
 	struct zsock_addrinfo hints = {
-		.ai_family = AF_INET6,
+		.ai_family = NET_AF_INET6,
 	};
 	int ret;
 
@@ -572,7 +578,7 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_ipv6_hints_ipv4)
 {
 	struct zsock_addrinfo *res = NULL;
 	struct zsock_addrinfo hints = {
-		.ai_family = AF_INET,
+		.ai_family = NET_AF_INET,
 	};
 	int ret;
 
@@ -594,13 +600,13 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_port_invalid)
 
 ZTEST(net_socket_getaddrinfo, test_getaddrinfo_null_host)
 {
-	struct sockaddr_in *saddr;
-	struct sockaddr_in6 *saddr6;
+	struct net_sockaddr_in *saddr;
+	struct net_sockaddr_in6 *saddr6;
 	struct zsock_addrinfo *res = NULL;
 	struct zsock_addrinfo hints = {
-		.ai_family = AF_INET,
-		.ai_socktype = SOCK_STREAM,
-		.ai_flags = AI_PASSIVE
+		.ai_family = NET_AF_INET,
+		.ai_socktype = NET_SOCK_STREAM,
+		.ai_flags = ZSOCK_AI_PASSIVE
 	};
 	int ret;
 
@@ -609,56 +615,56 @@ ZTEST(net_socket_getaddrinfo, test_getaddrinfo_null_host)
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET, "");
-	zassert_equal(res->ai_socktype, SOCK_STREAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_TCP, "");
+	zassert_equal(res->ai_family, NET_AF_INET, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_STREAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_TCP, "");
 	saddr = net_sin(res->ai_addr);
-	zassert_equal(saddr->sin_family, AF_INET, "");
-	zassert_equal(saddr->sin_port, htons(80), "");
-	zassert_equal(saddr->sin_addr.s_addr, INADDR_ANY, "");
+	zassert_equal(saddr->sin_family, NET_AF_INET, "");
+	zassert_equal(saddr->sin_port, net_htons(80), "");
+	zassert_equal(saddr->sin_addr.s_addr, NET_INADDR_ANY, "");
 	zsock_freeaddrinfo(res);
 
 	/* Test IPv6 TCP */
-	hints.ai_family = AF_INET6;
+	hints.ai_family = NET_AF_INET6;
 	ret = zsock_getaddrinfo(NULL, "80", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET6, "");
-	zassert_equal(res->ai_socktype, SOCK_STREAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_TCP, "");
+	zassert_equal(res->ai_family, NET_AF_INET6, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_STREAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_TCP, "");
 	saddr6 = net_sin6(res->ai_addr);
-	zassert_equal(saddr6->sin6_family, AF_INET6, "");
-	zassert_equal(saddr6->sin6_port, htons(80), "");
-	zassert_equal(0, memcmp(&saddr6->sin6_addr, &in6addr_any, sizeof(in6addr_any)), "");
+	zassert_equal(saddr6->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr6->sin6_port, net_htons(80), "");
+	zassert_equal(0, memcmp(&saddr6->sin6_addr, &net_in6addr_any, sizeof(net_in6addr_any)), "");
 	zsock_freeaddrinfo(res);
 
 	/* Test IPv6 UDP */
-	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_socktype = NET_SOCK_DGRAM;
 	ret = zsock_getaddrinfo(NULL, "80", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET6, "");
-	zassert_equal(res->ai_socktype, SOCK_DGRAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_UDP, "");
-	saddr6 = (struct sockaddr_in6 *)res->ai_addr;
-	zassert_equal(saddr6->sin6_family, AF_INET6, "");
-	zassert_equal(saddr6->sin6_port, htons(80), "");
+	zassert_equal(res->ai_family, NET_AF_INET6, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_DGRAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_UDP, "");
+	saddr6 = (struct net_sockaddr_in6 *)res->ai_addr;
+	zassert_equal(saddr6->sin6_family, NET_AF_INET6, "");
+	zassert_equal(saddr6->sin6_port, net_htons(80), "");
 	zsock_freeaddrinfo(res);
 
 	/* Test IPv4 UDP */
-	hints.ai_family = AF_INET;
+	hints.ai_family = NET_AF_INET;
 	ret = zsock_getaddrinfo(NULL, "80", &hints, &res);
 	zassert_equal(ret, 0, "Invalid result");
 	zassert_not_null(res, "");
 	zassert_is_null(res->ai_next, "");
-	zassert_equal(res->ai_family, AF_INET, "");
-	zassert_equal(res->ai_socktype, SOCK_DGRAM, "");
-	zassert_equal(res->ai_protocol, IPPROTO_UDP, "");
-	saddr = (struct sockaddr_in *)res->ai_addr;
-	zassert_equal(saddr->sin_family, AF_INET, "");
-	zassert_equal(saddr->sin_port, htons(80), "");
+	zassert_equal(res->ai_family, NET_AF_INET, "");
+	zassert_equal(res->ai_socktype, NET_SOCK_DGRAM, "");
+	zassert_equal(res->ai_protocol, NET_IPPROTO_UDP, "");
+	saddr = (struct net_sockaddr_in *)res->ai_addr;
+	zassert_equal(saddr->sin_family, NET_AF_INET, "");
+	zassert_equal(saddr->sin_port, net_htons(80), "");
 	zsock_freeaddrinfo(res);
 }
 

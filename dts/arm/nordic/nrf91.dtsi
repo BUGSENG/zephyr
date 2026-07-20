@@ -5,7 +5,8 @@
  */
 
 #include <arm/armv8-m.dtsi>
-#include "nrf_common.dtsi"
+#include <nordic/nrf_common.dtsi>
+#include <zephyr/dt-bindings/adc/nrf-saadc.h>
 
 / {
 	cpus {
@@ -22,7 +23,6 @@
 			mpu: mpu@e000ed90 {
 				compatible = "arm,armv8m-mpu";
 				reg = <0xe000ed90 0x40>;
-				arm,num-mpu-regions = <16>;
 			};
 		};
 	};
@@ -32,22 +32,46 @@
 	};
 
 	soc {
+		compatible = "simple-bus";
+
 		sram0: memory@20000000 {
 			compatible = "mmio-sram";
+			#address-cells = <1>;
+			#size-cells = <1>;
 		};
 
 		peripheral@50000000 {
 			#address-cells = <1>;
 			#size-cells = <1>;
+			reg = <0x50000000 0x10000000>;
 			ranges = <0x0 0x50000000 0x10000000>;
 
-			/* Common nRF91 peripherals description. */
-			#include "nrf91_peripherals.dtsi"
+#include "nrf91_peripherals.dtsi"
+		};
+
+		flash_controller: flash-controller@50039000 {
+			compatible = "nordic,nrf91-flash-controller";
+			reg = <0x50039000 0x1000>;
+			ranges;
+			partial-erase;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			flash0: flash@0 {
+				compatible = "soc-nv-flash";
+				erase-block-size = <4096>;
+				write-block-size = <4>;
+				reg = <0x00000000 DT_SIZE_K(1024)>;
+				ranges = <0x0 0x00000000 DT_SIZE_K(1024)>;
+				status = "okay";
+				#address-cells = <1>;
+				#size-cells = <1>;
+			};
 		};
 
 		/* Additional Secure peripherals */
 		cryptocell: crypto@50840000 {
-			compatible = "nordic,cryptocell", "arm,cryptocell-310";
+			compatible = "arm,cryptocell-310";
 			reg = <0x50840000 0x1000>, <0x50841000 0x1000>;
 			reg-names = "wrapper", "core";
 			interrupts = <64 NRF_DEFAULT_IRQ_PRIORITY>;
@@ -60,11 +84,26 @@
 			status = "okay";
 		};
 
-		gpiote: gpiote@5000d000 {
+		/*
+		 * GPIOTE0 is always accessible as a secure peripheral,
+		 * so we give it the 'gpiote' label for use when building
+		 * code for this target.
+		 */
+		gpiote: gpiote0: gpiote@5000d000 {
 			compatible = "nordic,nrf-gpiote";
 			reg = <0x5000d000 0x1000>;
 			interrupts = <13 5>;
 			status = "disabled";
+			instance = <0>;
+		};
+
+		/* Additional Non-Secure GPIOTE instance */
+		gpiote1: gpiote@40031000 {
+			compatible = "nordic,nrf-gpiote";
+			reg = <0x40031000 0x1000>;
+			interrupts = <49 5>;
+			status = "disabled";
+			instance = <1>;
 		};
 
 		spu: spu@50003000 {
@@ -77,17 +116,30 @@
 		ficr: ficr@ff0000 {
 			compatible = "nordic,nrf-ficr";
 			reg = <0xff0000 0x1000>;
+			#nordic,ficr-cells = <1>;
 			status = "okay";
 		};
 
 		uicr: uicr@ff8000 {
 			compatible = "nordic,nrf-uicr";
 			reg = <0xff8000 0x1000>;
+			ranges = <0x0 0xff8000 0x1000>;
 			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			bl_storage: uicr@108 {
+				reg = <0x108 0x280>;
+			};
 		};
 	};
 };
 
 &nvic {
 	arm,num-irq-priority-bits = <3>;
+};
+
+&systick {
+	/* Use RTC for system clock, instead of SysTick. */
+	status = "disabled";
 };

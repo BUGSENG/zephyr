@@ -1,6 +1,10 @@
 # Copyright (c) 2021 STMicroelectronics
 # SPDX-License-Identifier: Apache-2.0
 
+description: |
+    When setting the odr property in a .dts or .dtsi file you may include
+    lps22hh.h and use the macros defined there.
+
 include: sensor-device.yaml
 
 properties:
@@ -18,13 +22,26 @@ properties:
     default: 0
     description: |
         Specify the default output data rate expressed in samples per second (Hz).
+        This value is ignored in favor of one-shot mode unless trigger mode is enabled.
         The default is the power-on reset value.
-    enum:
-      - 0  # Power-Down
-      - 1  # 1Hz
-      - 2  # 10Hz
-      - 3  # 25Hz
-      - 4  # 50Hz
-      - 5  # 75Hz
-      - 6  # 100Hz
-      - 7  # 200Hz
+
+        - 0  # LPS22HH_DT_ODR_POWER_DOWN
+        - 1  # LPS22HH_DT_ODR_1HZ
+        - 2  # LPS22HH_DT_ODR_10HZ
+        - 3  # LPS22HH_DT_ODR_25HZ
+        - 4  # LPS22HH_DT_ODR_50HZ
+        - 5  # LPS22HH_DT_ODR_75HZ
+        - 6  # LPS22HH_DT_ODR_100HZ
+        - 7  # LPS22HH_DT_ODR_200HZ
+
+    enum: [0, 1, 2, 3, 4, 5, 6, 7]
+
+examples:
+  - |
+    #include <zephyr/dt-bindings/sensor/lps22hh.h>
+
+    lps22hh: lps22hh@0 {
+      /* ... */
+
+      odr = <LPS22HH_DT_ODR_200HZ>;
+    };

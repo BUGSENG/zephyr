@@ -5,6 +5,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/* Use the NRF_RTC instance for coarse radio event scheduling */
+#define NRF_RTC NRF_RTC0
+
+/* HAL abstraction of event timer prescaler value */
+#define HAL_EVENT_TIMER_PRESCALER_VALUE 4U
+
 /* TXEN->TXIDLE + TXIDLE->TX in microseconds. */
 #define HAL_RADIO_NRF51_TXEN_TXIDLE_TX_US 140
 #define HAL_RADIO_NRF51_TXEN_TXIDLE_TX_NS 140000
@@ -16,6 +22,15 @@
 #define HAL_RADIO_NRF51_TX_CHAIN_DELAY_NS 1000 /* 1.0 */
 #define HAL_RADIO_NRF51_RX_CHAIN_DELAY_US 3 /* ceil(3.0) */
 #define HAL_RADIO_NRF51_RX_CHAIN_DELAY_NS 3000 /* 3.0 */
+
+/* HAL abstraction of Radio bitfields */
+#define HAL_NRF_RADIO_EVENT_END              NRF_RADIO_EVENT_END
+#define HAL_RADIO_EVENTS_END                 EVENTS_END
+#define HAL_RADIO_INTENSET_DISABLED_Msk      RADIO_INTENSET_DISABLED_Msk
+#define HAL_RADIO_SHORTS_TRX_END_DISABLE_Msk RADIO_SHORTS_END_DISABLE_Msk
+
+/* HAL abstraction of Radio IRQ number */
+#define HAL_RADIO_IRQn                          RADIO_IRQn
 
 static inline void hal_radio_reset(void)
 {
@@ -52,43 +67,77 @@ static inline uint32_t hal_radio_phy_mode_get(uint8_t phy, uint8_t flags)
 	return mode;
 }
 
-static inline uint32_t hal_radio_tx_power_min_get(void)
+static inline int8_t hal_radio_tx_power_min_get(void)
 {
-	return RADIO_TXPOWER_TXPOWER_Neg30dBm;
+	return -30; /* -30 dBm */
 }
 
-static inline uint32_t hal_radio_tx_power_max_get(void)
+static inline int8_t hal_radio_tx_power_max_get(void)
 {
-	return RADIO_TXPOWER_TXPOWER_Pos4dBm;
+	return 4; /* +4 dBm */
 }
 
-static inline uint32_t hal_radio_tx_power_floor(int8_t tx_power_lvl)
+static inline int8_t hal_radio_tx_power_floor(int8_t tx_power_lvl)
 {
-	if (tx_power_lvl >= (int8_t)RADIO_TXPOWER_TXPOWER_Pos4dBm) {
+	if (tx_power_lvl >= 4) {
+		return 4;
+	}
+
+	if (tx_power_lvl >= 0) {
+		return 0;
+	}
+
+	if (tx_power_lvl >= -4) {
+		return -4;
+	}
+
+	if (tx_power_lvl >= -8) {
+		return -8;
+	}
+
+	if (tx_power_lvl >= -12) {
+		return -12;
+	}
+
+	if (tx_power_lvl >= -16) {
+		return -16;
+	}
+
+	if (tx_power_lvl >= -20) {
+		return -20;
+	}
+
+	/* Note: The -30 dBm power level is deprecated so ignore it! */
+	return -40;
+}
+
+static inline uint32_t hal_radio_tx_power_value(int8_t tx_power_lvl)
+{
+	if (tx_power_lvl >= 4) {
 		return RADIO_TXPOWER_TXPOWER_Pos4dBm;
 	}
 
-	if (tx_power_lvl >= (int8_t)RADIO_TXPOWER_TXPOWER_0dBm) {
+	if (tx_power_lvl >= 0) {
 		return RADIO_TXPOWER_TXPOWER_0dBm;
 	}
 
-	if (tx_power_lvl >= (int8_t)RADIO_TXPOWER_TXPOWER_Neg4dBm) {
+	if (tx_power_lvl >= -4) {
 		return RADIO_TXPOWER_TXPOWER_Neg4dBm;
 	}
 
-	if (tx_power_lvl >= (int8_t)RADIO_TXPOWER_TXPOWER_Neg8dBm) {
+	if (tx_power_lvl >= -8) {
 		return RADIO_TXPOWER_TXPOWER_Neg8dBm;
 	}
 
-	if (tx_power_lvl >= (int8_t)RADIO_TXPOWER_TXPOWER_Neg12dBm) {
+	if (tx_power_lvl >= -12) {
 		return RADIO_TXPOWER_TXPOWER_Neg12dBm;
 	}
 
-	if (tx_power_lvl >= (int8_t)RADIO_TXPOWER_TXPOWER_Neg16dBm) {
+	if (tx_power_lvl >= -16) {
 		return RADIO_TXPOWER_TXPOWER_Neg16dBm;
 	}
 
-	if (tx_power_lvl >= (int8_t)RADIO_TXPOWER_TXPOWER_Neg20dBm) {
+	if (tx_power_lvl >= -20) {
 		return RADIO_TXPOWER_TXPOWER_Neg20dBm;
 	}
 

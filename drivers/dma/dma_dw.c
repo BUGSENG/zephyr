@@ -48,7 +48,7 @@ out:
 	return ret;
 }
 
-static const struct dma_driver_api dw_dma_driver_api = {
+static DEVICE_API(dma, dw_dma_driver_api) = {
 	.config = dw_dma_config,
 	.start = dw_dma_start,
 	.stop = dw_dma_stop,
@@ -105,7 +105,7 @@ static const struct dma_driver_api dw_dma_driver_api = {
 	};								\
 									\
 	DEVICE_DT_INST_DEFINE(inst,					\
-			    &dw_dma_init,				\
+			    dw_dma_init,				\
 			    NULL,					\
 			    &dw_dma##inst##_data,			\
 			    &dw_dma##inst##_config, POST_KERNEL,	\
@@ -117,7 +117,7 @@ static const struct dma_driver_api dw_dma_driver_api = {
 		IRQ_CONNECT(DT_INST_IRQN(inst),				\
 			    DT_INST_IRQ(inst, priority), dw_dma_isr,	\
 			    DEVICE_DT_INST_GET(inst),			\
-			    DT_INST_IRQ(inst, sense));			\
+			    DT_INST_IRQ(inst, flags));			\
 		irq_enable(DT_INST_IRQN(inst));				\
 	}
 

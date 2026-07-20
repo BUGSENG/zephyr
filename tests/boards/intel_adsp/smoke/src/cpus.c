@@ -3,6 +3,7 @@
  */
 #include <stdlib.h>
 #include <zephyr/kernel.h>
+#include <zephyr/kernel/smp.h>
 #include <zephyr/ztest.h>
 #include <zephyr/cache.h>
 
@@ -83,19 +84,19 @@ static void core_smoke(void *arg)
 	zassert_equal(cpu, arch_curr_cpu()->id, "wrong cpu");
 
 	/* Un/cached regions should be configured and distinct */
-	zassert_equal(&tag, arch_xtensa_cached_ptr((void *)&tag),
+	zassert_equal(&tag, sys_cache_cached_ptr_get((void *)&tag),
 		      "stack memory not cached");
-	zassert_not_equal(&tag, arch_xtensa_uncached_ptr((void *)&tag),
+	zassert_not_equal(&tag, sys_cache_uncached_ptr_get((void *)&tag),
 			  "stack memory not cached");
-	zassert_not_equal(&static_tag, arch_xtensa_cached_ptr((void *)&static_tag),
+	zassert_not_equal(&static_tag, sys_cache_cached_ptr_get((void *)&static_tag),
 		      "stack memory not cached");
-	zassert_equal(&static_tag, arch_xtensa_uncached_ptr((void *)&static_tag),
+	zassert_equal(&static_tag, sys_cache_uncached_ptr_get((void *)&static_tag),
 			  "stack memory not cached");
 
 	/* Un/cached regions should be working */
 	printk(" Cache behavior check\n");
-	volatile int *ctag = (volatile int *)arch_xtensa_cached_ptr((void *)&tag);
-	volatile int *utag = (volatile int *)arch_xtensa_uncached_ptr((void *)&tag);
+	volatile int *ctag = (volatile int *)sys_cache_cached_ptr_get((void *)&tag);
+	volatile int *utag = (volatile int *)sys_cache_uncached_ptr_get((void *)&tag);
 
 	tag = 99;
 	zassert_true(*ctag == 99, "variable is cached");
@@ -119,10 +120,10 @@ static void core_smoke(void *arg)
 	       clk_ratios[cpu] / 1000, clk_ratios[cpu] % 1000);
 
 	for (int i = 0; i < cpu; i++) {
-		int32_t diff = MAX(1, abs(clk_ratios[i] - clk_ratios[cpu]));
+		int32_t diff = MAX(1, abs((int32_t)((int64_t)clk_ratios[i] - clk_ratios[cpu])));
 
 		zassert_true((clk_ratios[cpu] / diff) > 100,
-			     "clocks off by more than 1%");
+			     "clocks off by more than 1%%");
 	}
 
 	/* Check tight loop performance to validate instruction cache */
@@ -134,7 +135,7 @@ static void core_smoke(void *arg)
 	cyc1 = ccount();
 	dt = cyc1 - cyc0;
 	insns = count0 * 2;
-	zassert_true((dt / insns) < 3,
+	zassert_true((dt / insns) < 3.5,
 		     "instruction rate too slow, icache disabled?");
 	printk(" CPI = %d.%2.2d\n", dt / insns, ((1000 * dt) / insns) % 1000);
 }
@@ -158,16 +159,7 @@ static void halt_and_restart(int cpu)
 {
 	printk("halt/restart core %d...\n", cpu);
 	static bool alive_flag;
-	uint32_t all_cpus = BIT(arch_num_cpus()) - 1;
 	int ret;
-
-	/* On older hardware we need to get the host to turn the core
-	 * off. Construct an ADSPCS with only this core disabled
-	 */
-	if (!IS_ENABLED(CONFIG_SOC_INTEL_CAVS_V25)) {
-		intel_adsp_ipc_send_message(INTEL_ADSP_IPC_HOST_DEV, IPCCMD_ADSPCS,
-				     (all_cpus & ~BIT(cpu)) << 16);
-	}
 
 	ret = soc_adsp_halt_cpu(cpu);
 	zassert_ok(ret, "Couldn't halt CPU");
@@ -177,18 +169,7 @@ static void halt_and_restart(int cpu)
 	k_msleep(100);
 	zassert_false(alive_flag, "cpu didn't halt");
 
-	if (!IS_ENABLED(CONFIG_SOC_INTEL_CAVS_V25)) {
-		/* Likewise need to ask the host to turn it back on,
-		 * and give it some time to spin up before we hit it.
-		 * We don't have a return message wired to be notified
-		 * of completion.
-		 */
-		intel_adsp_ipc_send_message(INTEL_ADSP_IPC_HOST_DEV, IPCCMD_ADSPCS,
-				     all_cpus << 16);
-		k_msleep(50);
-	}
-
-	z_smp_start_cpu(cpu);
+	k_smp_cpu_start(cpu, NULL, NULL);
 
 	/* Startup can be slow */
 	k_msleep(50);
@@ -210,6 +191,10 @@ void halt_and_restart_thread(void *p1, void *p2, void *p3)
 ZTEST(intel_adsp_boot, test_2nd_cpu_halt)
 {
 	int ret;
+
+	if (IS_ENABLED(CONFIG_SOC_SERIES_INTEL_ADSP_ACE)) {
+		ztest_test_skip();
+	}
 
 	/* Obviously this only works on CPU0. So, we create a thread pinned
 	 * to CPU0 to effectively run the test.

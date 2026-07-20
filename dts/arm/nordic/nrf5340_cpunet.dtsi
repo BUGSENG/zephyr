@@ -5,10 +5,11 @@
  */
 
 #include <arm/armv8-m.dtsi>
-#include "nrf_common.dtsi"
+#include <nordic/nrf_common.dtsi>
 
 / {
 	chosen {
+		zephyr,bt-hci = &bt_hci_controller;
 		zephyr,entropy = &rng;
 		zephyr,flash-controller = &flash_controller;
 	};
@@ -32,25 +33,35 @@
 	};
 
 	soc {
+		compatible = "simple-bus";
+
 		ficr: ficr@1ff0000 {
 			compatible = "nordic,nrf-ficr";
 			reg = <0x01ff0000 0x1000>;
+			#nordic,ficr-cells = <1>;
 			status = "okay";
 		};
 
 		uicr: uicr@1ff8000 {
 			compatible = "nordic,nrf-uicr";
 			reg = <0x01ff8000 0x1000>;
+			ranges = <0x0 0x01ff8000 0x1000>;
 			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <1>;
 		};
 
 		sram0: memory@20000000 {
 			compatible = "mmio-sram";
+			#address-cells = <1>;
+			#size-cells = <1>;
 		};
 
 		sram1: memory@21000000 {
 			compatible = "zephyr,memory-region", "mmio-sram";
 			zephyr,memory-region = "SRAM1";
+			#address-cells = <1>;
+			#size-cells = <1>;
 		};
 
 		clock: clock@41005000 {
@@ -99,6 +110,14 @@
 				compatible = "nordic,nrf-ieee802154";
 				status = "disabled";
 			};
+
+			/* Note: In the nRF Connect SDK the SoftDevice Controller
+			 * is added and set as the default Bluetooth Controller.
+			 */
+			bt_hci_controller: bt_hci_controller {
+				compatible = "zephyr,bt-hci-ll-sw-split";
+				status = "okay";
+			};
 		};
 
 		rng: random@41009000 {
@@ -108,11 +127,12 @@
 			status = "okay";
 		};
 
-		gpiote: gpiote@4100a000 {
+		gpiote: gpiote0: gpiote@4100a000 {
 			compatible = "nordic,nrf-gpiote";
 			reg = <0x4100a000 0x1000>;
 			interrupts = <10 5>;
 			status = "disabled";
+			instance = <0>;
 		};
 
 		wdt: wdt0: watchdog@4100b000 {
@@ -148,10 +168,12 @@
 			status = "okay";
 		};
 
-		dppic: dppic@4100f000 {
+		dppic0: dppic: dppic@4100f000 {
 			compatible = "nordic,nrf-dppic";
 			reg = <0x4100f000 0x1000>;
 			status = "okay";
+			channels = <16>;
+			groups = <6>;
 		};
 
 		temp: temp@41010000 {
@@ -190,9 +212,10 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x41013000 0x1000>;
-			clock-frequency = <I2C_BITRATE_STANDARD>;
 			interrupts = <19 NRF_DEFAULT_IRQ_PRIORITY>;
+			easydma-maxcnt-bits = <16>;
 			status = "disabled";
+			zephyr,pm-device-runtime-auto;
 		};
 
 		spi0: spi@41013000 {
@@ -231,6 +254,7 @@
 			reg = <0x41016000 0x1000>;
 			cc-num = <4>;
 			interrupts = <22 NRF_DEFAULT_IRQ_PRIORITY>;
+			clock-frequency = <32768>;
 			status = "disabled";
 		};
 
@@ -291,16 +315,20 @@
 		flash_controller: flash-controller@41080000 {
 			compatible = "nordic,nrf53-flash-controller";
 			reg = <0x41080000 0x1000>;
+			ranges;
 			partial-erase;
-
 			#address-cells = <1>;
 			#size-cells = <1>;
-
 
 			flash1: flash@1000000 {
 				compatible = "soc-nv-flash";
 				erase-block-size = <2048>;
 				write-block-size = <4>;
+				reg = <0x1000000 DT_SIZE_K(256)>;
+				ranges = <0x0 0x1000000 DT_SIZE_K(256)>;
+				status = "okay";
+				#address-cells = <1>;
+				#size-cells = <1>;
 			};
 		};
 
@@ -317,6 +345,7 @@
 			#gpio-cells = <2>;
 			status = "disabled";
 			port = <0>;
+			gpiote-instance = <&gpiote>;
 		};
 
 		gpio1: gpio@418c0800 {
@@ -327,6 +356,7 @@
 			ngpios = <16>;
 			status = "disabled";
 			port = <1>;
+			gpiote-instance = <&gpiote>;
 		};
 	};
 
@@ -345,4 +375,9 @@
 
 &nvic {
 	arm,num-irq-priority-bits = <3>;
+};
+
+&systick {
+	/* Use RTC for system clock, instead of SysTick. */
+	status = "disabled";
 };

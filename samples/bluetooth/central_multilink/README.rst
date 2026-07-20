@@ -1,24 +1,33 @@
-.. _bluetooth_central_multilink:
+.. zephyr:code-sample:: ble_central_multilink
+   :name: Central Multilink
+   :relevant-api: bluetooth
 
-Bluetooth: Central
-##################
+   Scan, connect and establish connection to up to 62 peripherals.
 
 Overview
 ********
 
-Application demonstrating BLE Central role functionality by scanning for other
-BLE devices and establishing connection to up to 62 peripherals with a strong
+Application demonstrating Bluetooth LE Central role functionality by scanning for other
+Bluetooth LE devices and establishing connection to up to 62 peripherals with a strong
 enough signal.
 
 Requirements
 ************
 
 * BlueZ running on the host, or
-* A board with BLE support
+* A board with Bluetooth LE support
 
 Building and Running
 ********************
-This sample can be found under :zephyr_file:`samples/bluetooth/central_multilink`
-in the Zephyr tree.
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/central_multilink
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+After flashing, the sample scans for and connects to Bluetooth LE peripherals within
+close range. Run any Bluetooth LE peripheral sample on one or more additional boards
+to provide peers for the central to connect to.

@@ -13,7 +13,10 @@
 #include <offsets_short.h>
 #include <zephyr/drivers/interrupt_controller/loapic.h>
 #include <zephyr/arch/cpu.h>
-#include <zephyr/sys/mem_manage.h>
+#include <zephyr/kernel/mm.h>
+#ifdef CONFIG_HW_SHADOW_STACK
+#include <x86_shstk.h>
+#endif
 
 /*
  * Definitions/macros for enabling paging
@@ -44,7 +47,7 @@
 	/* Page tables created at build time by gen_mmu.py
 	 * NOTE: Presumes phys=virt
 	 */
-	movl $Z_MEM_PHYS_ADDR(z_x86_kernel_ptables), %eax
+	movl $K_MEM_PHYS_ADDR(z_x86_kernel_ptables), %eax
 	movl %eax, %cr3
 
 	set_efer
@@ -66,7 +69,7 @@
 	clts
 
 	/* NOTE: Presumes phys=virt */
-	movq $Z_MEM_PHYS_ADDR(z_x86_kernel_ptables), %rax
+	movq $K_MEM_PHYS_ADDR(z_x86_kernel_ptables), %rax
 	movq %rax, %cr3
 
 	set_efer
@@ -78,6 +81,15 @@
 	 */
 	orl $CR0_BITS, %eax
 	movq %rax, %cr0
+.endm
+
+.macro DEFINE_TSS_STACK_ARRAY
+	.irp idx, DEFINE_STACK_ARRAY_IDX
+		.word __X86_TSS64_SIZEOF-1
+		.word tss\idx
+		.word 0x8900
+		.word 0, 0, 0, 0, 0
+	.endr
 .endm
 
 /* The .locore section begins the page-aligned initialization region
@@ -113,17 +125,13 @@ __start:
 	nop
 	nop
 
-#if CONFIG_MP_MAX_NUM_CPUS > 1
-
 .code16
 .global x86_ap_start
 x86_ap_start:
-
 	/*
 	 * First, we move to 32-bit protected mode, and set up the
 	 * same flat environment that the BSP gets from the loader.
 	 */
-
 	lgdt gdt48
 	lidt idt48
 	movl %cr0, %eax
@@ -143,9 +151,23 @@ x86_ap_start:
 	 * so we can locate our x86_cpuboot[] bundle. Put it in EBP.
 	 */
 
+#ifdef CONFIG_X2APIC
+	/*
+	 * x2APIC: read the ID from the MSR (MMIO is inaccessible). An AP may
+	 * still be in xAPIC mode, where that MSR faults, so enable x2APIC
+	 * first -- faults can't be handled this early.
+	 */
+	movl $X86_APIC_BASE_MSR, %ecx
+	rdmsr
+	orl $X86_APIC_BASE_MSR_X2APIC, %eax
+	wrmsr
+	movl $(X86_X2APIC_BASE_MSR + (LOAPIC_ID >> 4)), %ecx
+	rdmsr
+#else
 	movl LOAPIC_BASE_ADDRESS+LOAPIC_ID, %eax
 	shrl $24, %eax
-	andl $0x0F, %eax		/* local APIC ID -> EAX */
+	andl $0xFF, %eax		/* local APIC ID -> EAX */
+#endif
 
 	movl $x86_cpuboot, %ebp
 	xorl %ebx, %ebx
@@ -159,8 +181,6 @@ x86_ap_start:
 
 unknown_loapic_id:
 	jmp unknown_loapic_id
-
-#endif /* CONFIG_MP_MAX_NUM_CPUS > 1 */
 
 .code32
 .globl __start32
@@ -222,7 +242,7 @@ enter_code64:
 
 	/* On Intel processors, if GS is not zero and is being set to
 	 * zero, GS_BASE is also being set to zero. This would interfere
-	 * with the actual use of GS_BASE for usespace. To avoid accidentally
+	 * with the actual use of GS_BASE for userspace. To avoid accidentally
 	 * clearing GS_BASE, simply set GS to 0 at boot, so any subsequent
 	 * clearing of GS will not clear GS_BASE.
 	 */
@@ -260,13 +280,16 @@ enter_code64:
 	rep stosq
 #endif
 
-	/* Enter C domain now that we have a stack set up, never to return */
-	movq %rbp, %rdi
 #ifdef CONFIG_STACK_CANARIES_TLS
+	movq %rsp, %rdi
 	pushq %rsp
 	call z_x86_early_tls_update_gdt
 	popq %rsp
 #endif
+
+	/* Enter C domain now that we have a stack set up, never to return */
+	movq %rbp, %rdi
+
 	call z_x86_cpu_init
 
 	/* 64 bit OS entry point, used by EFI support.  UEFI
@@ -367,6 +390,71 @@ z_x86_switch:
 	movq $X86_KERNEL_CS, _thread_offset_to_cs(%rsi)
 	movq $X86_KERNEL_DS, _thread_offset_to_ss(%rsi)
 #endif
+
+#ifdef CONFIG_HW_SHADOW_STACK
+	cmpq $0, _thread_offset_to_shstk_addr(%rsi)
+	jz __sh_stk_verify
+
+	movq %gs:(__x86_tss64_t_exception_shstk_addr_OFFSET), %rax
+	testq $1, (%rax)
+	jnz __switching_from_exception
+
+	/* Create the shadow stack restore token by hand, as using
+	 * saveprevssp is cumbersome when some threads don't use shadow
+	 * stack. Note that as we return using iretq, we also need to add
+	 * current CS and LIP (return pointer) to the shadow stack. It should
+	 * currently be pointing to return pointer.
+	 */
+	rdsspq %rcx
+	movq (%rcx), %r10 /* LIP */
+
+	/* Save CS, overwriting current top of stack */
+	movq $X86_KERNEL_CS, %r9
+	wrssq %r9, (%rcx)
+
+	/* Save LIP */
+	wrssq %r10, -8(%rcx)
+
+	/* Save SSP */
+	movq %rcx, %r11
+	addq $8, %r11 /* SSP has to point to before previous entry. */
+	wrssq %r11, -16(%rcx)
+
+	/* Create and "push" new token */
+	movq %rcx, %r11
+	subq $16, %r11
+	orq $1, %r11
+	wrssq %r11, -24(%rcx)
+
+	/* Finally, save SSP on thread struct */
+	subq $24, %rcx
+	movq %rcx, _thread_offset_to_shstk_addr(%rsi)
+	jmp __sh_stk_out
+
+__switching_from_exception:
+	/* We are switching from an exception, IOW, aborting current thread.
+	 * The exception shadow stack needs to be marked as not busy so that it
+	 * can be used again in case of a new exception.
+	 */
+	clrssbsy (%rax)
+	jmp __sh_stk_out
+
+__sh_stk_verify:
+#ifdef CONFIG_X86_CET_VERIFY_KERNEL_SHADOW_STACK
+	/* Outgoing thread doesn't have a SSP, so shadow stack is disabled for
+	 *  it. Let's just check if shadow stack is enabled now, which would
+	 *  imply something is tampering with the pointer.
+	 */
+	movl $X86_S_CET_MSR, %ecx
+	rdmsr
+	testl $X86_S_CET_MSR_SHSTK_EN, %eax
+	jz __sh_stk_out
+	movq %rsi, %rdi
+	call z_x86_cet_shadow_stack_panic
+#endif
+__sh_stk_out:
+#endif
+
 	/* Store the handle (i.e. our thread struct address) into the
 	 * switch handle field, this is a synchronization signal that
 	 * must occur after the last data from the old context is
@@ -401,6 +489,29 @@ __resume:
 	shrq $32, %rdx
 	wrmsr
 #endif
+
+#ifdef CONFIG_HW_SHADOW_STACK
+	movq _thread_offset_to_shstk_addr(%rdi), %r10
+	testq %r10, %r10
+	jz __sh_stk_disable
+
+	movl $X86_S_CET_MSR, %ecx
+	rdmsr
+	orl $X86_S_CET_MSR_SHSTK_EN, %eax
+	wrmsr
+	rstorssp (%r10)
+	movq $1, %r10
+	incsspq %r10 /* Ignore previous ssp token */
+	jmp __sh_stk_done
+__sh_stk_disable:
+	movl $X86_S_CET_MSR, %ecx
+	rdmsr
+	andl $~X86_S_CET_MSR_SHSTK_EN, %eax
+	andl $~X86_S_CET_MSR_WR_SHSTK, %eax
+	wrmsr
+__sh_stk_done:
+#endif
+
 #if (!defined(CONFIG_X86_KPTI) && defined(CONFIG_USERSPACE)) \
 		|| defined(CONFIG_INSTRUMENT_THREAD_SWITCHING)
 	pushq %rdi	/* Caller-saved, stash it */
@@ -442,7 +553,6 @@ __resume:
 	 */
 	movq $0xB9, _thread_offset_to_rip(%rdi)
 #endif
-
 
 	movq _thread_offset_to_rbx(%rdi), %rbx
 	movq _thread_offset_to_rbp(%rdi), %rbp
@@ -492,17 +602,17 @@ __resume:
 
 #ifdef CONFIG_X86_KPTI
 #define EXCEPT_CODE(nr, ist)						\
-	vector_ ## nr: pushq %gs:__x86_tss64_t_ist ## ist ## _OFFSET;	\
+	vector_ ## nr: endbr64; pushq %gs:__x86_tss64_t_ist ## ist ## _OFFSET;	\
 	pushq $nr;							\
 	jmp except
 #define EXCEPT(nr, ist)							\
-	vector_ ## nr: pushq $0;					\
+	vector_ ## nr: endbr64; pushq $0;					\
 	pushq %gs:__x86_tss64_t_ist ## ist ## _OFFSET;			\
 	pushq $nr; \
 	jmp except
 #else
-#define EXCEPT_CODE(nr) vector_ ## nr: pushq $nr; jmp except
-#define EXCEPT(nr)	vector_ ## nr: pushq $0; pushq $nr; jmp except
+#define EXCEPT_CODE(nr) vector_ ## nr: endbr64; pushq $nr; jmp except
+#define EXCEPT(nr)	vector_ ## nr: endbr64; pushq $0; pushq $nr; jmp except
 #endif
 
 /*
@@ -640,7 +750,7 @@ EXCEPT      ( 4, 7); EXCEPT      ( 5, 7); EXCEPT       (6, 7); EXCEPT      ( 7, 
 EXCEPT_CODE ( 8, 7); EXCEPT      ( 9, 7); EXCEPT_CODE (10, 7); EXCEPT_CODE (11, 7)
 EXCEPT_CODE (12, 7); EXCEPT_CODE (13, 7); EXCEPT_CODE (14, 7); EXCEPT      (15, 7)
 EXCEPT      (16, 7); EXCEPT_CODE (17, 7); EXCEPT      (18, 7); EXCEPT      (19, 7)
-EXCEPT      (20, 7); EXCEPT      (21, 7); EXCEPT      (22, 7); EXCEPT      (23, 7)
+EXCEPT      (20, 7); EXCEPT_CODE (21, 7); EXCEPT      (22, 7); EXCEPT      (23, 7)
 EXCEPT      (24, 7); EXCEPT      (25, 7); EXCEPT      (26, 7); EXCEPT      (27, 7)
 EXCEPT      (28, 7); EXCEPT      (29, 7); EXCEPT      (30, 7); EXCEPT      (31, 7)
 
@@ -654,7 +764,7 @@ EXCEPT      ( 4); EXCEPT      ( 5); EXCEPT      ( 6); EXCEPT      ( 7)
 EXCEPT_CODE ( 8); EXCEPT      ( 9); EXCEPT_CODE (10); EXCEPT_CODE (11)
 EXCEPT_CODE (12); EXCEPT_CODE (13); EXCEPT_CODE (14); EXCEPT      (15)
 EXCEPT      (16); EXCEPT_CODE (17); EXCEPT      (18); EXCEPT      (19)
-EXCEPT      (20); EXCEPT      (21); EXCEPT      (22); EXCEPT      (23)
+EXCEPT      (20); EXCEPT_CODE (21); EXCEPT      (22); EXCEPT      (23)
 EXCEPT      (24); EXCEPT      (25); EXCEPT      (26); EXCEPT      (27)
 EXCEPT      (28); EXCEPT      (29); EXCEPT      (30); EXCEPT      (31)
 
@@ -727,6 +837,12 @@ irq:
 
 	incl ___cpu_t_nested_OFFSET(%rsi)
 	subq $CONFIG_ISR_SUBSTACK_SIZE, %gs:__x86_tss64_t_ist1_OFFSET
+#ifdef CONFIG_HW_SHADOW_STACK
+	pushq %rsi
+	movq %gs:(__x86_tss64_t_shstk_addr_OFFSET), %rsi
+	subq $X86_CET_IRQ_SHADOW_SUBSTACK_SIZE, (%rsi)
+	popq %rsi
+#endif
 	cmpl $CONFIG_ISR_DEPTH, ___cpu_t_nested_OFFSET(%rsi)
 	jz 1f
 	sti
@@ -795,6 +911,67 @@ irq_enter_unnested: /* Not nested: dump state to thread struct for __resume */
 	movq %rax, _thread_offset_to_ss(%rsi)
 #endif
 
+#ifdef CONFIG_HW_SHADOW_STACK
+	cmpq $0, _thread_offset_to_shstk_addr(%rsi)
+	jz __sh_stk_verify_irq
+
+	/* We are on a interrupt shadow stack, which contains the three
+	 * entries needed to iretq. However, we may return to other
+	 * thread, not the one interrupted. So we need to place these
+	 * entries on the interrupted thread shadow stack, so it can be
+	 * restored later.
+	 */
+
+	rdsspq %rax
+
+	/* Load entries from current shadow stack */
+	movq (%rax), %r10 /* SSP */
+	movq 8(%rax), %r11 /* LIP */
+	movq 16(%rax), %r9 /* CS */
+
+	movq %r10, %rax /* rax now points to old shadow stack */
+
+	/* Save CS */
+	wrssq %r9, -8(%rax)
+
+	/* Save LIP */
+	wrssq %r11, -16(%rax)
+
+	/* Save SSP */
+	wrssq %r10, -24(%rax)
+
+	/* Create and "push" new token */
+	movq %rax, %r10
+	subq $24, %r10
+	orq $1, %r10
+	wrssq %r10, -32(%rax)
+
+	/* Finally, save SSP on thread struct */
+	subq $32, %rax
+	movq %rax, _thread_offset_to_shstk_addr(%rsi)
+
+	jmp __sh_stk_out_irq
+
+__sh_stk_verify_irq:
+#ifdef CONFIG_X86_CET_VERIFY_KERNEL_SHADOW_STACK
+	/* Outgoing thread doesn't have a SSP, so shadow stack is disabled for
+	 * it. Let's just check if shadow stack is enabled now, which would
+	 * imply something is tampering with the pointer.
+	 */
+
+	pushq %rcx
+	movl $X86_S_CET_MSR, %ecx
+	rdmsr
+	popq %rcx
+	testl $X86_S_CET_MSR_SHSTK_EN, %eax
+	jz __sh_stk_out_irq
+	movq %rsi, %rdi
+	call z_x86_cet_shadow_stack_panic
+#endif
+
+__sh_stk_out_irq:
+#endif
+
 irq_dispatch:
 #ifdef CONFIG_SCHED_THREAD_USAGE
 	pushq %rcx
@@ -819,6 +996,10 @@ irq_dispatch:
 
 	cli
 	addq $CONFIG_ISR_SUBSTACK_SIZE, %gs:__x86_tss64_t_ist1_OFFSET
+#ifdef CONFIG_HW_SHADOW_STACK
+	movq %gs:(__x86_tss64_t_shstk_addr_OFFSET), %rax
+	addq $X86_CET_IRQ_SHADOW_SUBSTACK_SIZE, (%rax)
+#endif
 	decl ___cpu_t_nested_OFFSET(%rsi)
 	jnz irq_exit_nested
 
@@ -827,6 +1008,23 @@ irq_dispatch:
 	movq ___cpu_t_current_OFFSET(%rsi), %rdi
 	call z_get_next_switch_handle
 	movq %rax, %rdi
+
+#ifdef CONFIG_HW_SHADOW_STACK
+	/* __resume will change to next thread shadow stack (if any), so
+	 * we need to mark IRQ shadow stack as free (not busy).
+	 */
+	movl $X86_S_CET_MSR, %ecx
+	rdmsr
+	testl $X86_S_CET_MSR_SHSTK_EN, %eax
+	jz 1f
+
+	movq $3, %rax /* Discard SSP, LIP and CS from shadow stack */
+	incsspq %rax
+	rdsspq %rax
+	clrssbsy (%rax) /* Free shadow stack */
+1:
+#endif
+
 	jmp __resume
 
 irq_exit_nested:
@@ -843,7 +1041,46 @@ irq_exit_nested:
 	popq %rax
 	iretq
 
-#define IRQ(nr) vector_ ## nr: pushq $(nr - IV_IRQS); jmp irq
+#ifdef CONFIG_HW_SHADOW_STACK_ALLOW_REUSE
+	/*
+	 * C function prototype:
+	 *
+	 * void arch_shadow_stack_reset(k_thread *thread);
+	 */
+.globl arch_shadow_stack_reset
+arch_shadow_stack_reset:
+	movq _thread_offset_to_shstk_base(%rdi), %rcx
+	movq _thread_offset_to_shstk_size(%rdi), %rdx
+
+	/* Set "shstk[-2]", CS */
+	subq $16, %rdx
+	addq %rdx, %rcx
+	movq $X86_KERNEL_CS, %rsi
+	wrssq %rsi, (%rcx)
+
+	/* Set "shstk[-3]", z_thread_entry */
+	movq $z_thread_entry, %rsi
+	wrssq %rsi, -8(%rcx)
+
+	/* Set "shstk[-4]", ssp, "&shstk[-1]" */
+	movq %rcx, %rsi
+	addq $8, %rsi
+	wrssq %rsi, -16(%rcx)
+
+	/* Set "shstk[-5]", token, "&shstk[-4] | 1" */
+	movq %rcx, %rsi
+	subq $16, %rsi
+	orq $1, %rsi
+	wrssq %rsi, -24(%rcx)
+
+	/* Set thread->shstk_addr to point to the token on the stack */
+	subq $24, %rcx
+	movq %rcx, _thread_offset_to_shstk_addr(%rdi)
+
+	ret
+#endif
+
+#define IRQ(nr) vector_ ## nr: endbr64; pushq $(nr - IV_IRQS); jmp irq
 
 IRQ( 33); IRQ( 34); IRQ( 35); IRQ( 36); IRQ( 37); IRQ( 38); IRQ( 39)
 IRQ( 40); IRQ( 41); IRQ( 42); IRQ( 43); IRQ( 44); IRQ( 45); IRQ( 46); IRQ( 47)
@@ -1091,31 +1328,7 @@ gdt:
 
 	/* Remaining entries are TSS for each enabled CPU */
 
-	.word __X86_TSS64_SIZEOF-1	/* 0x40: 64-bit TSS (16-byte entry) */
-	.word tss0
-	.word 0x8900
-	.word 0, 0, 0, 0, 0
-
-#if CONFIG_MP_MAX_NUM_CPUS > 1
-	.word __X86_TSS64_SIZEOF-1	/* 0x50: 64-bit TSS (16-byte entry) */
-	.word tss1
-	.word 0x8900
-	.word 0, 0, 0, 0, 0
-#endif
-
-#if CONFIG_MP_MAX_NUM_CPUS > 2
-	.word __X86_TSS64_SIZEOF-1	/* 0x60: 64-bit TSS (16-byte entry) */
-	.word tss2
-	.word 0x8900
-	.word 0, 0, 0, 0, 0
-#endif
-
-#if CONFIG_MP_MAX_NUM_CPUS > 3
-	.word __X86_TSS64_SIZEOF-1	/* 0x70: 64-bit TSS (16-byte entry) */
-	.word tss3
-	.word 0x8900
-	.word 0, 0, 0, 0, 0
-#endif
+	DEFINE_TSS_STACK_ARRAY
 
 gdt_end:
 
@@ -1126,80 +1339,3 @@ gdt48:  /* LGDT descriptor for 32 bit mode */
 gdt80:  /* LGDT descriptor for long mode */
 	.word (gdt_end - gdt - 1)
 	.quad gdt
-.section .lodata,"ad"
-
-/*
- * Known-good stack for handling CPU exceptions.
- */
-
-.global z_x86_exception_stack
-.align 16
-z_x86_exception_stack:
-	.fill CONFIG_X86_EXCEPTION_STACK_SIZE, 1, 0xAA
-.global z_x86_nmi_stack
-.align 16
-z_x86_nmi_stack:
-	.fill CONFIG_X86_EXCEPTION_STACK_SIZE, 1, 0xAA
-
-#if CONFIG_MP_MAX_NUM_CPUS > 1
-.global z_x86_exception_stack1
-.align 16
-z_x86_exception_stack1:
-	.fill CONFIG_X86_EXCEPTION_STACK_SIZE, 1, 0xAA
-.global z_x86_nmi_stack1
-.align 16
-z_x86_nmi_stack1:
-	.fill CONFIG_X86_EXCEPTION_STACK_SIZE, 1, 0xAA
-#endif
-
-#if CONFIG_MP_MAX_NUM_CPUS > 2
-.global z_x86_exception_stack2
-.align 16
-z_x86_exception_stack2:
-	.fill CONFIG_X86_EXCEPTION_STACK_SIZE, 1, 0xAA
-.global z_x86_nmi_stack2
-.align 16
-z_x86_nmi_stack2:
-	.fill CONFIG_X86_EXCEPTION_STACK_SIZE, 1, 0xAA
-#endif
-
-#if CONFIG_MP_MAX_NUM_CPUS > 3
-.global z_x86_exception_stack3
-.align 16
-z_x86_exception_stack3:
-	.fill CONFIG_X86_EXCEPTION_STACK_SIZE, 1, 0xAA
-.global z_x86_nmi_stack3
-.align 16
-z_x86_nmi_stack3:
-	.fill CONFIG_X86_EXCEPTION_STACK_SIZE, 1, 0xAA
-#endif
-
-#ifdef CONFIG_X86_KPTI
-.section .trampolines,"ad"
-
-.global z_x86_trampoline_stack
-.align 16
-z_x86_trampoline_stack:
-	.fill Z_X86_TRAMPOLINE_STACK_SIZE, 1, 0xAA
-
-#if CONFIG_MP_MAX_NUM_CPUS > 1
-.global z_x86_trampoline_stack1
-.align 16
-z_x86_trampoline_stack1:
-	.fill Z_X86_TRAMPOLINE_STACK_SIZE, 1, 0xAA
-#endif
-
-#if CONFIG_MP_MAX_NUM_CPUS > 2
-.global z_x86_trampoline_stack2
-.align 16
-z_x86_trampoline_stack2:
-	.fill Z_X86_TRAMPOLINE_STACK_SIZE, 1, 0xAA
-#endif
-
-#if CONFIG_MP_MAX_NUM_CPUS > 3
-.global z_x86_trampoline_stack3
-.align 16
-z_x86_trampoline_stack3:
-	.fill Z_X86_TRAMPOLINE_STACK_SIZE, 1, 0xAA
-#endif
-#endif /* CONFIG_X86_KPTI */

@@ -16,7 +16,7 @@
 LOG_MODULE_REGISTER(mcumgr_zbasic_grp, CONFIG_MCUMGR_GRP_ZBASIC_LOG_LEVEL);
 
 #define ERASE_TARGET		storage_partition
-#define ERASE_TARGET_ID		FIXED_PARTITION_ID(ERASE_TARGET)
+#define ERASE_TARGET_ID		PARTITION_ID(ERASE_TARGET)
 
 static int storage_erase(void)
 {
@@ -31,7 +31,7 @@ static int storage_erase(void)
 			LOG_ERR("Failed to get flash area device");
 			rc = ZEPHYRBASIC_MGMT_ERR_FLASH_CONFIG_QUERY_FAIL;
 		} else {
-			rc = flash_area_erase(fa, 0, fa->fa_size);
+			rc = flash_area_flatten(fa, 0, fa->fa_size);
 
 			if (rc < 0) {
 				LOG_ERR("Failed to erase flash area");
@@ -107,6 +107,9 @@ static struct mgmt_group zephyr_basic_mgmt_group = {
 	.mg_group_id = (ZEPHYR_MGMT_GRP_BASIC),
 #ifdef CONFIG_MCUMGR_SMP_SUPPORT_ORIGINAL_PROTOCOL
 	.mg_translate_error = zephyr_basic_group_translate_error_code,
+#endif
+#ifdef CONFIG_MCUMGR_GRP_ENUM_DETAILS_NAME
+	.mg_group_name = "zephyr basic mgmt",
 #endif
 };
 

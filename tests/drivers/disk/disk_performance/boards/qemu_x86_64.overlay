@@ -4,15 +4,10 @@
 
 / {
 	pcie0 {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		compatible = "intel,pcie";
-		ranges;
-
 		nvme0: nvme0 {
 			compatible = "nvme-controller";
 
-			vendor-id = <0x1B36>;
+			vendor-id = <0x1b36>;
 			device-id = <0x0010>;
 
 			status = "okay";

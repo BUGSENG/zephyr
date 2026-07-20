@@ -46,6 +46,21 @@ static const struct bt_data sd[] = {
 
 static int service_set;
 
+static int start_advertising(void)
+{
+	int err;
+
+	err = bt_le_adv_start(BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONN | BT_LE_ADV_OPT_USE_IDENTITY,
+					      BT_GAP_ADV_FAST_INT_MIN_1, BT_GAP_ADV_FAST_INT_MAX_1,
+					      NULL),
+			      ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+	if (err) {
+		printk("Advertising failed to start (err %d)\n", err);
+	}
+
+	return err;
+}
+
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	if (err) {
@@ -60,19 +75,21 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	printk("Disconnected (reason 0x%02x)\n", reason);
 }
 
+static void recycled(void)
+{
+	start_advertising();
+}
+
 static void security_changed(struct bt_conn *conn, bt_security_t level,
 			     enum bt_security_err err)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	printk("Security changed: %s level %u\n", addr, level);
+	printk("Security changed: %s level %u\n", bt_conn_dst_str(conn), level);
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = connected,
 	.disconnected = disconnected,
+	.recycled = recycled,
 	.security_changed = security_changed,
 };
 
@@ -226,32 +243,21 @@ static void bt_ready(int err)
 		settings_load();
 	}
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
-			      ARRAY_SIZE(sd));
-	if (err) {
-		printk("Advertising failed to start (err %d)\n", err);
-		return;
-	}
+	err = start_advertising();
 
-	printk("Advertising successfully started\n");
+	if (!err) {
+		printk("Advertising successfully started\n");
+	}
 }
 
 static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	printk("Passkey for %s: %06u\n", addr, passkey);
+	printk("Passkey for %s: %06u\n", bt_conn_dst_str(conn), passkey);
 }
 
 static void auth_cancel(struct bt_conn *conn)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	printk("Pairing cancelled: %s\n", addr);
+	printk("Pairing cancelled: %s\n", bt_conn_dst_str(conn));
 }
 
 static struct bt_conn_auth_cb auth_cb_display = {

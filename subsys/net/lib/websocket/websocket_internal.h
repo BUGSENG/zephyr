@@ -11,8 +11,9 @@
  */
 
 #include <zephyr/toolchain/common.h>
+#include <psa/crypto.h>
 
-#define WS_SHA1_OUTPUT_LEN 20
+#define WS_SHA1_OUTPUT_LEN PSA_HASH_LENGTH(PSA_ALG_SHA_1)
 
 /* Min Websocket header length */
 #define MIN_HEADER_LEN 2
@@ -119,6 +120,9 @@ __net_socket struct websocket_context {
 
 	/** Did we receive all from peer during HTTP handshake */
 	uint8_t all_received : 1;
+
+	/** 1 if this websocket is a client, 0 if a server */
+	uint8_t is_client : 1;
 };
 
 #if defined(CONFIG_NET_TEST)

@@ -9,7 +9,6 @@
 	status = "okay";
 	pinctrl-0 = <&twai_default>;
 	pinctrl-names = "default";
-	bus-speed = <125000>;
 
 	can-transceiver {
 		max-bitrate = <1000000>;
@@ -22,9 +21,10 @@
 			pinmux = <TWAI_RX_GPIO5>;
 			output-enable;	/* enable internal loopback */
 		};
+
 		group2 {
 			pinmux = <TWAI_TX_GPIO5>;
 			input-enable;	/* enable internal loopback */
 		};
-};
+	};
 };

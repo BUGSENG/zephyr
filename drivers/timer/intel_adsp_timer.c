@@ -6,7 +6,6 @@
 #include <zephyr/init.h>
 #include <zephyr/drivers/timer/system_timer.h>
 #include <zephyr/sys_clock.h>
-#include <zephyr/spinlock.h>
 #include <zephyr/drivers/interrupt_controller/dw_ace.h>
 
 #include <cavs-idc.h>
@@ -27,7 +26,7 @@
 
 #define COMPARATOR_IDX  0 /* 0 or 1 */
 
-#ifdef CONFIG_SOC_SERIES_INTEL_ACE
+#ifdef CONFIG_SOC_SERIES_INTEL_ADSP_ACE
 #define TIMER_IRQ ACE_IRQ_TO_ZEPHYR(ACE_INTL_TTS)
 #else
 #define TIMER_IRQ DSP_WCT_IRQ(COMPARATOR_IDX)
@@ -44,7 +43,6 @@ BUILD_ASSERT(COMPARATOR_IDX >= 0 && COMPARATOR_IDX <= 1);
 
 #define DSP_WCT_CS_TT(x)                     BIT(4 + x)
 
-static struct k_spinlock lock;
 static uint64_t last_count;
 
 /* Not using current syscon driver due to overhead due to MMU support */
@@ -106,7 +104,7 @@ static void compare_isr(const void *arg)
 	uint64_t curr;
 	uint64_t dticks;
 
-	k_spinlock_key_t key = k_spin_lock(&lock);
+	k_spinlock_key_t key = sys_clock_lock();
 
 	curr = count();
 	dticks = (curr - last_count) / CYC_PER_TICK;
@@ -126,20 +124,18 @@ static void compare_isr(const void *arg)
 	set_compare(next);
 #endif
 
-	k_spin_unlock(&lock, key);
-
-	sys_clock_announce((int32_t)dticks);
+	sys_clock_announce_locked(dticks, key);
 }
 
-void sys_clock_set_timeout(int32_t ticks, bool idle)
+void sys_clock_set_timeout(uint32_t ticks, bool idle)
 {
 	ARG_UNUSED(idle);
 
-#ifdef CONFIG_TICKLESS_KERNEL
-	ticks = ticks == K_TICKS_FOREVER ? MAX_TICKS : ticks;
-	ticks = CLAMP(ticks - 1, 0, (int32_t)MAX_TICKS);
+	__ASSERT(sys_clock_is_locked(), "system clock lock not held");
 
-	k_spinlock_key_t key = k_spin_lock(&lock);
+#ifdef CONFIG_TICKLESS_KERNEL
+	ticks = CLAMP(ticks, 1, MAX_TICKS) - 1;
+
 	uint64_t curr = count();
 	uint64_t next;
 	uint32_t adj, cyc = ticks * CYC_PER_TICK;
@@ -159,19 +155,18 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 	}
 
 	set_compare(next);
-	k_spin_unlock(&lock, key);
 #endif
 }
 
 uint32_t sys_clock_elapsed(void)
 {
+	__ASSERT(sys_clock_is_locked(), "system clock lock not held");
+
 	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
 		return 0;
 	}
-	k_spinlock_key_t key = k_spin_lock(&lock);
 	uint64_t ret = (count() - last_count) / CYC_PER_TICK;
 
-	k_spin_unlock(&lock, key);
 	return (uint32_t)ret;
 }
 
@@ -198,7 +193,7 @@ static void irq_init(void)
 	 * (for per-core control) above the interrupt controller.
 	 * Drivers need to do that part.
 	 */
-#ifdef CONFIG_SOC_SERIES_INTEL_ACE
+#ifdef CONFIG_SOC_SERIES_INTEL_ADSP_ACE
 	ACE_DINT[cpu].ie[ACE_INTL_TTS] |= BIT(COMPARATOR_IDX + 1);
 	sys_write32(sys_read32(DSPWCTCS_ADDR) | ADSP_SHIM_DSPWCTCS_TTIE(COMPARATOR_IDX),
 			DSPWCTCS_ADDR);
@@ -210,10 +205,8 @@ static void irq_init(void)
 
 void smp_timer_init(void)
 {
-	irq_init();
 }
 
-/* Runs on core 0 only */
 static int sys_clock_driver_init(void)
 {
 	uint64_t curr = count();
@@ -225,14 +218,11 @@ static int sys_clock_driver_init(void)
 	return 0;
 }
 
-#ifdef CONFIG_PM
-
-void sys_clock_idle_exit(void)
+/* Runs on core 0 only */
+void intel_adsp_clock_soft_off_exit(void)
 {
-	sys_clock_driver_init();
+	(void)sys_clock_driver_init();
 }
-
-#endif
 
 SYS_INIT(sys_clock_driver_init, PRE_KERNEL_2,
 	 CONFIG_SYSTEM_CLOCK_INIT_PRIORITY);

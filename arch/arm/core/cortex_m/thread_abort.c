@@ -19,12 +19,13 @@
 #include <zephyr/kernel.h>
 #include <zephyr/toolchain.h>
 #include <zephyr/linker/sections.h>
-#include <ksched.h>
 #include <kswap.h>
 #include <zephyr/sys/__assert.h>
 
 void z_impl_k_thread_abort(k_tid_t thread)
 {
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_thread, abort, thread);
+
 	if (_current == thread) {
 		if (arch_is_in_isr()) {
 			/* ARM is unlike most arches in that this is true
@@ -49,4 +50,6 @@ void z_impl_k_thread_abort(k_tid_t thread)
 	}
 
 	z_thread_abort(thread);
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_thread, abort, thread);
 }

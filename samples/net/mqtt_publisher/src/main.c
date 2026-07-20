@@ -7,15 +7,22 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_mqtt_publisher_sample, LOG_LEVEL_DBG);
 
+#include <zephyr/posix/poll.h>
+#include <zephyr/posix/arpa/inet.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/mqtt.h>
 #include <zephyr/random/random.h>
+#if defined(CONFIG_LOG_BACKEND_MQTT)
+#include <zephyr/logging/log_backend_mqtt.h>
+#endif
 
 #include <string.h>
 #include <errno.h>
 
 #include "config.h"
+#include "net_sample_common.h"
 
 #if defined(CONFIG_USERSPACE)
 #include <zephyr/app_memory/app_memdomain.h>
@@ -50,10 +57,15 @@ static APP_BMEM struct sockaddr_storage broker;
 static APP_BMEM struct sockaddr socks5_proxy;
 #endif
 
-static APP_BMEM struct zsock_pollfd fds[1];
+static APP_BMEM struct pollfd fds[1];
 static APP_BMEM int nfds;
-
 static APP_BMEM bool connected;
+
+/* Whether to include full topic in the publish message, or alias only (MQTT 5). */
+static APP_BMEM bool include_topic;
+static APP_BMEM bool aliases_enabled;
+
+#define APP_TOPIC_ALIAS 1
 
 #if defined(CONFIG_MQTT_LIB_TLS)
 
@@ -64,7 +76,7 @@ static APP_BMEM bool connected;
 #define APP_PSK_TAG 2
 
 static APP_DMEM sec_tag_t m_sec_tags[] = {
-#if defined(MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
+#if defined(CONFIG_MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
 		APP_CA_CERT_TAG,
 #endif
 #if defined(MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED)
@@ -76,7 +88,7 @@ static int tls_init(void)
 {
 	int err = -EINVAL;
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
+#if defined(CONFIG_MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
 	err = tls_credential_add(APP_CA_CERT_TAG, TLS_CREDENTIAL_CA_CERTIFICATE,
 				 ca_certificate, sizeof(ca_certificate));
 	if (err < 0) {
@@ -116,7 +128,7 @@ static void prepare_fds(struct mqtt_client *client)
 	}
 #endif
 
-	fds[0].events = ZSOCK_POLLIN;
+	fds[0].events = POLLIN;
 	nfds = 1;
 }
 
@@ -130,7 +142,7 @@ static int wait(int timeout)
 	int ret = 0;
 
 	if (nfds > 0) {
-		ret = zsock_poll(fds, nfds, timeout);
+		ret = poll(fds, nfds, timeout);
 		if (ret < 0) {
 			LOG_ERR("poll error: %d", errno);
 		}
@@ -154,6 +166,22 @@ void mqtt_evt_handler(struct mqtt_client *const client,
 		connected = true;
 		LOG_INF("MQTT client connected!");
 
+#if defined(CONFIG_MQTT_VERSION_5_0)
+		if (evt->param.connack.prop.rx.has_topic_alias_maximum &&
+		    evt->param.connack.prop.topic_alias_maximum > 0) {
+			LOG_INF("Topic aliases allowed by the broker, max %u.",
+				evt->param.connack.prop.topic_alias_maximum);
+
+			aliases_enabled = true;
+		} else {
+			LOG_INF("Topic aliases disallowed by the broker.");
+		}
+#endif
+
+#if defined(CONFIG_LOG_BACKEND_MQTT)
+		log_backend_mqtt_client_set(client);
+#endif
+
 		break;
 
 	case MQTT_EVT_DISCONNECT:
@@ -161,6 +189,10 @@ void mqtt_evt_handler(struct mqtt_client *const client,
 
 		connected = false;
 		clear_fds();
+
+#if defined(CONFIG_LOG_BACKEND_MQTT)
+		log_backend_mqtt_client_set(NULL);
+#endif
 
 		break;
 
@@ -219,7 +251,7 @@ static char *get_mqtt_payload(enum mqtt_qos qos)
 	static APP_BMEM char payload[30];
 
 	snprintk(payload, sizeof(payload), "{d:{temperature:%d}}",
-		 (uint8_t)sys_rand32_get());
+		 sys_rand8_get());
 #else
 	static APP_DMEM char payload[] = "DOORS:OPEN_QoSx";
 
@@ -241,18 +273,31 @@ static char *get_mqtt_topic(void)
 
 static int publish(struct mqtt_client *client, enum mqtt_qos qos)
 {
-	struct mqtt_publish_param param;
+	struct mqtt_publish_param param = { 0 };
+
+	/* Always true for MQTT 3.1.1.
+	 * True only on first publish message for MQTT 5.0 if broker allows aliases.
+	 */
+	if (include_topic) {
+		param.message.topic.topic.utf8 = (uint8_t *)get_mqtt_topic();
+		param.message.topic.topic.size =
+			strlen(param.message.topic.topic.utf8);
+	}
 
 	param.message.topic.qos = qos;
-	param.message.topic.topic.utf8 = (uint8_t *)get_mqtt_topic();
-	param.message.topic.topic.size =
-			strlen(param.message.topic.topic.utf8);
 	param.message.payload.data = get_mqtt_payload(qos);
 	param.message.payload.len =
 			strlen(param.message.payload.data);
-	param.message_id = sys_rand32_get();
+	param.message_id = sys_rand16_get();
 	param.dup_flag = 0U;
 	param.retain_flag = 0U;
+
+#if defined(CONFIG_MQTT_VERSION_5_0)
+	if (aliases_enabled) {
+		param.prop.topic_alias = APP_TOPIC_ALIAS;
+		include_topic = false;
+	}
+#endif
 
 	return mqtt_publish(client, &param);
 }
@@ -269,27 +314,27 @@ static void broker_init(void)
 
 	broker6->sin6_family = AF_INET6;
 	broker6->sin6_port = htons(SERVER_PORT);
-	zsock_inet_pton(AF_INET6, SERVER_ADDR, &broker6->sin6_addr);
+	inet_pton(AF_INET6, SERVER_ADDR, &broker6->sin6_addr);
 
 #if defined(CONFIG_SOCKS)
 	struct sockaddr_in6 *proxy6 = (struct sockaddr_in6 *)&socks5_proxy;
 
 	proxy6->sin6_family = AF_INET6;
 	proxy6->sin6_port = htons(SOCKS5_PROXY_PORT);
-	zsock_inet_pton(AF_INET6, SOCKS5_PROXY_ADDR, &proxy6->sin6_addr);
+	inet_pton(AF_INET6, SOCKS5_PROXY_ADDR, &proxy6->sin6_addr);
 #endif
 #else
 	struct sockaddr_in *broker4 = (struct sockaddr_in *)&broker;
 
 	broker4->sin_family = AF_INET;
 	broker4->sin_port = htons(SERVER_PORT);
-	zsock_inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
+	inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
 #if defined(CONFIG_SOCKS)
 	struct sockaddr_in *proxy4 = (struct sockaddr_in *)&socks5_proxy;
 
 	proxy4->sin_family = AF_INET;
 	proxy4->sin_port = htons(SOCKS5_PROXY_PORT);
-	zsock_inet_pton(AF_INET, SOCKS5_PROXY_ADDR, &proxy4->sin_addr);
+	inet_pton(AF_INET, SOCKS5_PROXY_ADDR, &proxy4->sin_addr);
 #endif
 #endif
 }
@@ -307,7 +352,11 @@ static void client_init(struct mqtt_client *client)
 	client->client_id.size = strlen(MQTT_CLIENTID);
 	client->password = NULL;
 	client->user_name = NULL;
+#if defined(CONFIG_MQTT_VERSION_5_0)
+	client->protocol_version = MQTT_VERSION_5_0;
+#else
 	client->protocol_version = MQTT_VERSION_3_1_1;
+#endif
 
 	/* MQTT buffers configuration */
 	client->rx_buf = rx_buffer;
@@ -329,7 +378,7 @@ static void client_init(struct mqtt_client *client)
 	tls_config->cipher_list = NULL;
 	tls_config->sec_tag_list = m_sec_tags;
 	tls_config->sec_tag_count = ARRAY_SIZE(m_sec_tags);
-#if defined(MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
+#if defined(CONFIG_MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
 	tls_config->hostname = TLS_SNI_HOSTNAME;
 #else
 	tls_config->hostname = NULL;
@@ -434,6 +483,9 @@ static int publisher(void)
 {
 	int i, rc, r = 0;
 
+	include_topic = true;
+	aliases_enabled = false;
+
 	LOG_INF("attempting to connect: ");
 	rc = try_to_connect(&client_ctx);
 	PRINT_RESULT("try_to_connect", rc);
@@ -474,7 +526,7 @@ static int publisher(void)
 		r = 0;
 	}
 
-	rc = mqtt_disconnect(&client_ctx);
+	rc = mqtt_disconnect(&client_ctx, NULL);
 	PRINT_RESULT("mqtt_disconnect", rc);
 
 	LOG_INF("Bye!");
@@ -516,6 +568,8 @@ static K_HEAP_DEFINE(app_mem_pool, 1024 * 2);
 
 int main(void)
 {
+	wait_for_network();
+
 #if defined(CONFIG_MQTT_LIB_TLS)
 	int rc;
 

@@ -1,9 +1,10 @@
-.. _iso_broadcast_benchmark:
+.. zephyr:code-sample:: bluetooth_isochronous_broadcaster_benchmark
+   :name: Isochronous Broadcaster Benchmark
+   :relevant-api: bt_iso bluetooth
 
-Bluetooth: Throughput
-#####################
+   Measure packet loss and sync loss of an ISO broadcaster against one or more receivers.
 
-The ISO Broadcast Benchmark sample measures and report packet loss and sync loss
+The ISO Broadcast Benchmark sample measures and reports packet loss and sync loss
 of an ISO broadcaster against one or more ISO broadcast receivers.
 
 Overview
@@ -26,19 +27,19 @@ Requirements
 * A remote board running the same sample as the reversed role that supports
   setting CONFIG_BT_CTLR_SYNC_ISO
 
-Building and running
+Building and Running
 ********************
 
-This sample can be found under
-:zephyr_file:`samples/bluetooth/iso_broadcast_benchmark` in the Zephyr tree.
-
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
-
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/iso_broadcast_benchmark
+   :board: <board>
+   :goals: build flash
+   :compact:
 
 Testing
 =======
 
-After programming the sample to both boards, test it by performing the following
+After flashing the sample to both boards, test it by performing the following
 steps:
 
 1. Connect to both boards with a terminal emulator (for example, PuTTY or

@@ -11,21 +11,20 @@
 #include <zephyr/sys/util.h>
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(bbram, CONFIG_BBRAM_LOG_LEVEL);
+LOG_MODULE_REGISTER(npcx_bbram, CONFIG_BBRAM_LOG_LEVEL);
 
-/** Device config */
-struct bbram_npcx_config {
-	/** BBRAM base address */
-	uintptr_t base_addr;
-	/** BBRAM size (Unit:bytes) */
-	int size;
-	/** Status register base address */
-	uintptr_t status_reg_addr;
-};
+#include "npcx.h"
 
-#define NPCX_STATUS_IBBR BIT(7)
-#define NPCX_STATUS_VSBY BIT(1)
-#define NPCX_STATUS_VCC1 BIT(0)
+/*
+ * For emulator, define status bits for backup RAM status register.
+ * These are required for the emulator (native_sim) since the npcx SOC
+ * is not enabled, and missing definitions would cause a build error.
+ */
+#ifdef CONFIG_BBRAM_NPCX_EMUL
+#define NPCX_BKUPSTS_VSBY_STS BIT(1)
+#define NPCX_BKUPSTS_VCC1_STS BIT(0)
+#define NPCX_BKUPSTS_IBBR     BIT(7)
+#endif
 
 #define DRV_STATUS(dev)                                                        \
 	(*((volatile uint8_t *)((const struct bbram_npcx_config *)(dev)->config)->status_reg_addr))
@@ -34,25 +33,41 @@ static int get_bit_and_reset(const struct device *dev, int mask)
 {
 	int result = DRV_STATUS(dev) & mask;
 
-	/* Clear the bit(s) */
+	/*
+	 * Clear the bit(s):
+	 * For emulator, write 0 to clear status bit(s).
+	 * For real chip, write 1 to clear status bit(s).
+	 */
+#ifdef CONFIG_BBRAM_NPCX_EMUL
+	DRV_STATUS(dev) &= ~mask;
+#else
 	DRV_STATUS(dev) = mask;
+
+	if (IS_ENABLED(CONFIG_BBRAM_NPCX_STATUS_REG_WRITE_WORKAROUND)) {
+		uint8_t __unused read_unused;
+
+		read_unused = DRV_STATUS(dev);
+	}
+#endif
 
 	return result;
 }
 
 static int bbram_npcx_check_invalid(const struct device *dev)
 {
-	return get_bit_and_reset(dev, NPCX_STATUS_IBBR);
+	return get_bit_and_reset(dev, NPCX_BKUPSTS_IBBR);
 }
 
+#ifndef CONFIG_BBRAM_NPCX_EX
 static int bbram_npcx_check_standby_power(const struct device *dev)
 {
-	return get_bit_and_reset(dev, NPCX_STATUS_VSBY);
+	return get_bit_and_reset(dev, NPCX_BKUPSTS_VSBY_STS);
 }
+#endif /* CONFIG_BBRAM_NPCX_EX */
 
 static int bbram_npcx_check_power(const struct device *dev)
 {
-	return get_bit_and_reset(dev, NPCX_STATUS_VCC1);
+	return get_bit_and_reset(dev, NPCX_BKUPSTS_VCC1_STS);
 }
 
 static int bbram_npcx_get_size(const struct device *dev, size_t *size)
@@ -69,9 +84,8 @@ static int bbram_npcx_read(const struct device *dev, size_t offset, size_t size,
 	const struct bbram_npcx_config *config = dev->config;
 
 	if (size < 1 || offset + size > config->size || bbram_npcx_check_invalid(dev)) {
-		return -EFAULT;
+		return -EINVAL;
 	}
-
 
 	bytecpy(data, ((uint8_t *)config->base_addr + offset), size);
 	return 0;
@@ -83,16 +97,18 @@ static int bbram_npcx_write(const struct device *dev, size_t offset, size_t size
 	const struct bbram_npcx_config *config = dev->config;
 
 	if (size < 1 || offset + size > config->size || bbram_npcx_check_invalid(dev)) {
-		return -EFAULT;
+		return -EINVAL;
 	}
 
 	bytecpy(((uint8_t *)config->base_addr + offset), data, size);
 	return 0;
 }
 
-static const struct bbram_driver_api bbram_npcx_driver_api = {
+static DEVICE_API(bbram, bbram_npcx_driver_api) = {
 	.check_invalid = bbram_npcx_check_invalid,
+#ifndef CONFIG_BBRAM_NPCX_EX
 	.check_standby_power = bbram_npcx_check_standby_power,
+#endif /* CONFIG_BBRAM_NPCX_EX */
 	.check_power = bbram_npcx_check_power,
 	.get_size = bbram_npcx_get_size,
 	.read = bbram_npcx_read,
@@ -100,14 +116,8 @@ static const struct bbram_driver_api bbram_npcx_driver_api = {
 };
 
 #define BBRAM_INIT(inst)                                                                           \
-	static struct {                                                                            \
-	} bbram_data_##inst;                                                                       \
-	static const struct bbram_npcx_config bbram_cfg_##inst = {                                 \
-		.base_addr = DT_INST_REG_ADDR_BY_NAME(inst, memory),                               \
-		.size = DT_INST_REG_SIZE_BY_NAME(inst, memory),                                    \
-		.status_reg_addr = DT_INST_REG_ADDR_BY_NAME(inst, status),                         \
-	};                                                                                         \
-	DEVICE_DT_INST_DEFINE(inst, NULL, NULL, &bbram_data_##inst, &bbram_cfg_##inst,             \
-			      PRE_KERNEL_1, CONFIG_BBRAM_INIT_PRIORITY, &bbram_npcx_driver_api);
+	BBRAM_NPCX_DECL_CONFIG(inst);                                                              \
+	DEVICE_DT_INST_DEFINE(inst, NULL, NULL, NULL, &bbram_cfg_##inst, PRE_KERNEL_1,             \
+			      CONFIG_BBRAM_INIT_PRIORITY, &bbram_npcx_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(BBRAM_INIT);

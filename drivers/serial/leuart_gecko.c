@@ -65,7 +65,7 @@ static void leuart_gecko_poll_out(const struct device *dev, unsigned char c)
 	LEUART_TypeDef *base = DEV_BASE(dev);
 
 	/* LEUART_Tx function already waits for the transmit buffer being empty
-	 * and and waits for the bus to be free to transmit.
+	 * and waits for the bus to be free to transmit.
 	 */
 	LEUART_Tx(base, c);
 }
@@ -101,7 +101,7 @@ static int leuart_gecko_fifo_fill(const struct device *dev,
 				  int len)
 {
 	LEUART_TypeDef *base = DEV_BASE(dev);
-	uint8_t num_tx = 0U;
+	int num_tx = 0U;
 
 	while ((len - num_tx > 0) &&
 	       (base->STATUS & LEUART_STATUS_TXBL)) {
@@ -116,7 +116,7 @@ static int leuart_gecko_fifo_read(const struct device *dev, uint8_t *rx_data,
 				  const int len)
 {
 	LEUART_TypeDef *base = DEV_BASE(dev);
-	uint8_t num_rx = 0U;
+	int num_rx = 0U;
 
 	while ((len - num_rx > 0) &&
 	       (base->STATUS & LEUART_STATUS_RXDATAV)) {
@@ -215,11 +215,6 @@ static int leuart_gecko_irq_is_pending(const struct device *dev)
 	return leuart_gecko_irq_tx_ready(dev) || leuart_gecko_irq_rx_ready(dev);
 }
 
-static int leuart_gecko_irq_update(const struct device *dev)
-{
-	return 1;
-}
-
 static void leuart_gecko_irq_callback_set(const struct device *dev,
 					  uart_irq_callback_user_data_t cb,
 					  void *cb_data)
@@ -273,12 +268,6 @@ static int leuart_gecko_init(const struct device *dev)
 
 	leuartInit.baudrate = config->baud_rate;
 
-	/* Enable CORE LE clock in order to access LE modules */
-	CMU_ClockEnable(cmuClock_CORELE, true);
-
-	/* Select LFXO for LEUARTs (and wait for it to stabilize) */
-	CMU_ClockSelectSet(cmuClock_LFB, cmuSelect_LFXO);
-
 	/* Enable LEUART clock */
 	CMU_ClockEnable(config->clock, true);
 
@@ -295,7 +284,7 @@ static int leuart_gecko_init(const struct device *dev)
 	return 0;
 }
 
-static const struct uart_driver_api leuart_gecko_driver_api = {
+static DEVICE_API(uart, leuart_gecko_driver_api) = {
 	.poll_in = leuart_gecko_poll_in,
 	.poll_out = leuart_gecko_poll_out,
 	.err_check = leuart_gecko_err_check,
@@ -312,12 +301,11 @@ static const struct uart_driver_api leuart_gecko_driver_api = {
 	.irq_err_enable = leuart_gecko_irq_err_enable,
 	.irq_err_disable = leuart_gecko_irq_err_disable,
 	.irq_is_pending = leuart_gecko_irq_is_pending,
-	.irq_update = leuart_gecko_irq_update,
 	.irq_callback_set = leuart_gecko_irq_callback_set,
 #endif
 };
 
-#if DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_DRV_INST(0))
 
 #define PIN_LEUART_0_RXD {DT_INST_PROP_BY_IDX(0, location_rx, 1), \
 		DT_INST_PROP_BY_IDX(0, location_rx, 2), gpioModeInput, 1}
@@ -368,9 +356,9 @@ static void leuart_gecko_config_func_0(const struct device *dev)
 }
 #endif
 
-#endif /* DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay) */
+#endif /* DT_NODE_HAS_STATUS_OKAY(DT_DRV_INST(0)) */
 
-#if DT_NODE_HAS_STATUS(DT_DRV_INST(1), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_DRV_INST(1))
 
 #define PIN_LEUART_1_RXD {DT_INST_PROP_BY_IDX(1, location_rx, 1), \
 		DT_INST_PROP_BY_IDX(1, location_rx, 2), gpioModeInput, 1}
@@ -421,4 +409,4 @@ static void leuart_gecko_config_func_1(const struct device *dev)
 }
 #endif
 
-#endif /* DT_NODE_HAS_STATUS(DT_DRV_INST(1), okay) */
+#endif /* DT_NODE_HAS_STATUS_OKAY(DT_DRV_INST(1)) */

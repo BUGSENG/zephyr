@@ -13,7 +13,6 @@
  */
 
 #include <zephyr/kernel.h>
-#include <ksched.h>
 #include <zephyr/arch/x86/mmustructs.h>
 #include <kswap.h>
 #include <x86_mmu.h>
@@ -72,6 +71,15 @@ int arch_float_enable(struct k_thread *thread, unsigned int options)
 }
 #endif /* CONFIG_FPU && CONFIG_FPU_SHARING */
 
+int arch_coprocessors_disable(struct k_thread *thread)
+{
+#if defined(CONFIG_FPU) && defined(CONFIG_FPU_SHARING)
+	return arch_float_disable(thread);
+#else
+	return -ENOTSUP;
+#endif
+}
+
 void arch_new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 		     char *stack_ptr, k_thread_entry_t entry,
 		     void *p1, void *p2, void *p3)
@@ -79,7 +87,10 @@ void arch_new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 	void *swap_entry;
 	struct _x86_initial_frame *initial_frame;
 
-#if CONFIG_X86_STACK_PROTECTION
+#if defined(CONFIG_X86_STACK_PROTECTION) && !defined(CONFIG_THREAD_STACK_MEM_MAPPED)
+	/* This unconditionally set the first page of stack as guard page,
+	 * which is only needed if the stack is not memory mapped.
+	 */
 	z_x86_set_stack_guard(stack);
 #endif
 

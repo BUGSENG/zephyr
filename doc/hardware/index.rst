@@ -10,6 +10,9 @@ Hardware Support
    barriers/index.rst
    cache/index.rst
    emulator/index.rst
+   emulator/bus_emulators.rst
+   firmware/index.rst
    peripherals/index.rst
    pinctrl/index.rst
    porting/index
+   virtualization/index.rst

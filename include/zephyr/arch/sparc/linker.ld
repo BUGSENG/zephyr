@@ -22,6 +22,7 @@ SECTIONS
     {
 
 #include <zephyr/linker/rel-sections.ld>
+#include <zephyr/linker/llext-sections.ld>
 
     __rom_region_start = .;
 
@@ -42,6 +43,10 @@ SECTIONS
     __rodata_region_start = .;
 
 #include <zephyr/linker/common-rom.ld>
+/* Located in generated directory. This file is populated by calling
+ * zephyr_linker_sources(ROM_SECTIONS ...). Useful for grouping iterable RO structs.
+ */
+#include <snippets-rom-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 
     SECTION_PROLOGUE(_RODATA_SECTION_NAME,,)

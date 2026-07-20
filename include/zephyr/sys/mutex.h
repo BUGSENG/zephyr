@@ -35,7 +35,7 @@ struct sys_mutex {
 
 /**
  * @defgroup user_mutex_apis User mode mutex APIs
- * @ingroup kernel_apis
+ * @ingroup usermode_apis
  * @{
  */
 
@@ -128,11 +128,10 @@ static inline int sys_mutex_unlock(struct sys_mutex *mutex)
 	return z_sys_mutex_kernel_unlock(mutex);
 }
 
-#include <syscalls/mutex.h>
+#include <zephyr/syscalls/mutex.h>
 
 #else
 #include <zephyr/kernel.h>
-#include <zephyr/kernel_structs.h>
 
 struct sys_mutex {
 	struct k_mutex kernel_mutex;

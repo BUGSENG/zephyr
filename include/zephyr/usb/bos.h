@@ -5,6 +5,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief USB Binary Device Object Store support
+ * @ingroup usb_bos
+ */
+
 #ifndef ZEPHYR_INCLUDE_USB_BOS_H_
 #define ZEPHYR_INCLUDE_USB_BOS_H_
 
@@ -14,92 +20,112 @@
  * @brief USB Binary Device Object Store support
  * @defgroup usb_bos USB BOS support
  * @ingroup usb
+ * @since 1.13
+ * @version 1.0.0
  * @{
  */
 
-/**
- * @brief Helper macro to place the BOS compatibility descriptor
- *        in the right memory section.
- */
-#define USB_DEVICE_BOS_DESC_DEFINE_CAP \
-	static __in_section(usb, bos_desc_area, 1) __aligned(1) __used
-
-/** Device capability type codes */
-enum usb_bos_capability_types {
-	USB_BOS_CAPABILITY_EXTENSION = 0x02,
-	USB_BOS_CAPABILITY_PLATFORM = 0x05,
-};
-
-/** BOS USB 2.0 extension capability descriptor */
-struct usb_bos_capability_lpm {
-	uint8_t bLength;
-	uint8_t bDescriptorType;
-	uint8_t bDevCapabilityType;
-	uint32_t bmAttributes;
-} __packed;
-
-/** BOS platform capability descriptor */
-struct usb_bos_platform_descriptor {
-	uint8_t bLength;
-	uint8_t bDescriptorType;
-	uint8_t bDevCapabilityType;
-	uint8_t bReserved;
-	uint8_t PlatformCapabilityUUID[16];
-} __packed;
-
-/** WebUSB specific part of platform capability descriptor */
-struct usb_bos_capability_webusb {
-	uint16_t bcdVersion;
-	uint8_t bVendorCode;
-	uint8_t iLandingPage;
-} __packed;
-
-/** Microsoft OS 2.0 descriptor specific part of platform capability descriptor */
-struct usb_bos_capability_msos {
-	uint32_t dwWindowsVersion;
-	uint16_t wMSOSDescriptorSetTotalLength;
-	uint8_t bMS_VendorCode;
-	uint8_t bAltEnumCode;
-} __packed;
-
-/**
- * @brief Register BOS capability descriptor
- *
- * This function should be used by the application to register BOS capability
- * descriptors before the USB device stack is enabled.
- *
- * @param[in] hdr Pointer to BOS capability descriptor
- */
-void usb_bos_register_cap(struct usb_bos_platform_descriptor *hdr);
-
-/**
- * @cond INTERNAL_HIDDEN
- * Internally used functions
- */
-
-/* BOS Descriptor (root descriptor) */
+/** Root BOS Descriptor */
 struct usb_bos_descriptor {
+	/** Size of this descriptor in bytes (5). */
 	uint8_t bLength;
+	/** Descriptor type. Must be set to @ref USB_DESC_BOS. */
 	uint8_t bDescriptorType;
+	/**
+	 * Total length of this descriptor and all associated device
+	 * capability descriptors.
+	 */
 	uint16_t wTotalLength;
+	/** Number of device capability descriptors that follow. */
 	uint8_t bNumDeviceCaps;
 } __packed;
 
-#define USB_DEVICE_BOS_DESC_DEFINE_HDR \
-	static __in_section(usb, bos_desc_area, 0) __aligned(1) __used
+/** Device capability type codes */
+enum usb_bos_capability_types {
+	/** USB 2.0 Extension capability. */
+	USB_BOS_CAPABILITY_EXTENSION = 0x02,
+	/** Platform-specific capability (e.g., WebUSB, MS OS). */
+	USB_BOS_CAPABILITY_PLATFORM = 0x05,
+};
 
-size_t usb_bos_get_length(void);
+/**
+ * BOS USB 2.0 extension capability descriptor
+ *
+ * Used to indicate support for USB 2.0 Link Power Management (LPM) and associated best effort
+ * service latency (BESL) parameters.
+ */
+struct usb_bos_capability_lpm {
+	/** Size of this descriptor in bytes. */
+	uint8_t bLength;
 
-void usb_bos_fix_total_length(void);
+	/** Descriptor type. Must be set to @ref USB_DESC_DEVICE_CAPABILITY. */
+	uint8_t bDescriptorType;
 
-const void *usb_bos_get_header(void);
+	/** Device capability type. Must be @ref USB_BOS_CAPABILITY_EXTENSION. */
+	uint8_t bDevCapabilityType;
 
-#if defined(CONFIG_USB_DEVICE_BOS)
-int usb_handle_bos(struct usb_setup_packet *setup, int32_t *len, uint8_t **data);
-#else
-#define usb_handle_bos(x, y, z)		-ENOTSUP
-#endif
-/** @endcond */
+	/**
+	 * Bitmap of supported attributes.
+	 */
+	uint32_t bmAttributes;
+} __packed;
+
+/**
+ * BOS platform capability descriptor
+ *
+ * Used to describe platform-specific capabilities, identified by a UUID.
+ */
+struct usb_bos_platform_descriptor {
+	/** Size of this descriptor in bytes (20). */
+	uint8_t bLength;
+	/** Descriptor type. Must be set to @c USB_DESC_DEVICE_CAPABILITY. */
+	uint8_t bDescriptorType;
+	/** Device capability type. Must be @c USB_BOS_CAPABILITY_PLATFORM. */
+	uint8_t bDevCapabilityType;
+	/** Reserved (must be zero). */
+	uint8_t bReserved;
+	/** Platform capability UUID (16 bytes, little-endian). */
+	uint8_t PlatformCapabilityUUID[16];
+} __packed;
+
+/**
+ * WebUSB specific part of platform capability descriptor
+ *
+ * Defines the WebUSB-specific fields that extend the generic platform capability descriptor.
+ */
+struct usb_bos_capability_webusb {
+	/** WebUSB specification version in BCD format (e.g., 0x0100). */
+	uint16_t bcdVersion;
+	/**
+	 * Vendor-specific request code used by the host to retrieve WebUSB descriptors.
+	 */
+	uint8_t bVendorCode;
+
+	/**
+	 * Index of the landing page string descriptor.
+	 * Zero means no landing page is defined.
+	 */
+	uint8_t iLandingPage;
+} __packed;
+
+/**
+ * Microsoft OS 2.0 descriptor specific part of platform capability descriptor
+ *
+ * Defines the Microsoft OS 2.0 descriptor set, used to describe device capabilities to Windows
+ * hosts.
+ */
+struct usb_bos_capability_msos {
+	/** Windows version supported (e.g., 0x0A000000UL for Windows 10). */
+	uint32_t dwWindowsVersion;
+	/** Total length of the MS OS 2.0 descriptor set. */
+	uint16_t wMSOSDescriptorSetTotalLength;
+	/**
+	 * Vendor-specific request code used to retrieve the MS OS 2.0 descriptor set.
+	 */
+	uint8_t bMS_VendorCode;
+	/** Alternate enumeration code (or 0 if not used). */
+	uint8_t bAltEnumCode;
+} __packed;
 
 /**
  * @}

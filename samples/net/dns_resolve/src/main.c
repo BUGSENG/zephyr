@@ -17,6 +17,8 @@ LOG_MODULE_REGISTER(net_dns_resolve_client_sample, LOG_LEVEL_DBG);
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/dns_resolve.h>
 
+#include "net_sample_common.h"
+
 #if defined(CONFIG_MDNS_RESOLVER)
 #if defined(CONFIG_NET_IPV4)
 static struct k_work_delayable mdns_ipv4_timer;
@@ -62,10 +64,10 @@ void dns_result_cb(enum dns_resolve_status status,
 		return;
 	}
 
-	if (info->ai_family == AF_INET) {
+	if (info->ai_family == NET_AF_INET) {
 		hr_family = "IPv4";
 		addr = &net_sin(&info->ai_addr)->sin_addr;
-	} else if (info->ai_family == AF_INET6) {
+	} else if (info->ai_family == NET_AF_INET6) {
 		hr_family = "IPv6";
 		addr = &net_sin6(&info->ai_addr)->sin6_addr;
 	} else {
@@ -111,10 +113,10 @@ void mdns_result_cb(enum dns_resolve_status status,
 		return;
 	}
 
-	if (info->ai_family == AF_INET) {
+	if (info->ai_family == NET_AF_INET) {
 		hr_family = "IPv4";
 		addr = &net_sin(&info->ai_addr)->sin_addr;
-	} else if (info->ai_family == AF_INET6) {
+	} else if (info->ai_family == NET_AF_INET6) {
 		hr_family = "IPv6";
 		addr = &net_sin6(&info->ai_addr)->sin6_addr;
 	} else {
@@ -168,6 +170,7 @@ static void print_dhcpv4_addr(struct net_if *iface, struct net_if_addr *if_addr,
 {
 	bool *found = (bool *)user_data;
 	char hr_addr[NET_IPV4_ADDR_LEN];
+	struct net_in_addr netmask;
 
 	if (*found) {
 		return;
@@ -178,15 +181,16 @@ static void print_dhcpv4_addr(struct net_if *iface, struct net_if_addr *if_addr,
 	}
 
 	LOG_INF("IPv4 address: %s",
-		net_addr_ntop(AF_INET, &if_addr->address.in_addr,
+		net_addr_ntop(NET_AF_INET, &if_addr->address.in_addr,
 			      hr_addr, NET_IPV4_ADDR_LEN));
 	LOG_INF("Lease time: %u seconds", iface->config.dhcpv4.lease_time);
+
+	netmask = net_if_ipv4_get_netmask_by_addr(iface,
+						  &if_addr->address.in_addr);
 	LOG_INF("Subnet: %s",
-		net_addr_ntop(AF_INET,
-			      &iface->config.ip.ipv4->netmask,
-			      hr_addr, NET_IPV4_ADDR_LEN));
+		net_addr_ntop(NET_AF_INET, &netmask, hr_addr, NET_IPV4_ADDR_LEN));
 	LOG_INF("Router: %s",
-		net_addr_ntop(AF_INET,
+		net_addr_ntop(NET_AF_INET,
 			      &iface->config.ip.ipv4->gw,
 			      hr_addr, NET_IPV4_ADDR_LEN));
 
@@ -194,7 +198,7 @@ static void print_dhcpv4_addr(struct net_if *iface, struct net_if_addr *if_addr,
 }
 
 static void ipv4_addr_add_handler(struct net_mgmt_event_callback *cb,
-				  uint32_t mgmt_event,
+				  uint64_t mgmt_event,
 				  struct net_if *iface)
 {
 
@@ -392,6 +396,8 @@ int main(void)
 	struct net_if *iface = net_if_get_default();
 
 	LOG_INF("Starting DNS resolve sample");
+
+	wait_for_network();
 
 	setup_ipv4(iface);
 

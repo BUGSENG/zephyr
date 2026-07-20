@@ -129,6 +129,8 @@ static inline uint32_t jesd216_sfdp_magic(const struct jesd216_sfdp_header *hp)
  * the standard.  Rather than pre-define layouts to access to all
  * potential fields this header provides functions for specific fields
  * known to be important, such as density and erase command support.
+ *
+ * Must be aligned to a DWORD (32-bit) address according to JESD216F.
  */
 struct jesd216_bfp {
 	uint32_t dw1;
@@ -141,7 +143,7 @@ struct jesd216_bfp {
 	uint32_t dw8;
 	uint32_t dw9;
 	uint32_t dw10[];
-} __packed;
+} __aligned(4);
 
 /* Provide a few word-specific flags and bitfield ranges for values
  * that an application or driver might expect to want to extract.
@@ -186,6 +188,7 @@ struct jesd216_bfp {
  *
  * JESD216C (20 DW)
  * * DW17-20 (quad/oct support) no API except jesd216_bfp_read_support().
+ *   DW19 also has jesd216_bfp_decode_dw19().
  */
 
 /* Extract the supported address bytes from BFP DW1. */
@@ -528,5 +531,42 @@ struct jesd216_bfp_dw16 {
 int jesd216_bfp_decode_dw16(const struct jesd216_param_header *php,
 			    const struct jesd216_bfp *bfp,
 			    struct jesd216_bfp_dw16 *res);
+
+/* Decoded data from JESD216 DW19 */
+struct jesd216_bfp_dw19 {
+	/* Bits specifying the status/control sequence required to enable
+	 * octal protocol operation.
+	 */
+	unsigned int octal_enable_req: 3;
+};
+
+/* Get data from BFP DW19.
+ *
+ * @param php pointer to the BFP header.
+ *
+ * @param bfp pointer to the BFP table.
+ *
+ * @param res pointer to where to store the decoded data.
+ *
+ * @retval -ENOTSUP if this information is not available from this BFP table.
+ * @retval 0 on successful storage into @c *res.
+ */
+int jesd216_bfp_decode_dw19(const struct jesd216_param_header *php,
+			    const struct jesd216_bfp *bfp,
+			    struct jesd216_bfp_dw19 *res);
+
+#define JESD216_DW19_OER_VAL_NONE 0U
+#define JESD216_DW19_OER_VAL_S2B3 1U
+
+/* JESD216D-01 section 6.6: 4-Byte Address Instruction Parameter */
+#define JESD216_SFDP_4B_ADDR_DW1_1S_1S_1S_READ_13_SUP      BIT(0)
+#define JESD216_SFDP_4B_ADDR_DW1_1S_1S_1S_FAST_READ_0C_SUP BIT(1)
+#define JESD216_SFDP_4B_ADDR_DW1_1S_1S_2_FAST_READ_3C_SUP  BIT(2)
+#define JESD216_SFDP_4B_ADDR_DW1_1S_2S_2S_FAST_READ_BC_SUP BIT(3)
+#define JESD216_SFDP_4B_ADDR_DW1_1S_1S_4S_FAST_READ_6C_SUP BIT(4)
+#define JESD216_SFDP_4B_ADDR_DW1_1S_4S_4_FAST_READ_EC_SUP  BIT(5)
+#define JESD216_SFDP_4B_ADDR_DW1_1S_1S_1S_PP_12_SUP        BIT(6)
+#define JESD216_SFDP_4B_ADDR_DW1_1S_1S_4S_PP_34_SUP        BIT(7)
+#define JESD216_SFDP_4B_ADDR_DW1_1S_4S_4S_PP_3E_SUP        BIT(8)
 
 #endif /* ZEPHYR_DRIVERS_FLASH_JESD216_H_ */

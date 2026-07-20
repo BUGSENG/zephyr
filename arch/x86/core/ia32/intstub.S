@@ -19,6 +19,11 @@
 #include <offsets_short.h>
 #include <zephyr/arch/cpu.h>
 #include <zephyr/drivers/interrupt_controller/sysapic.h>
+#include <cet_asm.inc>
+
+#ifdef CONFIG_X86_CET_SOC_PREPARE_SHADOW_STACK_SWITCH
+#include <soc_cet.h>
+#endif
 
 	/* exports (internal APIs) */
 
@@ -33,7 +38,7 @@
 	GTEXT(arch_swap)
 
 #ifdef CONFIG_PM
-	GTEXT(z_pm_save_idle_exit)
+	GTEXT(pm_system_resume)
 #endif
 
 /**
@@ -61,7 +66,7 @@
  *
  * void _interrupt_enter(void *isr, void *isr_param);
  */
-SECTION_FUNC(PINNED_TEXT, _interrupt_enter)
+SECTION_FUNC(TEXT, _interrupt_enter)
 	/*
 	 * Note that the processor has pushed both the EFLAGS register
 	 * and the logical return address (cs:eip) onto the stack prior
@@ -112,11 +117,14 @@ SECTION_FUNC(PINNED_TEXT, _interrupt_enter)
 	 * EAX = isr_param, EDX = isr
 	 */
 
-	/* Push EDI as we will use it for scratch space.
+	/* Push some registers we will use it for scratch space.
+	 * Also it helps in stack unwinding
 	 * Rest of the callee-saved regs get saved by invocation of C
 	 * functions (isr handler, arch_swap(), etc)
 	 */
+	pushl	%ebp
 	pushl	%edi
+	pushl	%ebx
 
 	/* load %ecx with &_kernel */
 
@@ -131,17 +139,66 @@ SECTION_FUNC(PINNED_TEXT, _interrupt_enter)
 	jne	alreadyOnIntStack
 
 	/*
-	 * switch to base of the interrupt stack: save esp in edi, then load
+	 * switch to base of the interrupt stack: save esp in ebp, then load
 	 * irq_stack pointer
 	 */
 
-	movl	%esp, %edi
+	movl	%esp, %ebp
 	movl	_kernel_offset_to_irq_stack(%ecx), %esp
 
 
 	/* save thread's stack pointer onto base of interrupt stack */
 
-	pushl	%edi			/* Save stack pointer */
+	pushl	%ebp			/* Save stack pointer */
+
+#ifdef CONFIG_HW_SHADOW_STACK
+	movl _kernel_offset_to_current(%ecx), %ebp
+	cmpl $0, _thread_offset_to_shstk_addr(%ebp)
+	jz __sh_stk_verify
+
+	/* Create restore SSP token. We can't use saveprevssp as it may
+	 * conflict with the prepare_shadow_stack_switch from an SoC.
+	 * Note that first scratch register will contain SSP after this
+	 * macro runs.
+	 */
+	save_ssp_restore_token %ebx, %edi
+	movl %ebx, _thread_offset_to_shstk_addr(%ebp)
+
+#ifdef CONFIG_X86_CET_SOC_PREPARE_SHADOW_STACK_SWITCH
+	pushl %eax
+	pushl %edx
+	pushl %ecx
+	soc_prepare_irq_shadow_stack_switch
+	popl %ecx
+	popl %edx
+	popl %eax
+#endif
+
+	movl _kernel_offset_to_shstk_addr(%ecx), %edi
+	rstorssp (%edi)
+	discard_previous_ssp_token %edi
+
+	pushl %ebx /* Save SSP */
+	jmp __sh_stk_out
+__sh_stk_verify:
+#ifdef CONFIG_X86_CET_VERIFY_KERNEL_SHADOW_STACK
+	pushl %eax
+	pushl %edx
+	pushl %ecx
+	movl $X86_S_CET_MSR, %ecx
+	rdmsr
+	testl $X86_S_CET_MSR_SHSTK_EN, %eax
+	jz __sh_stk_verify_out
+	pushl %ebp
+	call z_x86_cet_shadow_stack_panic
+
+__sh_stk_verify_out:
+	popl %ecx
+	popl %edx
+	popl %eax
+#endif
+__sh_stk_out:
+#endif
 
 #ifdef CONFIG_PM
 	cmpl	$0, _kernel_offset_to_idle(%ecx)
@@ -155,7 +212,12 @@ alreadyOnIntStack:
 
 	push	%eax	/* interrupt handler argument */
 
-#if defined(CONFIG_TRACING_ISR)
+/* CONFIG_SYS_IDLE_HOOKS also needs this hook: x86 halts with interrupts enabled
+ * ("sti; hlt"), so this ISR may have interrupted the idle thread and can
+ * reschedule away from it before the idle-exit hook runs. Notifying here closes
+ * the idle window at the instant idle actually ended.
+ */
+#if defined(CONFIG_TRACING_ISR) || defined(CONFIG_SYS_IDLE_HOOKS)
 	/* Save these as we are using to keep track of isr and isr_param */
 	pushl	%eax
 	pushl	%edx
@@ -236,6 +298,28 @@ alreadyOnIntStack:
 	 * a switch to the new thread.
 	 */
 
+#ifdef CONFIG_HW_SHADOW_STACK
+	movl _kernel_offset_to_current(%ecx), %edi
+	cmpl $0, _thread_offset_to_shstk_addr(%edi)
+	jz __sh_stk_out_reschedule
+
+	/* No need to save SSP on _kernel as it should always be at the
+	 * same location. But we need to have a token there.
+	 */
+	save_ssp_restore_token %edi, %ebx
+
+#ifdef CONFIG_X86_CET_SOC_PREPARE_SHADOW_STACK_SWITCH
+	pushl %edi
+	soc_prepare_shadow_stack_switch
+	popl %edi
+#endif
+
+	popl %ebp /* Get previous SSP token */
+	rstorssp (%ebp)
+	discard_previous_ssp_token %ebp
+__sh_stk_out_reschedule:
+#endif
+
 	popl	%esp	/* switch back to outgoing thread's stack */
 
 #ifdef CONFIG_STACK_SENTINEL
@@ -265,7 +349,9 @@ alreadyOnIntStack:
 #endif /* CONFIG_LAZY_FPU_SHARING */
 
 	/* Restore volatile registers and return to the interrupted thread */
+	popl	%ebx
 	popl	%edi
+	popl	%ebp
 	popl	%ecx
 	popl	%edx
 	popl	%eax
@@ -281,6 +367,28 @@ noReschedule:
 	 * A thread reschedule is not required; switch back to the
 	 * interrupted thread's stack and restore volatile registers
 	 */
+
+#ifdef CONFIG_HW_SHADOW_STACK
+	movl _kernel_offset_to_current(%ecx), %ebp
+	cmpl $0, _thread_offset_to_shstk_addr(%ebp)
+	jz __sh_stk_out_no_reschedule
+
+	/* No need to save SSP on _kernel as it should always be at the
+	 * same location. But we need to have a token there.
+	 */
+	save_ssp_restore_token %edi, %ebx
+
+#ifdef CONFIG_X86_CET_SOC_PREPARE_SHADOW_STACK_SWITCH
+	pushl %ebp
+	soc_prepare_shadow_stack_switch
+	popl %ebp
+#endif
+
+	popl %ebp /* Get previous SSP token position */
+	rstorssp (%ebp)
+	discard_previous_ssp_token %ebp
+__sh_stk_out_no_reschedule:
+#endif
 
 	popl	%esp		/* pop thread stack pointer */
 
@@ -298,7 +406,9 @@ noReschedule:
 	 */
 
 nestedInterrupt:
+	popl	%ebx
 	popl	%edi
+	popl	%ebp
 	popl	%ecx		/* pop volatile registers in reverse order */
 	popl	%edx
 	popl	%eax
@@ -314,13 +424,13 @@ handle_idle:
 	movl	$0, _kernel_offset_to_idle(%ecx)
 
 	/*
-	 * Beware that a timer driver's z_pm_save_idle_exit() implementation might
+	 * Beware that a timer driver's pm_system_resume() implementation might
 	 * expect that interrupts are disabled when invoked.  This ensures that
 	 * the calculation and programming of the device for the next timer
 	 * deadline is not interrupted.
 	 */
 
-	call	z_pm_save_idle_exit
+	call	pm_system_resume
 	popl	%edx
 	popl	%eax
 	jmp	alreadyOnIntStack
@@ -354,15 +464,17 @@ handle_idle:
  * thus z_SpuriousIntNoErrCodeHandler()/z_SpuriousIntHandler() shall be
  * invoked with interrupts disabled.
  */
-SECTION_FUNC(PINNED_TEXT, z_SpuriousIntNoErrCodeHandler)
+SECTION_FUNC(TEXT, z_SpuriousIntNoErrCodeHandler)
 
+	endbr32
 	pushl	$0			/* push dummy err code onto stk */
 
 	/* fall through to z_SpuriousIntHandler */
 
 
-SECTION_FUNC(PINNED_TEXT, z_SpuriousIntHandler)
+SECTION_FUNC(TEXT, z_SpuriousIntHandler)
 
+	endbr32
 	cld				/* Clear direction flag */
 
 	/* Create the ESF */
@@ -389,7 +501,8 @@ SECTION_FUNC(PINNED_TEXT, z_SpuriousIntHandler)
 	/* handler doesn't  return */
 
 #if CONFIG_IRQ_OFFLOAD
-SECTION_FUNC(PINNED_TEXT, _irq_sw_handler)
+SECTION_FUNC(TEXT, _irq_sw_handler)
+	endbr32
 	push $0
 	push $z_irq_do_offload
 	jmp _interrupt_enter
@@ -428,6 +541,10 @@ stub_num = 0
 	.rept Z_DYN_STUB_PER_BLOCK
 		.if stub_num < CONFIG_X86_DYNAMIC_IRQ_STUBS
 			INT_STUB_NUM stub_num
+			/*
+			 * 4-byte endbr32
+			 */
+			endbr32
 			/*
 			 * 2-byte push imm8.
 			 */

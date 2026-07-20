@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021 BayLibre SAS
+ * Copyright (c) 2024 Nordic Semiconductor
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -21,12 +22,17 @@ LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/ethernet_bridge.h>
+#include <zephyr/net/ethernet_bridge_fdb.h>
+#include <zephyr/net/virtual.h>
+#include <zephyr/net/promiscuous.h>
 
 #if NET_LOG_LEVEL >= LOG_LEVEL_DBG
 #define DBG(fmt, ...) printk(fmt, ##__VA_ARGS__)
 #else
 #define DBG(fmt, ...)
 #endif
+
+static struct net_if *bridge;
 
 struct eth_fake_context {
 	struct net_if *iface;
@@ -66,7 +72,7 @@ static int eth_fake_send(const struct device *dev,
 	 * Ignore packets we don't care about for this test, like
 	 * the IP autoconfig related ones, etc.
 	 */
-	if (eth_hdr->type != htons(NET_ETH_PTYPE_ALL)) {
+	if (eth_hdr->type != net_htons(NET_ETH_PTYPE_ALL)) {
 		DBG("Fake send ignoring pkt %p\n", pkt);
 		return 0;
 	}
@@ -86,12 +92,14 @@ static int eth_fake_send(const struct device *dev,
 	return 0;
 }
 
-static enum ethernet_hw_caps eth_fake_get_capabilities(const struct device *dev)
+static enum ethernet_hw_caps eth_fake_get_capabilities(const struct device *dev,
+						       struct net_if *iface __unused)
 {
 	return ETHERNET_PROMISC_MODE;
 }
 
 static int eth_fake_set_config(const struct device *dev,
+			       struct net_if *iface __unused,
 			       enum ethernet_config_type type,
 			       const struct ethernet_config *config)
 {
@@ -173,6 +181,15 @@ static void iface_cb(struct net_if *iface, void *user_data)
 			fake_iface[if_count++] = iface;
 		}
 	}
+
+	if (net_if_l2(iface) == &NET_L2_GET_NAME(VIRTUAL)) {
+		enum virtual_interface_caps caps;
+
+		caps = net_virtual_get_iface_capabilities(iface);
+		if (caps & VIRTUAL_INTERFACE_BRIDGE) {
+			bridge = iface;
+		}
+	}
 }
 
 static int orig_rx_num_blocks;
@@ -228,7 +245,7 @@ static void _recv_data(struct net_if *iface)
 	int ret;
 
 	pkt = net_pkt_rx_alloc_with_buffer(iface, sizeof(eth_hdr) + sizeof(data),
-					   AF_UNSPEC, 0, K_FOREVER);
+					   NET_AF_UNSPEC, 0, K_FOREVER);
 	zassert_not_null(pkt, "");
 
 	/*
@@ -252,7 +269,7 @@ static void _recv_data(struct net_if *iface)
 	eth_hdr.src.addr[4] = 0x77;
 	eth_hdr.src.addr[5] = 0x88;
 
-	eth_hdr.type = htons(NET_ETH_PTYPE_ALL);
+	eth_hdr.type = net_htons(NET_ETH_PTYPE_ALL);
 
 	ret = net_pkt_write(pkt, &eth_hdr, sizeof(eth_hdr));
 	zassert_equal(ret, 0, "");
@@ -260,7 +277,7 @@ static void _recv_data(struct net_if *iface)
 	ret = net_pkt_write(pkt, data, sizeof(data));
 	zassert_equal(ret, 0, "");
 
-	DBG("Fake recv pkt %p\n", pkt);
+	DBG("[%d] Fake recv pkt %p\n", net_if_get_by_iface(iface), pkt);
 	ret = net_recv_data(iface, pkt);
 	zassert_equal(ret, 0, "");
 }
@@ -284,24 +301,24 @@ static void test_recv_before_bridging(void)
 	check_free_packet_count();
 }
 
-static ETH_BRIDGE_INIT(test_bridge);
-
 static void test_setup_bridge(void)
 {
 	int ret;
 
 	/* add our interfaces to the bridge */
-	ret = eth_bridge_iface_add(&test_bridge, fake_iface[0]);
+	ret = eth_bridge_iface_add(bridge, fake_iface[0]);
 	zassert_equal(ret, 0, "");
-	ret = eth_bridge_iface_add(&test_bridge, fake_iface[1]);
-	zassert_equal(ret, 0, "");
-	ret = eth_bridge_iface_add(&test_bridge, fake_iface[2]);
+	ret = eth_bridge_iface_add(bridge, fake_iface[1]);
 	zassert_equal(ret, 0, "");
 
-	/* enable tx for them except fake_iface[1] */
-	ret = eth_bridge_iface_allow_tx(fake_iface[0], true);
+	/* Try to add the bridge twice, there should be no error */
+	ret = eth_bridge_iface_add(bridge, fake_iface[1]);
 	zassert_equal(ret, 0, "");
-	ret = eth_bridge_iface_allow_tx(fake_iface[2], true);
+
+	ret = eth_bridge_iface_add(bridge, fake_iface[2]);
+	zassert_equal(ret, 0, "");
+
+	ret = net_if_up(bridge);
 	zassert_equal(ret, 0, "");
 }
 
@@ -318,9 +335,6 @@ static void test_recv_with_bridge(void)
 		/* give time to the processing threads to run */
 		k_sleep(K_MSEC(100));
 
-		/* nothing should have been transmitted on fake_iface[1] */
-		zassert_is_null(eth_fake_data[1].sent_pkt, "");
-
 		/*
 		 * fake_iface[0] and fake_iface[2] should have sent the packet
 		 * but only if it didn't come from them.
@@ -328,6 +342,7 @@ static void test_recv_with_bridge(void)
 		 */
 		for (j = 0; j < 3; j += 2) {
 			struct net_pkt *pkt = eth_fake_data[j].sent_pkt;
+			struct net_eth_hdr *hdr;
 
 			if (eth_fake_data[j].iface == fake_iface[i]) {
 				zassert_is_null(pkt, "");
@@ -338,7 +353,7 @@ static void test_recv_with_bridge(void)
 			zassert_not_null(pkt, "");
 
 			/* make sure nothing messed up our ethernet header */
-			struct net_eth_hdr *hdr = NET_ETH_HDR(pkt);
+			hdr = NET_ETH_HDR(pkt);
 
 			zassert_equal(hdr->dst.addr[0], 0xb2, "");
 			zassert_equal(hdr->src.addr[0], 0xa2, "");
@@ -352,28 +367,103 @@ static void test_recv_with_bridge(void)
 	check_free_packet_count();
 }
 
+static void test_recv_with_bridge_fdb(void)
+{
+	struct net_eth_addr mac;
+	struct net_pkt *pkt;
+	struct net_eth_hdr *hdr;
+	uint8_t iface0_index = net_if_get_by_iface(fake_iface[0]);
+	int ret;
+
+	/* Add FDB entry: forward fake_iface[0] rx pkt to fake_iface[1] tx path */
+	mac.addr[0] = 0xb2;
+	mac.addr[1] = 0x11;
+	mac.addr[2] = 0x22;
+	mac.addr[3] = 0x33;
+	mac.addr[4] = iface0_index;
+	mac.addr[5] = 0x55;
+
+	ret = eth_bridge_fdb_add(&mac, fake_iface[1]);
+	zassert_equal(ret, 0, "");
+
+	/* fake reception of packets */
+	_recv_data(fake_iface[0]);
+
+	/* give time to the processing threads to run */
+	k_sleep(K_MSEC(100));
+
+	/* check fake_iface[0] tx path */
+	pkt = eth_fake_data[0].sent_pkt;
+	zassert_is_null(pkt, "");
+
+	/* check fake_iface[2] tx path */
+	pkt = eth_fake_data[2].sent_pkt;
+	zassert_is_null(pkt, "");
+
+	/* check fake_iface[1] tx path */
+	pkt = eth_fake_data[1].sent_pkt;
+
+	eth_fake_data[1].sent_pkt = NULL;
+	zassert_not_null(pkt, "");
+
+	/* make sure nothing messed up our ethernet header */
+	hdr = NET_ETH_HDR(pkt);
+
+	zassert_equal(hdr->dst.addr[0], 0xb2, "");
+	zassert_equal(hdr->src.addr[0], 0xa2, "");
+	zassert_equal(hdr->dst.addr[4], iface0_index, "");
+	zassert_equal(hdr->src.addr[3], iface0_index, "");
+
+	net_pkt_unref(pkt);
+
+	check_free_packet_count();
+}
+
 static void test_recv_after_bridging(void)
 {
 	int ret;
 
+	ret = net_if_down(bridge);
+	zassert_equal(ret, 0, "");
+
 	/* remove our interfaces from the bridge */
-	ret = eth_bridge_iface_remove(&test_bridge, fake_iface[0]);
+	ret = eth_bridge_iface_remove(bridge, fake_iface[0]);
 	zassert_equal(ret, 0, "");
-	ret = eth_bridge_iface_remove(&test_bridge, fake_iface[1]);
+	ret = eth_bridge_iface_remove(bridge, fake_iface[1]);
 	zassert_equal(ret, 0, "");
-	ret = eth_bridge_iface_remove(&test_bridge, fake_iface[2]);
+	ret = eth_bridge_iface_remove(bridge, fake_iface[2]);
 	zassert_equal(ret, 0, "");
+
+	/* If there are not enough interfaces in the bridge, it is not created */
+	ret = net_if_up(bridge);
+	zassert_equal(ret, -ENOENT, "");
+
+	eth_fake_data[0].sent_pkt = eth_fake_data[1].sent_pkt =
+		eth_fake_data[2].sent_pkt = NULL;
 
 	/* things should have returned to the pre-bridging state */
 	test_recv_before_bridging();
 }
 
+/* Make sure bridge interface support promiscuous API */
+ZTEST(net_eth_bridge, test_verify_promisc_mode)
+{
+	int ret;
+
+	ret = net_promisc_mode_on(bridge);
+	zassert_equal(ret, 0, "");
+}
+
 ZTEST(net_eth_bridge, test_net_eth_bridge)
 {
+	DBG("Before bridging\n");
 	test_iface_setup();
 	test_recv_before_bridging();
+	DBG("With bridging\n");
 	test_setup_bridge();
 	test_recv_with_bridge();
+	test_recv_with_bridge_fdb();
+	DBG("After bridging\n");
 	test_recv_after_bridging();
 }
 

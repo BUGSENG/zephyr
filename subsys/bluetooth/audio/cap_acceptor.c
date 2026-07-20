@@ -4,13 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/sys/check.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/audio/tbs.h>
 #include <zephyr/bluetooth/audio/csip.h>
-#include "cap_internal.h"
-
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/uuid.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/util_macro.h>
+
+#include "cap_internal.h"
 
 LOG_MODULE_REGISTER(bt_cap_acceptor, CONFIG_BT_CAP_ACCEPTOR_LOG_LEVEL);
 
@@ -27,13 +35,25 @@ int bt_cap_acceptor_register(const struct bt_csip_set_member_register_param *par
 	static struct bt_gatt_service cas;
 	int err;
 
-	CHECKIF(param->set_size == 0U) {
+	if (param == NULL) {
+		LOG_DBG("param is NULL");
+
+		return -EINVAL;
+	}
+
+	if (param->set_size == 0U) {
 		LOG_DBG("param->set_size shall be non-zero");
 		return -EINVAL;
 	}
 
-	CHECKIF(param->rank == 0U) {
+	if (param->rank == 0U) {
 		LOG_DBG("param->rank shall be non-zero");
+		return -EINVAL;
+	}
+
+	if (svc_inst == NULL) {
+		LOG_DBG("svc_inst is NULL");
+
 		return -EINVAL;
 	}
 
@@ -49,8 +69,16 @@ int bt_cap_acceptor_register(const struct bt_csip_set_member_register_param *par
 	cas.attrs[1].user_data = bt_csip_set_member_svc_decl_get(*svc_inst);
 
 	err = bt_gatt_service_register(&cas);
-	if (err) {
+	if (err != 0) {
+		const int csip_err = bt_csip_set_member_unregister(*svc_inst);
+
+		if (csip_err) {
+			LOG_ERR("Failed to unregister CSIS: %d", csip_err);
+		}
+
+		cas.attrs[1].user_data = NULL;
 		LOG_DBG("Failed to register CAS");
+
 		return err;
 	}
 
@@ -76,4 +104,30 @@ bool bt_cap_acceptor_ccid_exist(const struct bt_conn *conn, uint8_t ccid)
 	/* TODO: check mcs */
 
 	return false;
+}
+
+bool bt_cap_acceptor_ccids_exist(const struct bt_conn *conn, const uint8_t ccids[],
+				 uint8_t ccid_cnt)
+{
+	for (uint8_t i = 0U; i < ccid_cnt; i++) {
+		const uint8_t ccid = ccids[i];
+
+		if (!bt_cap_acceptor_ccid_exist(conn, ccid)) {
+			LOG_DBG("CCID %u is unknown", ccid);
+
+			/* TBD:
+			 * Should we reject the Metadata?
+			 *
+			 * Should unknown CCIDs trigger a
+			 * discovery procedure for TBS or MCS?
+			 *
+			 * Or should we just accept as is, and
+			 * then let the application decide?
+			 */
+			return false;
+		}
+	}
+
+	/* This will also return true if the ccid_cnt is 0 which is intended */
+	return true;
 }

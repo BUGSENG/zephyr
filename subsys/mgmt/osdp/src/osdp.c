@@ -69,21 +69,28 @@ static void osdp_uart_isr(const struct device *dev, void *user_data)
 	uint8_t buf[64];
 	struct osdp_device *p = user_data;
 
-	while (uart_irq_update(dev) && uart_irq_is_pending(dev)) {
+	uart_irq_update(dev);
 
-		if (uart_irq_rx_ready(dev)) {
+	if (uart_irq_rx_ready(dev) > 0) {
+		while (true) {
 			len = uart_fifo_read(dev, buf, sizeof(buf));
-			if (len > 0) {
-				osdp_handle_in_byte(p, buf, len);
+			if (len <= 0) {
+				break;
 			}
-		}
 
-		if (uart_irq_tx_ready(dev)) {
+			osdp_handle_in_byte(p, buf, len);
+		}
+	}
+
+	if (uart_irq_tx_ready(dev) > 0) {
+		while (true) {
 			len = ring_buf_get(&p->tx_buf, buf, 1);
-			if (!len) {
+			if (len <= 0) {
 				uart_irq_tx_disable(dev);
-			} else {
-				uart_fifo_fill(dev, buf, 1);
+				break;
+			}
+			if (uart_fifo_fill(dev, buf, 1) <= 0) {
+				break;
 			}
 		}
 	}
@@ -156,8 +163,7 @@ static struct osdp *osdp_build_ctx(struct osdp_channel *channel)
 			SET_FLAG(pd, PD_FLAG_PKT_SKIP_MARK);
 		}
 		memcpy(&pd->channel, channel, sizeof(struct osdp_channel));
-		k_mem_slab_init(&pd->cmd.slab,
-				pd->cmd.slab_buf, sizeof(struct osdp_cmd),
+		k_mem_slab_init(&pd->cmd.slab, pd->cmd.slab_buf, sizeof(union osdp_ephemeral_data),
 				CONFIG_OSDP_PD_COMMAND_QUEUE_SIZE);
 	}
 	return ctx;

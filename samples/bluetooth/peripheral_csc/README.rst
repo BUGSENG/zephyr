@@ -1,12 +1,13 @@
-.. _peripheral_csc:
+.. zephyr:code-sample:: ble_peripheral_csc
+   :name: Cycling Speed and Cadence (CSC) Peripheral
+   :relevant-api: bt_gatt bluetooth
 
-Bluetooth: Peripheral CSC
-#########################
+   Expose a Cycling Speed and Cadence (CSC) GATT Service.
 
 Overview
 ********
 
-Similar to the :ref:`Peripheral <ble_peripheral>` sample, except that this
+Similar to the :zephyr:code-sample:`ble_peripheral` sample, except that this
 application specifically exposes the CSC (Cycling Speed and Cadence) GATT
 Service.
 
@@ -15,12 +16,19 @@ Requirements
 ************
 
 * BlueZ running on the host, or
-* A board with BLE support
+* A board with Bluetooth LE support
 
 Building and Running
 ********************
 
-This sample can be found under :zephyr_file:`samples/bluetooth/peripheral_csc` in the
-Zephyr tree.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/peripheral_csc
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+After flashing, use a Bluetooth scanner app (e.g. nRF Connect) to connect to the device
+and subscribe to the CSC Measurement characteristic to receive cycling speed and cadence
+notifications.

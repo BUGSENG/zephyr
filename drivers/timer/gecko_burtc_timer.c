@@ -20,7 +20,6 @@
 #include <soc.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/timer/system_timer.h>
-#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/sys_clock.h>
 #include <zephyr/irq.h>
 #include <zephyr/spinlock.h>
@@ -38,7 +37,7 @@ LOG_MODULE_REGISTER(gecko_burtc_timer);
 #define MAX_TIMEOUT_CYC (UINT32_MAX >> 1)
 
 /*
- * Mininum time interval between now and IRQ firing that can be scheduled.
+ * Minimum time interval between now and IRQ firing that can be scheduled.
  * The main cause for this is LFSYNC register update, which requires several
  * LF clk cycles for synchronization.
  * Seee e.g. "4.2.4.4.4 LFSYNC Registers" in "EFR32xG22 Reference Manual"
@@ -55,7 +54,7 @@ const int32_t z_sys_timer_irq_for_test = TIMER_IRQ;
 /* With CONFIG_TIMER_READS_ITS_FREQUENCY_AT_RUNTIME, that's where we
  * should write hw_cycles timer clock frequency upon init
  */
-extern int z_clock_hw_cycles_per_sec;
+extern unsigned int z_clock_hw_cycles_per_sec;
 
 /* Number of hw_cycles clocks per 1 kernel tick */
 static uint32_t g_cyc_per_tick;
@@ -110,7 +109,7 @@ static void burtc_isr(const void *arg)
 	sys_clock_announce(unannounced);
 }
 
-void sys_clock_set_timeout(int32_t ticks, bool idle)
+void sys_clock_set_timeout(uint32_t ticks, bool idle)
 {
 	ARG_UNUSED(idle);
 
@@ -124,8 +123,7 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 	 * 0 - announce upcoming tick itself
 	 * 1 - skip upcoming one, but announce the one after it, etc.
 	 */
-	ticks = (ticks == K_TICKS_FOREVER) ? g_max_timeout_ticks : ticks;
-	ticks = CLAMP(ticks - 1, 0, g_max_timeout_ticks);
+	ticks = CLAMP(ticks, 1, g_max_timeout_ticks) - 1;
 
 	k_spinlock_key_t key = k_spin_lock(&g_lock);
 
@@ -188,17 +186,6 @@ static int burtc_init(void)
 
 	/* Enable clock for BURTC CSRs on APB */
 	CMU_ClockEnable(cmuClock_BURTC, true);
-
-	/* Configure BURTC LF clocksource according to Kconfig */
-#if defined(CONFIG_CMU_BURTCCLK_LFXO)
-	CMU_ClockSelectSet(cmuClock_BURTC, cmuSelect_LFXO);
-#elif defined(CONFIG_CMU_BURTCCLK_LFRCO)
-	CMU_ClockSelectSet(cmuClock_BURTC, cmuSelect_LFRCO);
-#elif defined(CONFIG_CMU_BURTCCLK_ULFRCO)
-	CMU_ClockSelectSet(cmuClock_BURTC, cmuSelect_ULFRCO);
-#else
-#error "Unsupported BURTC clock specified"
-#endif
 
 	/* Calculate timing constants and init BURTC */
 	hw_clock_freq = CMU_ClockFreqGet(cmuClock_BURTC);

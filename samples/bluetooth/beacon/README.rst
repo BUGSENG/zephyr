@@ -1,26 +1,44 @@
-.. _bluetooth-beacon-sample:
+.. zephyr:code-sample:: bluetooth_beacon
+   :name: Beacon
+   :relevant-api: bluetooth
 
-Bluetooth: Beacon
-#################
+   Advertise an Eddystone URL using GAP Broadcaster role.
 
 Overview
 ********
 
-A simple application demonstrating the BLE Broadcaster role functionality by
+A simple application demonstrating the GAP Broadcaster role functionality by
 advertising an Eddystone URL (the Zephyr website).
-
-
 
 Requirements
 ************
 
 * BlueZ running on the host, or
-* A board with BLE support
+* A board with Bluetooth LE support
 
 Building and Running
 ********************
 
-This sample can be found under :zephyr_file:`samples/bluetooth/beacon` in the
-Zephyr tree.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/beacon
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+After flashing, use an Eddystone-compatible scanner app (e.g. nRF Connect) to observe
+the advertised Eddystone URL beacon pointing to the Zephyr Project website.
+
+Building with Bluetooth LE controller coexistence support
+=========================================================
+
+On boards where the Bluetooth LE controller must share the 2.4 GHz band with another
+radio (e.g. 802.15.4/Thread/Zigbee), build with the coexistence configuration:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/beacon
+   :board: nrf52840dk/nrf52840
+   :goals: build flash
+   :gen-args: -DCONF_FILE=prj-coex.conf
+   :compact:

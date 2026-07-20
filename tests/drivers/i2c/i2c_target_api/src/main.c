@@ -11,19 +11,23 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <stdio.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
 
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/i2c/target/eeprom.h>
+#include <zephyr/drivers/gpio.h>
 
 #include <zephyr/ztest.h>
 
 #define NODE_EP0 DT_NODELABEL(eeprom0)
 #define NODE_EP1 DT_NODELABEL(eeprom1)
 
-#define TEST_DATA_SIZE	20
-static const uint8_t eeprom_0_data[TEST_DATA_SIZE] = "0123456789abcdefghij";
-static const uint8_t eeprom_1_data[TEST_DATA_SIZE] = "jihgfedcba9876543210";
+#define TEST_DATA_SIZE	MIN(CONFIG_I2C_TEST_DATA_MAX_SIZE, \
+			    MIN(DT_PROP(NODE_EP0, size), DT_PROP(NODE_EP1, size)))
+
+static uint8_t eeprom_0_data[TEST_DATA_SIZE];
+static uint8_t eeprom_1_data[TEST_DATA_SIZE];
 static uint8_t i2c_buffer[TEST_DATA_SIZE];
 
 /*
@@ -32,6 +36,23 @@ static uint8_t i2c_buffer[TEST_DATA_SIZE];
  */
 uint8_t buffer_print_eeprom[TEST_DATA_SIZE * 5 + 1];
 uint8_t buffer_print_i2c[TEST_DATA_SIZE * 5 + 1];
+
+static void init_eeprom_test_data(void)
+{
+	size_t n;
+
+	/*
+	 * Initialize EEPROM data with printable ASCII value (range [32 126]).
+	 * Make sure content differs between eeprom_0_data[] and eeprom_1_data[].
+	 */
+	for (n = 0; n < sizeof(eeprom_0_data); n++) {
+		eeprom_0_data[n] = 32 + (n % (126 - 32));
+	}
+
+	for (n = 0; n < sizeof(eeprom_1_data); n++) {
+		eeprom_1_data[n] = 32 + (((n + 10) * 3) % (126 - 32));
+	}
+}
 
 static void to_display_format(const uint8_t *src, size_t size, char *dst)
 {
@@ -43,15 +64,17 @@ static void to_display_format(const uint8_t *src, size_t size, char *dst)
 }
 
 static int run_full_read(const struct device *i2c, uint8_t addr,
-			 const uint8_t *comp_buffer)
+			 uint8_t addr_width, const uint8_t *comp_buffer)
 {
 	int ret;
+	uint8_t start_addr[2];
 
 	TC_PRINT("Testing full read: Master: %s, address: 0x%x\n",
 		 i2c->name, addr);
 
 	/* Read EEPROM from I2C Master requests, then compare */
-	ret = i2c_burst_read(i2c, addr, 0, i2c_buffer, TEST_DATA_SIZE);
+	memset(start_addr, 0, sizeof(start_addr));
+	ret = i2c_write_read(i2c, addr, start_addr, (addr_width >> 3), i2c_buffer, TEST_DATA_SIZE);
 	zassert_equal(ret, 0, "Failed to read EEPROM");
 
 	if (memcmp(i2c_buffer, comp_buffer, TEST_DATA_SIZE)) {
@@ -70,15 +93,27 @@ static int run_full_read(const struct device *i2c, uint8_t addr,
 }
 
 static int run_partial_read(const struct device *i2c, uint8_t addr,
-			    const uint8_t *comp_buffer, unsigned int offset)
+			    uint8_t addr_width, const uint8_t *comp_buffer, unsigned int offset)
 {
 	int ret;
+	uint8_t start_addr[2];
 
 	TC_PRINT("Testing partial read. Master: %s, address: 0x%x, off=%d\n",
 		 i2c->name, addr, offset);
 
-	ret = i2c_burst_read(i2c, addr,
-			     offset, i2c_buffer, TEST_DATA_SIZE-offset);
+	switch (addr_width) {
+	case 8:
+		start_addr[0] = (uint8_t) (offset & 0xFF);
+	break;
+	case 16:
+		sys_put_be16((uint16_t)(offset & 0xFFFF), start_addr);
+	break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = i2c_write_read(i2c, addr,
+			     start_addr, (addr_width >> 3), i2c_buffer, TEST_DATA_SIZE-offset);
 	zassert_equal(ret, 0, "Failed to read EEPROM");
 
 	if (memcmp(i2c_buffer, &comp_buffer[offset], TEST_DATA_SIZE-offset)) {
@@ -97,34 +132,45 @@ static int run_partial_read(const struct device *i2c, uint8_t addr,
 }
 
 static int run_program_read(const struct device *i2c, uint8_t addr,
-			    unsigned int offset)
+			    uint8_t addr_width, unsigned int offset)
 {
 	int ret, i;
+	uint8_t buf[TEST_DATA_SIZE + 2];
+	uint8_t addr_size;
 
 	TC_PRINT("Testing program. Master: %s, address: 0x%x, off=%d\n",
 		i2c->name, addr, offset);
 
-	for (i = 0 ; i < TEST_DATA_SIZE-offset ; ++i) {
-		i2c_buffer[i] = i;
+	switch (addr_width) {
+	case 8:
+		buf[0] = (uint8_t) (offset & 0xFF);
+		addr_size = 1;
+	break;
+	case 16:
+		sys_put_be16((uint16_t)(offset & 0xFFFF), buf);
+		addr_size = 2;
+	break;
+	default:
+		return -EINVAL;
 	}
 
-	ret = i2c_burst_write(i2c, addr,
-			      offset, i2c_buffer, TEST_DATA_SIZE-offset);
+	for (i = 0; i < TEST_DATA_SIZE - offset; ++i) {
+		buf[i + addr_size] = i & 0xFF;
+	}
+
+	ret = i2c_write(i2c, &buf[0], TEST_DATA_SIZE - offset + addr_size, addr);
 	zassert_equal(ret, 0, "Failed to write EEPROM");
 
-	(void)memset(i2c_buffer, 0xFF, TEST_DATA_SIZE);
-
 	/* Read back EEPROM from I2C Master requests, then compare */
-	ret = i2c_burst_read(i2c, addr,
-			     offset, i2c_buffer, TEST_DATA_SIZE-offset);
+	ret = i2c_write_read(i2c, addr, buf, addr_size, i2c_buffer, TEST_DATA_SIZE - offset);
 	zassert_equal(ret, 0, "Failed to read EEPROM");
 
 	for (i = 0 ; i < TEST_DATA_SIZE-offset ; ++i) {
-		if (i2c_buffer[i] != i) {
+		if (i2c_buffer[i] != (i & 0xFF)) {
 			to_display_format(i2c_buffer, TEST_DATA_SIZE-offset,
 					  buffer_print_i2c);
-			TC_PRINT("Error: Unexpected buffer content: %s\n",
-				 buffer_print_i2c);
+			TC_PRINT("Error: Unexpected %u (%02x) buffer content: %s\n",
+				 i, i2c_buffer[i], buffer_print_i2c);
 			return -EIO;
 		}
 	}
@@ -132,15 +178,75 @@ static int run_program_read(const struct device *i2c, uint8_t addr,
 	return 0;
 }
 
+ZTEST(i2c_eeprom_target, test_deinit)
+{
+	const struct device *const i2c_0 = DEVICE_DT_GET(DT_BUS(NODE_EP0));
+	const struct device *const i2c_1 = DEVICE_DT_GET(DT_BUS(NODE_EP1));
+	const struct gpio_dt_spec sda_pin_0 =
+		GPIO_DT_SPEC_GET_OR(DT_PATH(zephyr_user), sda0_gpios, {});
+	const struct gpio_dt_spec scl_pin_0 =
+		GPIO_DT_SPEC_GET_OR(DT_PATH(zephyr_user), scl0_gpios, {});
+	const struct gpio_dt_spec sda_pin_1 =
+		GPIO_DT_SPEC_GET_OR(DT_PATH(zephyr_user), sda1_gpios, {});
+	const struct gpio_dt_spec scl_pin_1 =
+		GPIO_DT_SPEC_GET_OR(DT_PATH(zephyr_user), scl1_gpios, {});
+	int ret;
+
+	if (i2c_0 == i2c_1) {
+		TC_PRINT("  gpio loopback required for test\n");
+		ztest_test_skip();
+	}
+
+	if (scl_pin_0.port == NULL || sda_pin_0.port == NULL ||
+	    scl_pin_1.port == NULL || sda_pin_1.port == NULL) {
+		TC_PRINT("  bus gpios not specified in zephyr,path\n");
+		ztest_test_skip();
+	}
+
+	ret = device_deinit(i2c_0);
+	if (ret == -ENOTSUP) {
+		TC_PRINT("  device deinit not supported\n");
+		ztest_test_skip();
+	}
+
+	zassert_ok(ret);
+
+	ret = device_deinit(i2c_1);
+	if (ret == -ENOTSUP) {
+		TC_PRINT("  device deinit not supported\n");
+		zassert_ok(device_init(i2c_0));
+		ztest_test_skip();
+	}
+
+	zassert_ok(gpio_pin_configure_dt(&sda_pin_0, GPIO_INPUT));
+	zassert_ok(gpio_pin_configure_dt(&sda_pin_1, GPIO_OUTPUT_INACTIVE));
+	zassert_ok(gpio_pin_configure_dt(&scl_pin_0, GPIO_INPUT));
+	zassert_ok(gpio_pin_configure_dt(&scl_pin_1, GPIO_OUTPUT_INACTIVE));
+	zassert_equal(gpio_pin_get_dt(&sda_pin_0), 0);
+	zassert_equal(gpio_pin_get_dt(&scl_pin_0), 0);
+	zassert_ok(gpio_pin_set_dt(&sda_pin_1, 1));
+	zassert_ok(gpio_pin_set_dt(&scl_pin_1, 1));
+	zassert_equal(gpio_pin_get_dt(&sda_pin_0), 1);
+	zassert_equal(gpio_pin_get_dt(&scl_pin_0), 1);
+	zassert_ok(gpio_pin_configure_dt(&sda_pin_1, GPIO_INPUT));
+	zassert_ok(gpio_pin_configure_dt(&scl_pin_1, GPIO_INPUT));
+	zassert_ok(device_init(i2c_0));
+	zassert_ok(device_init(i2c_1));
+}
+
 ZTEST(i2c_eeprom_target, test_eeprom_target)
 {
 	const struct device *const eeprom_0 = DEVICE_DT_GET(NODE_EP0);
 	const struct device *const i2c_0 = DEVICE_DT_GET(DT_BUS(NODE_EP0));
 	int addr_0 = DT_REG_ADDR(NODE_EP0);
+	uint8_t addr_0_width = DT_PROP_OR(NODE_EP0, address_width, 8);
 	const struct device *const eeprom_1 = DEVICE_DT_GET(NODE_EP1);
 	const struct device *const i2c_1 = DEVICE_DT_GET(DT_BUS(NODE_EP1));
 	int addr_1 = DT_REG_ADDR(NODE_EP1);
+	uint8_t addr_1_width = DT_PROP_OR(NODE_EP1, address_width, 8);
 	int ret, offset;
+
+	init_eeprom_test_data();
 
 	zassert_not_null(i2c_0, "EEPROM 0 - I2C bus not found");
 	zassert_not_null(eeprom_0, "EEPROM 0 device not found");
@@ -167,11 +273,11 @@ ZTEST(i2c_eeprom_target, test_eeprom_target)
 	/* Program differentiable data into the two devices through a back door
 	 * that doesn't use I2C.
 	 */
-	ret = eeprom_target_program(eeprom_0, eeprom_0_data, TEST_DATA_SIZE);
+	ret = eeprom_target_write_data(eeprom_0, 0, eeprom_0_data, TEST_DATA_SIZE);
 	zassert_equal(ret, 0, "Failed to program EEPROM 0");
 	if (IS_ENABLED(CONFIG_APP_DUAL_ROLE_I2C)) {
-		ret = eeprom_target_program(eeprom_1, eeprom_1_data,
-					   TEST_DATA_SIZE);
+		ret = eeprom_target_write_data(eeprom_1, 0, eeprom_1_data,
+					       TEST_DATA_SIZE);
 		zassert_equal(ret, 0, "Failed to program EEPROM 1");
 	}
 
@@ -194,21 +300,22 @@ ZTEST(i2c_eeprom_target, test_eeprom_target)
 	 * Similarly validation of EP1 uses i2c_0 as a master with addr_1 and
 	 * eeprom_1_data for validation.
 	 */
-	ret = run_full_read(i2c_1, addr_0, eeprom_0_data);
+	ret = run_full_read(i2c_1, addr_0, addr_0_width, eeprom_0_data);
 	zassert_equal(ret, 0,
 		     "Full I2C read from EP0 failed");
 	if (IS_ENABLED(CONFIG_APP_DUAL_ROLE_I2C)) {
-		ret = run_full_read(i2c_0, addr_1, eeprom_1_data);
+		ret = run_full_read(i2c_0, addr_1, addr_1_width, eeprom_1_data);
 		zassert_equal(ret, 0,
 			      "Full I2C read from EP1 failed");
 	}
 
 	for (offset = 0 ; offset < TEST_DATA_SIZE-1 ; ++offset) {
 		zassert_equal(0, run_partial_read(i2c_1, addr_0,
-			      eeprom_0_data, offset),
+			      addr_0_width, eeprom_0_data, offset),
 			      "Partial I2C read EP0 failed");
 		if (IS_ENABLED(CONFIG_APP_DUAL_ROLE_I2C)) {
 			zassert_equal(0, run_partial_read(i2c_0, addr_1,
+							  addr_1_width,
 							  eeprom_1_data,
 							  offset),
 				      "Partial I2C read EP1 failed");
@@ -216,11 +323,12 @@ ZTEST(i2c_eeprom_target, test_eeprom_target)
 	}
 
 	for (offset = 0 ; offset < TEST_DATA_SIZE-1 ; ++offset) {
-		zassert_equal(0, run_program_read(i2c_1, addr_0, offset),
+		zassert_equal(0, run_program_read(i2c_1, addr_0,
+							  addr_0_width, offset),
 			      "Program I2C read EP0 failed");
 		if (IS_ENABLED(CONFIG_APP_DUAL_ROLE_I2C)) {
 			zassert_equal(0, run_program_read(i2c_0, addr_1,
-							  offset),
+							  addr_1_width, offset),
 				      "Program I2C read EP1 failed");
 		}
 	}

@@ -19,9 +19,9 @@ static void happy_path(
 	const unsigned int expected_msg_len = strlen(expected_msg);
 	char actual_msg[32];
 	size_t actual_msg_len;
-	struct iovec iovec;
-	struct msghdr msghdr;
-	socklen_t len;
+	struct net_iovec iovec;
+	struct net_msghdr msghdr;
+	net_socklen_t len;
 
 	/* sockets are bidirectional. test functions from both ends */
 	for (int i = 0; i < 2; ++i) {
@@ -30,7 +30,7 @@ static void happy_path(
 		 * Test with send() / recv()
 		 */
 
-		res = send(fixture->sv[i], expected_msg, expected_msg_len, 0);
+		res = zsock_send(fixture->sv[i], expected_msg, expected_msg_len, 0);
 
 		zassert_not_equal(res, -1, "send() failed: %d", errno);
 		actual_msg_len = res;
@@ -39,7 +39,7 @@ static void happy_path(
 
 		memset(actual_msg, 0, sizeof(actual_msg));
 
-		res = recv(fixture->sv[(!i) & 1], actual_msg, sizeof(actual_msg), 0);
+		res = zsock_recv(fixture->sv[(!i) & 1], actual_msg, sizeof(actual_msg), 0);
 
 		zassert_not_equal(res, -1, "recv() failed: %d", errno);
 		actual_msg_len = res;
@@ -54,7 +54,7 @@ static void happy_path(
 		 * Test with sendto(2) / recvfrom(2)
 		 */
 
-		res = sendto(fixture->sv[i], expected_msg, expected_msg_len, 0, NULL, 0);
+		res = zsock_sendto(fixture->sv[i], expected_msg, expected_msg_len, 0, NULL, 0);
 
 		zassert_not_equal(res, -1, "sendto() failed: %d", errno);
 		actual_msg_len = res;
@@ -64,8 +64,8 @@ static void happy_path(
 		memset(actual_msg, 0, sizeof(actual_msg));
 
 		len = 0;
-		res = recvfrom(fixture->sv[(!i) & 1], actual_msg, sizeof(actual_msg), 0,
-			NULL, &len);
+		res = zsock_recvfrom(fixture->sv[(!i) & 1], actual_msg, sizeof(actual_msg), 0,
+				     NULL, &len);
 		zassert_true(res >= 0, "recvfrom() failed: %d", errno);
 		actual_msg_len = res;
 		zassert_equal(actual_msg_len, expected_msg_len,
@@ -85,14 +85,14 @@ static void happy_path(
 		iovec.iov_base = (void *)expected_msg;
 		iovec.iov_len = expected_msg_len;
 
-		res = sendmsg(fixture->sv[i], &msghdr, 0);
+		res = zsock_sendmsg(fixture->sv[i], &msghdr, 0);
 
 		zassert_not_equal(res, -1, "sendmsg() failed: %d", errno);
 		actual_msg_len = res;
 		zassert_equal(actual_msg_len, expected_msg_len,
 				  "did not sendmsg entire message");
 
-		res = recv(fixture->sv[(!i) & 1], actual_msg, sizeof(actual_msg), 0);
+		res = zsock_recv(fixture->sv[(!i) & 1], actual_msg, sizeof(actual_msg), 0);
 
 		zassert_not_equal(res, -1, "recv() failed: %d", errno);
 		actual_msg_len = res;
@@ -105,22 +105,22 @@ static void happy_path(
 	}
 }
 
-ZTEST_USER_F(net_socketpair, test_AF_LOCAL_SOCK_STREAM_0)
+ZTEST_USER_F(net_socketpair, test_AF_LOCAL_NET_SOCK_STREAM_0)
 {
 	happy_path(
 		fixture,
-		AF_LOCAL, "AF_LOCAL",
-		SOCK_STREAM, "SOCK_STREAM",
+		NET_AF_LOCAL, "AF_LOCAL",
+		NET_SOCK_STREAM, "SOCK_STREAM",
 		0, "0"
 	);
 }
 
-ZTEST_USER_F(net_socketpair, test_AF_UNIX_SOCK_STREAM_0)
+ZTEST_USER_F(net_socketpair, test_AF_UNIX_NET_SOCK_STREAM_0)
 {
 	happy_path(
 		fixture,
-		AF_UNIX, "AF_UNIX",
-		SOCK_STREAM, "SOCK_STREAM",
+		NET_AF_UNIX, "AF_UNIX",
+		NET_SOCK_STREAM, "SOCK_STREAM",
 		0, "0"
 	);
 }

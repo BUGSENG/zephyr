@@ -4,7 +4,7 @@
  */
 
 /*
- * Control arrives here at _start from the reset vector or from crt0-app.S.
+ * Control arrives here at _start from the reset vector.
  */
 
 #include <xtensa/coreasm.h>
@@ -22,12 +22,7 @@
  */
 
 .global __start
-.type	z_cstart, @function
-.type	z_mp_entry, @function
-
-#ifdef CONFIG_XTENSA_MMU
-.type	z_xtensa_mmu_init, @function
-#endif
+.type	z_prep_c, @function
 
 
 /* Macros to abstract away ABI differences */
@@ -35,19 +30,9 @@
 #if __XTENSA_CALL0_ABI__
 # define CALL	call0
 # define CALLX	callx0
-# define ARG1	a2	/* 1st outgoing call argument */
-# define ARG2	a3	/* 2nd outgoing call argument */
-# define ARG3	a4	/* 3rd outgoing call argument */
-# define ARG4	a5	/* 4th outgoing call argument */
-# define ARG5	a6	/* 5th outgoing call argument */
 #else
 # define CALL	call4
 # define CALLX	callx4
-# define ARG1	a6	/* 1st outgoing call argument */
-# define ARG2	a7	/* 2nd outgoing call argument */
-# define ARG3	a8	/* 3rd outgoing call argument */
-# define ARG4	a9	/* 4th outgoing call argument */
-# define ARG5	a10	/* 5th outgoing call argument */
 #endif
 
 	.text
@@ -57,7 +42,7 @@ _start:
 	/*
 	 *  _start is typically NOT at the beginning of the text segment --
 	 *  it is always called from either the reset vector (__start) or other
-	 *  code that does equivalent initialization (such as crt0-app.S).
+	 *  code that does equivalent initialization.
 	 *
 	 *  Assumptions on entry to _start:
 	 *	- low (level-one) and medium priority interrupts are disabled
@@ -193,11 +178,7 @@ _start:
 
 #endif /* !XCHAL_HAVE_BOOTLOADER */
 
-#ifdef CONFIG_XTENSA_MMU
-	CALL	z_xtensa_mmu_init
-#endif
-
 	/* Enter C domain, never returns from here */
-	CALL	z_cstart
+	CALL	z_prep_c
 
 	.size	_start, . - _start

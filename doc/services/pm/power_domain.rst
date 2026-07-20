@@ -39,8 +39,8 @@ work flow is illustrated in the diagram below.
        }
        domain [label="gpio_domain"]
 
-      action -> devA [label="pm_device_get()"]
-      devA:se -> domain:n [label="pm_device_get()"]
+      action -> devA [label="pm_device_runtime_get()"]
+      devA:se -> domain:n [label="pm_device_runtime_get()"]
 
       domain -> devB [label="action_cb(PM_DEVICE_ACTION_TURN_ON)"]
       domain:sw -> devA:sw [label="action_cb(PM_DEVICE_ACTION_TURN_ON)"]
@@ -92,7 +92,7 @@ PM subsystem to turn devices on and off.
 .. code-block:: c
 
     static int mydomain_pm_action(const struct device *dev,
-                               enum pm_device_action *action)
+                               enum pm_device_action action)
     {
         switch (action) {
         case PM_DEVICE_ACTION_RESUME:
@@ -131,13 +131,13 @@ Devices belonging to this device can be declared referring it in the
         &gpio0 {
                 compatible = "zephyr,gpio-emul";
                 gpio-controller;
-                power-domain = <&gpio_domain>;
+                power-domains = <&gpio_domain>;
         };
 
         &gpio1 {
                 compatible = "zephyr,gpio-emul";
                 gpio-controller;
-                power-domain = <&gpio_domain>;
+                power-domains = <&gpio_domain>;
         };
 
 All devices under a domain will be notified when the domain changes
@@ -178,3 +178,11 @@ They can safely be ignored though.
 
    It is responsibility of driver or the application to set the domain as
    "wakeup" source if a device depending on it is used as "wakeup" source.
+
+Examples
+********
+
+Some helpful examples showing power domain features:
+
+* :zephyr_file:`tests/subsys/pm/device_power_domains/`
+* :zephyr_file:`tests/subsys/pm/power_domain/`

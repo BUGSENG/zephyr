@@ -28,8 +28,6 @@
 #define _APP_BSS_SECTION_NAME		app_bss
 #define _APP_NOINIT_SECTION_NAME	app_noinit
 
-#define _APP_SMEM_PINNED_SECTION_NAME	app_smem_pinned
-
 #define _UNDEFINED_SECTION_NAME undefined
 
 /* Interrupts */
@@ -49,10 +47,6 @@
 #define _KINETIS_FLASH_CONFIG_SECTION_NAME  kinetis_flash_config
 #define _TI_CCFG_SECTION_NAME	        .ti_ccfg
 
-#define _CCM_DATA_SECTION_NAME		.ccm_data
-#define _CCM_BSS_SECTION_NAME		.ccm_bss
-#define _CCM_NOINIT_SECTION_NAME	.ccm_noinit
-
 #define _ITCM_SECTION_NAME		.itcm
 
 #define _DTCM_DATA_SECTION_NAME	        .dtcm_data
@@ -67,15 +61,21 @@
 #define _IMX_BOOT_DATA_SECTION_NAME	.boot_hdr.data
 #define _IMX_BOOT_IVT_SECTION_NAME	.boot_hdr.ivt
 #define _IMX_BOOT_DCD_SECTION_NAME	.boot_hdr.dcd_data
-
-#define _STM32_SDRAM1_SECTION_NAME	.stm32_sdram1
-#define _STM32_SDRAM2_SECTION_NAME	.stm32_sdram2
+#define _IMX_BOOT_CONTAINER_SECTION_NAME .boot_hdr.container
 
 #define _STM32_BACKUP_SRAM_SECTION_NAME	.stm32_backup_sram
 
 #ifdef CONFIG_NOCACHE_MEMORY
 #define _NOCACHE_SECTION_NAME nocache
+#define _NOCACHE_LOAD_SECTION_NAME nocache_load
 #endif
+
+/* Symbol table section */
+#if defined(CONFIG_SYMTAB)
+#define _SYMTAB_INFO_SECTION_NAME	.gnu.linkonce.symtab.info
+#define _SYMTAB_ENTRY_SECTION_NAME	.gnu.linkonce.symtab.entry
+#define _SYMTAB_SECTION_SYMS		.gnu.linkonce.symtab*
+#endif /* CONFIG_SYMTAB */
 
 #if defined(CONFIG_LINKER_USE_BOOT_SECTION)
 #define BOOT_TEXT_SECTION_NAME		boot_text
@@ -85,12 +85,9 @@
 #define BOOT_NOINIT_SECTION_NAME	boot_noinit
 #endif
 
-#if defined(CONFIG_LINKER_USE_PINNED_SECTION)
-#define PINNED_TEXT_SECTION_NAME	pinned_text
-#define PINNED_BSS_SECTION_NAME		pinned_bss
-#define PINNED_RODATA_SECTION_NAME	pinned_rodata
-#define PINNED_DATA_SECTION_NAME	pinned_data
-#define PINNED_NOINIT_SECTION_NAME	pinned_noinit
+#if defined(CONFIG_LINKER_USE_ONDEMAND_SECTION)
+#define ONDEMAND_TEXT_SECTION_NAME	ondemand_text
+#define ONDEMAND_RODATA_SECTION_NAME	ondemand_rodata
 #endif
 
 /* Short section references for use in ASM files */
@@ -118,19 +115,13 @@
 #define BOOT_NOINIT			NOINIT
 #endif /* CONFIG_LINKER_USE_BOOT_SECTION */
 
-#if defined(CONFIG_LINKER_USE_PINNED_SECTION)
-#define PINNED_TEXT			PINNED_TEXT_SECTION_NAME
-#define PINNED_BSS			PINNED_BSS_SECTION_NAME
-#define PINNED_RODATA			PINNED_RODATA_SECTION_NAME
-#define PINNED_DATA			PINNED_DATA_SECTION_NAME
-#define PINNED_NOINIT			PINNED_NOINIT_SECTION_NAME
+#if defined(CONFIG_LINKER_USE_ONDEMAND_SECTION)
+#define ONDEMAND_TEXT			ONDEMAND_TEXT_SECTION_NAME
+#define ONDEMAND_RODATA		ONDEMAND_RODATA_SECTION_NAME
 #else
-#define PINNED_TEXT			TEXT
-#define PINNED_BSS			BSS
-#define PINNED_RODATA			RODATA
-#define PINNED_DATA			DATA
-#define PINNED_NOINIT			NOINIT
-#endif /* CONFIG_LINKER_USE_PINNED_SECTION */
+#define ONDEMAND_TEXT			TEXT
+#define ONDEMAND_RODATA		RODATA
+#endif /* CONFIG_LINKER_USE_ONDEMAND_SECTION */
 
 #endif /* _ASMLANGUAGE */
 

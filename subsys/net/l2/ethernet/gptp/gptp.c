@@ -7,6 +7,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_gptp, CONFIG_NET_GPTP_LOG_LEVEL);
 
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/drivers/ptp_clock.h>
 #include <zephyr/net/ethernet_mgmt.h>
@@ -35,22 +36,37 @@ K_FIFO_DEFINE(gptp_rx_queue);
 static k_tid_t tid;
 static struct k_thread gptp_thread_data;
 struct gptp_domain gptp_domain;
+struct gptp_clock_data gptp_clock;
 
 int gptp_get_port_number(struct net_if *iface)
 {
-	int port = net_eth_get_ptp_port(iface) + 1;
+	struct ethernet_context *ctx = net_if_l2_data(iface);
+	int port = ctx->gptp_port;
 
-	if (port >= GPTP_PORT_START && port < GPTP_PORT_END) {
+	if (port >= GPTP_PORT_START && port <= GPTP_PORT_END) {
 		return port;
 	}
+	return -ENODEV;
+}
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
-		if (GPTP_PORT_IFACE(port) == iface) {
-			return port;
-		}
+int gptp_set_port_number(struct net_if *iface, uint16_t port)
+{
+	struct ethernet_context *ctx = net_if_l2_data(iface);
+	const struct device *clk;
+
+	clk = net_eth_get_ptp_clock(iface);
+	if (clk == NULL) {
+		return -ENODEV;
 	}
 
-	return -ENODEV;
+	if (port < GPTP_PORT_START ||
+	    port >= (GPTP_PORT_START + CONFIG_NET_GPTP_NUM_PORTS)) {
+		return -EINVAL;
+	}
+
+	ctx->gptp_port = port;
+
+	return 0;
 }
 
 bool gptp_is_slave_port(int port)
@@ -84,7 +100,7 @@ static void gptp_compute_clock_identity(int port)
 
 #define PRINT_INFO(msg, hdr, pkt)				\
 	NET_DBG("Received %s seq %d pkt %p", (const char *)msg,	\
-		ntohs(hdr->sequence_id), pkt)			\
+		net_ntohs(hdr->sequence_id), pkt)			\
 
 
 static bool gptp_handle_critical_msg(struct net_if *iface, struct net_pkt *pkt)
@@ -129,6 +145,11 @@ static bool gptp_handle_critical_msg(struct net_if *iface, struct net_pkt *pkt)
 
 static void gptp_handle_msg(struct net_pkt *pkt)
 {
+	if (GPTP_PACKET_LEN(pkt) < sizeof(struct gptp_hdr)) {
+		NET_DBG("gPTP packet too short (%zu)", GPTP_PACKET_LEN(pkt));
+		return;
+	}
+
 	struct gptp_hdr *hdr = GPTP_HDR(pkt);
 	struct gptp_pdelay_req_state *pdelay_req_state;
 	struct gptp_sync_rcv_state *sync_rcv_state;
@@ -236,7 +257,7 @@ static void gptp_handle_msg(struct net_pkt *pkt)
 		/* Keep the pkt alive until info is extracted. */
 		sync_rcv_state->rcvd_follow_up_ptr = net_pkt_ref(pkt);
 		NET_DBG("Keeping %s seq %d pkt %p", "FOLLOWUP",
-			ntohs(hdr->sequence_id), pkt);
+			net_ntohs(hdr->sequence_id), pkt);
 		break;
 
 	case GPTP_PATH_DELAY_FOLLOWUP_MESSAGE:
@@ -320,9 +341,19 @@ static void gptp_handle_msg(struct net_pkt *pkt)
 	}
 }
 
-enum net_verdict net_gptp_recv(struct net_if *iface, struct net_pkt *pkt)
+static enum net_verdict net_gptp_recv(struct net_if *iface, uint16_t ptype,
+				      struct net_pkt *pkt)
 {
 	struct gptp_hdr *hdr = GPTP_HDR(pkt);
+
+	ARG_UNUSED(ptype);
+
+	if (!(net_eth_is_addr_ptp_multicast(
+		      (struct net_eth_addr *)net_pkt_lladdr_dst(pkt)->addr) ||
+	      net_eth_is_addr_lldp_multicast(
+		      (struct net_eth_addr *)net_pkt_lladdr_dst(pkt)->addr))) {
+		return NET_DROP;
+	}
 
 	if ((hdr->ptp_version != GPTP_VERSION) ||
 			(hdr->transport_specific != GPTP_TRANSPORT_802_1_AS)) {
@@ -345,6 +376,8 @@ enum net_verdict net_gptp_recv(struct net_if *iface, struct net_pkt *pkt)
 	/* Message not propagated up in the stack. */
 	return NET_DROP;
 }
+
+ETH_NET_L3_REGISTER(gPTP, NET_ETH_PTYPE_PTP, net_gptp_recv);
 
 static void gptp_init_clock_ds(void)
 {
@@ -490,10 +523,10 @@ static void gptp_init_port_ds(int port)
 	port_ds->compute_neighbor_prop_delay = true;
 
 	/* Random Sequence Numbers. */
-	port_ds->sync_seq_id = (uint16_t)sys_rand32_get();
-	port_ds->pdelay_req_seq_id = (uint16_t)sys_rand32_get();
-	port_ds->announce_seq_id = (uint16_t)sys_rand32_get();
-	port_ds->signaling_seq_id = (uint16_t)sys_rand32_get();
+	port_ds->sync_seq_id = sys_rand16_get();
+	port_ds->pdelay_req_seq_id = sys_rand16_get();
+	port_ds->announce_seq_id = sys_rand16_get();
+	port_ds->signaling_seq_id = sys_rand16_get();
 
 #if defined(CONFIG_NET_GPTP_STATISTICS)
 	/* Initialize stats data set. */
@@ -512,7 +545,7 @@ static void gptp_state_machine(void)
 	int port;
 
 	/* Manage port states. */
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		struct gptp_port_ds *port_ds = GPTP_PORT_DS(port);
 
 		/* If interface is down, don't move forward */
@@ -540,15 +573,19 @@ static void gptp_state_machine(void)
 	gptp_mi_state_machines();
 }
 
-static void gptp_thread(void)
+static void gptp_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	int port;
 
 	NET_DBG("Starting PTP thread");
 
 	gptp_init_clock_ds();
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		gptp_init_port_ds(port);
 		gptp_change_port_state(port, GPTP_PORT_DISABLED);
 	}
@@ -570,31 +607,14 @@ static void gptp_thread(void)
 
 static void gptp_add_port(struct net_if *iface, void *user_data)
 {
-	int *num_ports = user_data;
-	const struct device *clk;
+	uint16_t *num_ports = user_data;
 
 	if (*num_ports >= CONFIG_NET_GPTP_NUM_PORTS) {
 		return;
 	}
 
-#if defined(CONFIG_NET_GPTP_VLAN)
-	if (CONFIG_NET_GPTP_VLAN_TAG >= 0 &&
-	    CONFIG_NET_GPTP_VLAN_TAG < NET_VLAN_TAG_UNSPEC) {
-		struct net_if *vlan_iface;
-
-		vlan_iface = net_eth_get_vlan_iface(iface,
-						    CONFIG_NET_GPTP_VLAN_TAG);
-		if (vlan_iface != iface) {
-			return;
-		}
-	}
-#endif /* CONFIG_NET_GPTP_VLAN */
-
-	/* Check if interface has a PTP clock. */
-	clk = net_eth_get_ptp_clock(iface);
-	if (clk) {
+	if (gptp_set_port_number(iface, GPTP_PORT_START + *num_ports) == 0) {
 		gptp_domain.iface[*num_ports] = iface;
-		net_eth_set_ptp_port(iface, *num_ports);
 		(*num_ports)++;
 	}
 }
@@ -623,7 +643,7 @@ void gptp_set_time_itv(struct gptp_uscaled_ns *interval,
 	}
 
 
-	/* NSEC_PER_SEC is between 2^30 and 2^31, seconds is less thant 2^16,
+	/* NSEC_PER_SEC is between 2^30 and 2^31, seconds is less than 2^16,
 	 * thus the computation will be less than 2^63.
 	 */
 	interval->low =	(seconds * (uint64_t)NSEC_PER_SEC) << 16;
@@ -877,7 +897,7 @@ int gptp_get_port_data(struct gptp_domain *domain,
 		return -ENOENT;
 	}
 
-	if (port < GPTP_PORT_START || port >= GPTP_PORT_END) {
+	if (port < GPTP_PORT_START || port > GPTP_PORT_END) {
 		return -EINVAL;
 	}
 
@@ -908,6 +928,18 @@ int gptp_get_port_data(struct gptp_domain *domain,
 	return 0;
 }
 
+double gptp_servo_pi(int64_t nanosecond_diff)
+{
+	double kp = 0.7;
+	double ki = 0.3;
+	double ppb;
+
+	gptp_clock.pi_drift += ki * nanosecond_diff;
+	ppb = kp * nanosecond_diff + gptp_clock.pi_drift;
+
+	return ppb;
+}
+
 static void init_ports(void)
 {
 	net_if_foreach(gptp_add_port, &gptp_domain.default_ds.nb_ports);
@@ -917,133 +949,17 @@ static void init_ports(void)
 
 	tid = k_thread_create(&gptp_thread_data, gptp_stack,
 			      K_KERNEL_STACK_SIZEOF(gptp_stack),
-			      (k_thread_entry_t)gptp_thread,
+			      gptp_thread,
 			      NULL, NULL, NULL, K_PRIO_COOP(5), 0, K_NO_WAIT);
 	k_thread_name_set(&gptp_thread_data, "gptp");
 }
-
-#if defined(CONFIG_NET_GPTP_VLAN)
-static struct net_mgmt_event_callback vlan_cb;
-
-struct vlan_work {
-	struct k_work work;
-	struct net_if *iface;
-} vlan;
-
-static void disable_port(int port)
-{
-	GPTP_GLOBAL_DS()->selected_role[port] = GPTP_PORT_DISABLED;
-
-	gptp_state_machine();
-}
-
-static void vlan_enabled(struct k_work *work)
-{
-	struct vlan_work *one_vlan = CONTAINER_OF(work,
-						  struct vlan_work,
-						  work);
-	if (tid) {
-		int port;
-
-		port = gptp_get_port_number(one_vlan->iface);
-		if (port < 0) {
-			NET_DBG("No port found for iface %p", one_vlan->iface);
-			return;
-		}
-
-		GPTP_GLOBAL_DS()->selected_role[port] = GPTP_PORT_SLAVE;
-
-		gptp_state_machine();
-	} else {
-		init_ports();
-	}
-}
-
-static void vlan_disabled(struct k_work *work)
-{
-	struct vlan_work *one_vlan = CONTAINER_OF(work,
-						  struct vlan_work,
-						  work);
-	int port;
-
-	port = gptp_get_port_number(one_vlan->iface);
-	if (port < 0) {
-		NET_DBG("No port found for iface %p", one_vlan->iface);
-		return;
-	}
-
-	disable_port(port);
-}
-
-static void vlan_event_handler(struct net_mgmt_event_callback *cb,
-			       uint32_t mgmt_event,
-			       struct net_if *iface)
-{
-	uint16_t tag;
-
-	if (mgmt_event != NET_EVENT_ETHERNET_VLAN_TAG_ENABLED &&
-	    mgmt_event != NET_EVENT_ETHERNET_VLAN_TAG_DISABLED) {
-		return;
-	}
-
-#if defined(CONFIG_NET_MGMT_EVENT_INFO)
-	if (!cb->info) {
-		return;
-	}
-
-	tag = *((uint16_t *)cb->info);
-	if (tag != CONFIG_NET_GPTP_VLAN_TAG) {
-		return;
-	}
-
-	vlan.iface = iface;
-
-	if (mgmt_event == NET_EVENT_ETHERNET_VLAN_TAG_ENABLED) {
-		/* We found the right tag, now start gPTP for this interface */
-		k_work_init(&vlan.work, vlan_enabled);
-
-		NET_DBG("VLAN tag %d %s for iface %p", tag, "enabled", iface);
-	} else {
-		k_work_init(&vlan.work, vlan_disabled);
-
-		NET_DBG("VLAN tag %d %s for iface %p", tag, "disabled", iface);
-	}
-
-	k_work_submit(&vlan.work);
-#else
-	NET_WARN("VLAN event but tag info missing!");
-
-	ARG_UNUSED(tag);
-#endif
-}
-
-static void setup_vlan_events_listener(void)
-{
-	net_mgmt_init_event_callback(&vlan_cb, vlan_event_handler,
-				     NET_EVENT_ETHERNET_VLAN_TAG_ENABLED |
-				     NET_EVENT_ETHERNET_VLAN_TAG_DISABLED);
-	net_mgmt_add_event_callback(&vlan_cb);
-}
-#endif /* CONFIG_NET_GPTP_VLAN */
 
 void net_gptp_init(void)
 {
 	gptp_domain.default_ds.nb_ports = 0U;
 
-#if defined(CONFIG_NET_GPTP_VLAN)
-	/* If user has enabled gPTP over VLAN support, then we start gPTP
-	 * support after we have received correct "VLAN tag enabled" event.
-	 */
-	if (CONFIG_NET_GPTP_VLAN_TAG >= 0 &&
-	    CONFIG_NET_GPTP_VLAN_TAG < NET_VLAN_TAG_UNSPEC) {
-		setup_vlan_events_listener();
-	} else {
-		NET_WARN("VLAN tag %d set but the value is not valid.",
-			 CONFIG_NET_GPTP_VLAN_TAG);
+	gptp_clock.domain = &gptp_domain;
+	gptp_clock.pi_drift = 0.0;
 
-		init_ports();
-	}
-#else
 	init_ports();
-#endif
 }

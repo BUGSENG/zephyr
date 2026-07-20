@@ -1,5 +1,5 @@
 /*
- * Copyright 2020,2023 NXP
+ * Copyright 2020,2023,2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,15 +8,10 @@
 #include <sys/types.h>
 #include <fsl_flexspi.h>
 
-enum memc_flexspi_clock_t {
-	/* Flexspi clock 332M, DDR mode, internal clock 166M. */
-	MEMC_FLEXSPI_CLOCK_166M,
-	/* Flexspi clock 83M, DDR mode, internal clock 42M. */
-	MEMC_FLEXSPI_CLOCK_42M,
-};
-
 /* Size of a command in the LUT table */
 #define MEMC_FLEXSPI_CMD_SIZE 4U
+/* Number of commands in an instruction sequence */
+#define MEMC_FLEXSPI_CMD_PER_SEQ 4U
 
 /**
  * @brief Wait for the FlexSPI bus to be idle
@@ -41,19 +36,33 @@ void memc_flexspi_wait_bus_idle(const struct device *dev);
 bool memc_flexspi_is_running_xip(const struct device *dev);
 
 /**
+ * @brief Apply pinctrl state for the FlexSPI controller
+ *
+ * This is intended for cases where the FlexSPI controller initialization is
+ * skipped (e.g. due to XIP), but board pinmux for additional FlexSPI ports is
+ * still required (e.g. PortB pins).
+ *
+ * @param dev FlexSPI device
+ * @param id Pin control state identifier (e.g. PINCTRL_STATE_DEFAULT)
+ * @return 0 on success, -ENOENT if the state does not exist, or a negative
+ *         errno for other failures
+ */
+int memc_flexspi_apply_pinctrl(const struct device *dev, uint8_t id);
+
+/**
  * @brief Update clock selection of the FlexSPI device
  *
- * Updates clock selection of the FlexSPI device to a new clock speed.
+ * Updates clock frequency of FlexSPI to new clock speed.
  *
  * @param dev: FlexSPI device
  * @param device_config: External device configuration.
  * @param port: FlexSPI port to use for this external device
- * @param clock: new clock selection to apply
+ * @param freq_hz: new clock frequency to apply
  * @return 0 on success, negative value on failure
  */
 int memc_flexspi_update_clock(const struct device *dev,
 		flexspi_device_config_t *device_config,
-		flexspi_port_t port, enum memc_flexspi_clock_t clock);
+		flexspi_port_t port, uint32_t freq_hz);
 
 /**
  * @brief configure new FlexSPI device
@@ -62,7 +71,7 @@ int memc_flexspi_update_clock(const struct device *dev,
  * @param dev: FlexSPI device
  * @param device_config: External device configuration.
  * @param lut_array: Lookup table of FlexSPI flash commands for device
- * @param lut_count: number of command entries (16 bytes each) in LUT
+ * @param lut_count: number of LUT entries (4 bytes each) in lut array
  * @param port: FlexSPI port to use for this external device
  * @return 0 on success, negative value on failure
  */
@@ -106,3 +115,16 @@ int memc_flexspi_transfer(const struct device *dev,
  */
 void *memc_flexspi_get_ahb_address(const struct device *dev,
 		flexspi_port_t port, off_t offset);
+
+/**
+ * @brief Allowing external modules to update LUT.
+ *
+ * @param dev: FlexSPI device pointer
+ * @param port: FlexSPI port
+ * @param seq_idx: Sequence index offset within the port's allocated LUT region
+ * @param lut_ptr: LUT array pointer
+ * @param lut_count: Number of LUT entries
+ * @return 0 on success, negative value on failure
+ */
+int memc_flexspi_update_lut(const struct device *dev, flexspi_port_t port, uint32_t seq_idx,
+			    const uint32_t *lut_ptr, uint8_t lut_count);

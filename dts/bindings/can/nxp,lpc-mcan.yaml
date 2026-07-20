@@ -1,8 +1,8 @@
-description: NXP LPC SoC series MCAN CAN-FD controller
+description: NXP LPC SoC series MCAN CAN FD controller
 
 compatible: "nxp,lpc-mcan"
 
-include: ["bosch,m_can-base.yaml", pinctrl-device.yaml]
+include: ["bosch,m_can-base.yaml", pinctrl-device.yaml, "reset-device.yaml"]
 
 properties:
   reg:
@@ -11,5 +11,20 @@ properties:
   interrupts:
     required: true
 
+  interrupt-names:
+    required: true
+
   clocks:
     required: true
+
+  use-external-timestamp-counter:
+    type: boolean
+    description: |
+      Use external 16-bit timestamp counter clocked by the CPUCLK.
+
+  external-timestamp-counter-prescaler:
+    type: int
+    default: 1
+    description: |
+      Configure the prescaler for the external timestamp counter. Valid range is 1 to 2048. Default
+      is 1, corresponding to the ETSCC register reset value.

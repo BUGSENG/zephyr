@@ -3,19 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cpuid.h>
 #include <zephyr/kernel.h>
+#include <zephyr/arch/cpu.h>
 #include <kernel_arch_data.h>
 #include <kernel_arch_func.h>
-#include <zephyr/kernel_structs.h>
 #include <kernel_internal.h>
 #include <zephyr/arch/x86/multiboot.h>
 #include <x86_mmu.h>
 #include <zephyr/drivers/interrupt_controller/loapic.h>
+#include <cet.h>
+#include <zephyr/arch/common/xip.h>
+#include <zephyr/arch/common/init.h>
 #ifdef CONFIG_ACPI
+#include <zephyr/arch/x86/cpuid.h>
 #include <zephyr/acpi/acpi.h>
 #endif
-
-BUILD_ASSERT(CONFIG_MP_MAX_NUM_CPUS <= 4, "Only supports max 4 CPUs");
 
 /*
  * Map of CPU logical IDs to CPU local APIC IDs. By default,
@@ -23,142 +26,117 @@ BUILD_ASSERT(CONFIG_MP_MAX_NUM_CPUS <= 4, "Only supports max 4 CPUs");
  * The symbol is weak so that boards/SoC files can override.
  */
 
-__weak uint8_t x86_cpu_loapics[] = { 0, 1, 2, 3 };
-
-extern char x86_ap_start[];  /* AP entry point in locore.S */
-
-extern uint8_t z_x86_exception_stack[];
-extern uint8_t z_x86_exception_stack1[];
-extern uint8_t z_x86_exception_stack2[];
-extern uint8_t z_x86_exception_stack3[];
-
-extern uint8_t z_x86_nmi_stack[];
-extern uint8_t z_x86_nmi_stack1[];
-extern uint8_t z_x86_nmi_stack2[];
-extern uint8_t z_x86_nmi_stack3[];
-
-#ifdef CONFIG_X86_KPTI
-extern uint8_t z_x86_trampoline_stack[];
-extern uint8_t z_x86_trampoline_stack1[];
-extern uint8_t z_x86_trampoline_stack2[];
-extern uint8_t z_x86_trampoline_stack3[];
-#endif /* CONFIG_X86_KPTI */
-
-Z_GENERIC_SECTION(.tss)
-struct x86_tss64 tss0 = {
-#ifdef CONFIG_X86_KPTI
-	.ist2 = (uint64_t) z_x86_trampoline_stack + Z_X86_TRAMPOLINE_STACK_SIZE,
+#if defined(CONFIG_ACPI)
+__weak uint8_t x86_cpu_loapics[CONFIG_MP_MAX_NUM_CPUS];
+#else
+#define INIT_CPUID(n, _) n
+__weak uint8_t x86_cpu_loapics[] = {
+	LISTIFY(CONFIG_MP_MAX_NUM_CPUS, INIT_CPUID, (,)),};
 #endif
-	.ist6 = (uint64_t) z_x86_nmi_stack + CONFIG_X86_EXCEPTION_STACK_SIZE,
-	.ist7 = (uint64_t) z_x86_exception_stack + CONFIG_X86_EXCEPTION_STACK_SIZE,
-	.iomapb = 0xFFFF,
-	.cpu = &(_kernel.cpus[0])
-};
+extern char x86_ap_start[]; /* AP entry point in locore.S */
 
-#if CONFIG_MP_MAX_NUM_CPUS > 1
-Z_GENERIC_SECTION(.tss)
-struct x86_tss64 tss1 = {
-#ifdef CONFIG_X86_KPTI
-	.ist2 = (uint64_t) z_x86_trampoline_stack1 + Z_X86_TRAMPOLINE_STACK_SIZE,
-#endif
-	.ist6 = (uint64_t) z_x86_nmi_stack1 + CONFIG_X86_EXCEPTION_STACK_SIZE,
-	.ist7 = (uint64_t) z_x86_exception_stack1 + CONFIG_X86_EXCEPTION_STACK_SIZE,
-	.iomapb = 0xFFFF,
-	.cpu = &(_kernel.cpus[1])
-};
-#endif
+LISTIFY(CONFIG_MP_MAX_NUM_CPUS, ACPI_CPU_INIT, (;));
 
-#if CONFIG_MP_MAX_NUM_CPUS > 2
-Z_GENERIC_SECTION(.tss)
-struct x86_tss64 tss2 = {
-#ifdef CONFIG_X86_KPTI
-	.ist2 = (uint64_t) z_x86_trampoline_stack2 + Z_X86_TRAMPOLINE_STACK_SIZE,
-#endif
-	.ist6 = (uint64_t) z_x86_nmi_stack2 + CONFIG_X86_EXCEPTION_STACK_SIZE,
-	.ist7 = (uint64_t) z_x86_exception_stack2 + CONFIG_X86_EXCEPTION_STACK_SIZE,
-	.iomapb = 0xFFFF,
-	.cpu = &(_kernel.cpus[2])
-};
-#endif
-
-#if CONFIG_MP_MAX_NUM_CPUS > 3
-Z_GENERIC_SECTION(.tss)
-struct x86_tss64 tss3 = {
-#ifdef CONFIG_X86_KPTI
-	.ist2 = (uint64_t) z_x86_trampoline_stack3 + Z_X86_TRAMPOLINE_STACK_SIZE,
-#endif
-	.ist6 = (uint64_t) z_x86_nmi_stack3 + CONFIG_X86_EXCEPTION_STACK_SIZE,
-	.ist7 = (uint64_t) z_x86_exception_stack3 + CONFIG_X86_EXCEPTION_STACK_SIZE,
-	.iomapb = 0xFFFF,
-	.cpu = &(_kernel.cpus[3])
-};
-#endif
-
-
-/* We must put this in a dedicated section, or else it will land into .bss:
- * in this case, though locore.S initalizes it relevantly, all will be
- * lost when calling z_bss_zero() in z_x86_cpu_init prior to using it.
- */
 Z_GENERIC_SECTION(.boot_arg)
 x86_boot_arg_t x86_cpu_boot_arg;
 
 struct x86_cpuboot x86_cpuboot[] = {
-	{
-		.tr = X86_KERNEL_CPU0_TR,
-		.gs_base = &tss0,
-		.sp = (uint64_t) z_interrupt_stacks[0] +
-			Z_KERNEL_STACK_SIZE_ADJUST(CONFIG_ISR_STACK_SIZE),
-		.stack_size =
-			Z_KERNEL_STACK_SIZE_ADJUST(CONFIG_ISR_STACK_SIZE),
-		.fn = z_x86_prep_c,
-		.arg = &x86_cpu_boot_arg,
-	},
-#if CONFIG_MP_MAX_NUM_CPUS > 1
-	{
-		.tr = X86_KERNEL_CPU1_TR,
-		.gs_base = &tss1
-	},
-#endif
-#if CONFIG_MP_MAX_NUM_CPUS > 2
-	{
-		.tr = X86_KERNEL_CPU2_TR,
-		.gs_base = &tss2
-	},
-#endif
-#if CONFIG_MP_MAX_NUM_CPUS > 3
-	{
-		.tr = X86_KERNEL_CPU3_TR,
-		.gs_base = &tss3
-	},
-#endif
+	LISTIFY(CONFIG_MP_MAX_NUM_CPUS, X86_CPU_BOOT_INIT, (,)),
 };
+
+#ifdef CONFIG_HW_SHADOW_STACK
+#define _CPU_IDX(n, _) n
+FOR_EACH(X86_INTERRUPT_SHADOW_STACK_DEFINE, (;),
+	 LISTIFY(CONFIG_MP_MAX_NUM_CPUS, _CPU_IDX, (,)));
+
+struct x86_interrupt_ssp_table issp_table[] = {
+	LISTIFY(CONFIG_MP_MAX_NUM_CPUS, X86_INTERRUPT_SSP_TABLE_INIT, (,)),
+};
+#endif
 
 /*
  * Send the INIT/STARTUP IPI sequence required to start up CPU 'cpu_num', which
  * will enter the kernel at fn(arg), running on the specified stack.
  */
 
-void arch_start_cpu(int cpu_num, k_thread_stack_t *stack, int sz,
+void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 		    arch_cpustart_t fn, void *arg)
 {
+#if CONFIG_MP_MAX_NUM_CPUS > 1
 	uint8_t vector = ((unsigned long) x86_ap_start) >> 12;
 	uint8_t apic_id;
 
-#ifdef CONFIG_ACPI
-	struct acpi_madt_local_apic *lapic = acpi_local_apic_get(cpu_num);
+	IF_ENABLED(CONFIG_ACPI, ({
+		/*
+		 * Determine the APIC ID for cpu_num and store it in
+		 * x86_cpu_loapics[].
+		 *
+		 * Lookup policy by build mode:
+		 *   CONFIG_X2APIC=y: try MADT Type 9 first, fallback to Type 0.
+		 *   CONFIG_X2APIC=n: try MADT Type 0 only.
+		 *
+		 * If no usable entry is found, assert and return.
+		 * When Type 9 is used, the ID must be <= 0xFF.
+		 */
+		bool found = false;
 
-	if (lapic != NULL) {
-		/* We update the apic_id, __start will need it. */
-		x86_cpu_loapics[cpu_num] = lapic->Id;
-	}
-#endif
+		/*
+		 * CONFIG_X2APIC=y primary path: try MADT Type 9 first.
+		 * If this lookup succeeds, found becomes true and the later fallback
+		 * block is skipped.
+		 */
+		IF_ENABLED(CONFIG_X2APIC, ({
+			ACPI_MADT_LOCAL_X2APIC *x2apic =
+				acpi_local_x2apic_get(cpu_num);
+
+			if (x2apic != NULL) {
+				/* Guard against silent truncation in 8-bit APIC map. */
+				__ASSERT(x2apic->LocalApicId <= 0xFF,
+					 "x2APIC ID exceeds 8-bit xAPIC range");
+				x86_cpu_loapics[cpu_num] =
+					(uint8_t)x2apic->LocalApicId;
+				found = true;
+			}
+		}));
+
+		/*
+		 * Type 0 lookup.
+		 * - When CONFIG_X2APIC=y, this is the fallback if the Type 9 lookup
+		 *   above did not set found.
+		 * - When CONFIG_X2APIC=n, the Type 9 block above is compiled out, so
+		 *   this becomes the primary lookup.
+		 */
+		if (!found) {
+			ACPI_MADT_LOCAL_APIC *lapic =
+				acpi_local_apic_get(cpu_num);
+
+			if (lapic != NULL) {
+				/* We update the apic_id, __start will need it. */
+				x86_cpu_loapics[cpu_num] = lapic->Id;
+				found = true;
+			}
+		}
+
+		/*
+		 * Common failure path for both CONFIG_X2APIC=y and CONFIG_X2APIC=n.
+		 * If none of the lookup paths found a usable APIC ID, assert and stop.
+		 */
+		if (!found) {
+			/* TODO: kernel need to handle the error scenario if someone config
+			 * CONFIG_MP_MAX_NUM_CPUS more than what platform supported.
+			 */
+			__ASSERT(false, "CPU reached more than maximum supported!");
+			return;
+		}
+	}));
 
 	apic_id = x86_cpu_loapics[cpu_num];
 
-	x86_cpuboot[cpu_num].sp = (uint64_t) Z_KERNEL_STACK_BUFFER(stack) + sz;
+	x86_cpuboot[cpu_num].sp = (uint64_t) K_KERNEL_STACK_BUFFER(stack) + sz;
 	x86_cpuboot[cpu_num].stack_size = sz;
 	x86_cpuboot[cpu_num].fn = fn;
 	x86_cpuboot[cpu_num].arg = arg;
+	x86_cpuboot[cpu_num].cpu_id = cpu_num;
 
 	z_loapic_ipi(apic_id, LOAPIC_ICR_IPI_INIT, 0);
 	k_busy_wait(10000);
@@ -166,25 +144,35 @@ void arch_start_cpu(int cpu_num, k_thread_stack_t *stack, int sz,
 
 	while (x86_cpuboot[cpu_num].ready == 0) {
 	}
+#else
+	ARG_UNUSED(cpu_num);
+	ARG_UNUSED(stack);
+	ARG_UNUSED(sz);
+	ARG_UNUSED(fn);
+	ARG_UNUSED(arg);
+#endif
 }
 
-/* Per-CPU initialization, C domain. On the first CPU, z_x86_prep_c is the
+/* Per-CPU initialization, C domain. On the first CPU, z_prep_c is the
  * next step. For other CPUs it is probably smp_init_top().
  */
 FUNC_NORETURN void z_x86_cpu_init(struct x86_cpuboot *cpuboot)
 {
+#if defined(CONFIG_ACPI) && !defined(CONFIG_ACRN_COMMON)
+		if (cpuboot->cpu_id != 0U) {
+			__ASSERT(z_x86_cpuid_get_current_physical_apic_id() ==
+			x86_cpu_loapics[cpuboot->cpu_id], "APIC ID mismatch");
+		}
+#endif
 	x86_sse_init(NULL);
 
-	/* The internal cpu_number is the index to x86_cpuboot[] */
-	unsigned char cpu_num = (unsigned char)(cpuboot - x86_cpuboot);
-
-	if (cpu_num == 0U) {
+	if (cpuboot->cpu_id == 0U) {
 		/* Only need to do these once per boot */
-		z_bss_zero();
-		z_data_copy();
+		arch_bss_zero();
+		arch_data_copy();
 	}
 
-	z_loapic_enable(cpu_num);
+	z_loapic_enable(cpuboot->cpu_id);
 
 #ifdef CONFIG_USERSPACE
 	/* Set landing site for 'syscall' instruction */
@@ -197,7 +185,22 @@ FUNC_NORETURN void z_x86_cpu_init(struct x86_cpuboot *cpuboot)
 	z_x86_msr_write(X86_FMASK_MSR, EFLAGS_SYSCALL);
 #endif
 
+#ifdef CONFIG_X86_CET
+	z_x86_cet_enable();
+#ifdef CONFIG_X86_CET_IBT
+	z_x86_ibt_enable();
+#endif /* CONFIG_X86_CET_IBT */
+#ifdef CONFIG_HW_SHADOW_STACK
+	z_x86_setup_interrupt_ssp_table((uintptr_t)&issp_table[cpuboot->cpu_id]);
+	cpuboot->gs_base->shstk_addr = &issp_table[cpuboot->cpu_id].ist1;
+	cpuboot->gs_base->exception_shstk_addr = issp_table[cpuboot->cpu_id].ist7;
+#endif /* CONFIG_HW_SHADOW_STACK */
+
+#endif /* CONFIG_X86_CET */
+
 	/* Enter kernel, never return */
 	cpuboot->ready++;
 	cpuboot->fn(cpuboot->arg);
+
+	CODE_UNREACHABLE; /* LCOV_EXCL_LINE */
 }

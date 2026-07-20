@@ -15,7 +15,7 @@
 #define ZEPHYR_INCLUDE_DRIVERS_MODEM_MODEM_CONTEXT_H_
 
 #include <zephyr/kernel.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/net/net_ip.h>
 #include <zephyr/sys/ring_buffer.h>
 #include <zephyr/drivers/gpio.h>
@@ -75,23 +75,23 @@ struct modem_context {
 /**
  * @brief  IP address to string
  *
- * @param  addr: sockaddr to be converted
+ * @param  addr: net_sockaddr to be converted
  * @param  buf:  Buffer to store IP in string form
  * @param  buf_size:  buffer size
  *
  * @retval 0 if ok, < 0 if error.
  */
-int modem_context_sprint_ip_addr(const struct sockaddr *addr, char *buf, size_t buf_size);
+int modem_context_sprint_ip_addr(const struct net_sockaddr *addr, char *buf, size_t buf_size);
 
 /**
  * @brief  Get port from IP address
  *
- * @param  addr: sockaddr
+ * @param  addr: net_sockaddr
  * @param  port: store port
  *
  * @retval 0 if ok, < 0 if error.
  */
-int modem_context_get_addr_port(const struct sockaddr *addr, uint16_t *port);
+int modem_context_get_addr_port(const struct net_sockaddr *addr, uint16_t *port);
 
 /**
  * @brief  Gets modem context by id.

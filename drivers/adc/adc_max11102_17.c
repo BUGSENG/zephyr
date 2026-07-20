@@ -315,8 +315,12 @@ static int max11102_17_read(const struct device *dev, const struct adc_sequence 
 #endif
 
 #if CONFIG_ADC_ASYNC
-static void max11102_17_acquisition_thread(const struct device *dev)
+static void max11102_17_acquisition_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	const struct device *dev = p1;
 	while (true) {
 		max11102_17_adc_perform_read(dev);
 	}
@@ -366,9 +370,9 @@ static int max11102_17_init(const struct device *dev)
 	data->current_channel_id = 0;
 
 #if CONFIG_ADC_ASYNC
-	const k_tid_t tid = k_thread_create(
+	k_tid_t tid = k_thread_create(
 		&data->thread, data->stack, CONFIG_ADC_MAX11102_17_ACQUISITION_THREAD_STACK_SIZE,
-		(k_thread_entry_t)max11102_17_acquisition_thread, (void *)dev, NULL, NULL,
+		max11102_17_acquisition_thread, (void *)dev, NULL, NULL,
 		CONFIG_ADC_MAX11102_17_ACQUISITION_THREAD_INIT_PRIO, 0, K_NO_WAIT);
 	k_thread_name_set(tid, "adc_max11102_17");
 #endif
@@ -385,7 +389,7 @@ static int max11102_17_init(const struct device *dev)
 	return result;
 }
 
-static const struct adc_driver_api api = {
+static DEVICE_API(adc, api) = {
 	.channel_setup = max11102_17_channel_setup,
 	.read = max11102_17_read,
 	.ref_internal = 0,
@@ -401,7 +405,7 @@ BUILD_ASSERT(CONFIG_ADC_INIT_PRIORITY > CONFIG_SPI_INIT_PRIORITY,
 	static const struct max11102_17_config config_##name##_##index = {                         \
 		.bus = SPI_DT_SPEC_INST_GET(                                                       \
 			index,                                                                     \
-			SPI_OP_MODE_MASTER | SPI_MODE_CPOL | SPI_MODE_CPHA | SPI_WORD_SET(8), 0),  \
+			SPI_OP_MODE_MASTER | SPI_MODE_CPOL | SPI_MODE_CPHA | SPI_WORD_SET(8)),     \
 		.gpio_chsel = GPIO_DT_SPEC_INST_GET_OR(index, chsel_gpios, {0}),                   \
 		.resolution = res,                                                                 \
 		.channel_count = channels,                                                         \

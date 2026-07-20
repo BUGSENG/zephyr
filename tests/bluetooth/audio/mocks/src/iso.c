@@ -1,11 +1,21 @@
 /*
  * Copyright (c) 2023 Codecoup
+ * Copyright (c) 2024-2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
+
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/bluetooth/iso.h>
+#include <zephyr/fff.h>
+#include <zephyr/net_buf.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/ztest_assert.h>
 
 #include "conn.h"
 #include "iso.h"
@@ -18,8 +28,25 @@ static struct bt_iso_server *iso_server;
 DEFINE_FAKE_VALUE_FUNC(int, bt_iso_chan_get_tx_sync, const struct bt_iso_chan *,
 		       struct bt_iso_tx_info *);
 
-int bt_iso_chan_send(struct bt_iso_chan *chan, struct net_buf *buf, uint16_t seq_num, uint32_t ts)
+int bt_iso_chan_send(struct bt_iso_chan *chan, struct net_buf *buf, uint16_t seq_num)
 {
+	ARG_UNUSED(buf);
+	ARG_UNUSED(seq_num);
+
+	if (chan->ops != NULL && chan->ops->sent != NULL) {
+		chan->ops->sent(chan);
+	}
+
+	return 0;
+}
+
+int bt_iso_chan_send_ts(struct bt_iso_chan *chan, struct net_buf *buf, uint16_t seq_num,
+			uint32_t ts)
+{
+	ARG_UNUSED(buf);
+	ARG_UNUSED(seq_num);
+	ARG_UNUSED(ts);
+
 	if (chan->ops != NULL && chan->ops->sent != NULL) {
 		chan->ops->sent(chan);
 	}
@@ -61,6 +88,24 @@ void mock_bt_iso_init(void)
 void mock_bt_iso_cleanup(void)
 {
 
+}
+
+int bt_iso_setup_data_path(const struct bt_iso_chan *chan, uint8_t dir,
+			   const struct bt_iso_chan_path *path)
+{
+	ARG_UNUSED(chan);
+	ARG_UNUSED(dir);
+	ARG_UNUSED(path);
+
+	return 0;
+}
+
+int bt_iso_remove_data_path(const struct bt_iso_chan *chan, uint8_t dir)
+{
+	ARG_UNUSED(chan);
+	ARG_UNUSED(dir);
+
+	return 0;
 }
 
 void mock_bt_iso_connected(struct bt_conn *iso)
@@ -113,10 +158,25 @@ int mock_bt_iso_disconnected(struct bt_iso_chan *chan, uint8_t err)
 }
 
 #if defined(CONFIG_BT_BAP_BROADCAST_SOURCE)
+static struct bt_iso_big_cb *iso_cb;
+
+int bt_iso_big_register_cb(struct bt_iso_big_cb *cb)
+{
+	if (cb == NULL) {
+		return -EINVAL;
+	}
+
+	iso_cb = cb;
+
+	return 0;
+}
+
 int bt_iso_big_create(struct bt_le_ext_adv *padv, struct bt_iso_big_create_param *param,
 		      struct bt_iso_big **out_big)
 {
 	struct bt_iso_big *big;
+
+	ARG_UNUSED(padv);
 
 	zassert_not_null(out_big);
 	zassert_not_null(param);
@@ -143,6 +203,10 @@ int bt_iso_big_create(struct bt_le_ext_adv *padv, struct bt_iso_big_create_param
 
 	*out_big = big;
 
+	if (iso_cb != NULL && iso_cb->started != NULL) {
+		iso_cb->started(big);
+	}
+
 	return 0;
 }
 
@@ -157,6 +221,10 @@ int bt_iso_big_terminate(struct bt_iso_big *big)
 		zassert_not_null(bis, "big %p", big);
 
 		mock_bt_iso_disconnected(bis, BT_HCI_ERR_LOCALHOST_TERM_CONN);
+	}
+
+	if (iso_cb != NULL && iso_cb->stopped != NULL) {
+		iso_cb->stopped(big, BT_HCI_ERR_LOCALHOST_TERM_CONN);
 	}
 
 	free(big);

@@ -8,6 +8,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci.h>
 
 #define NUM_RSP_SLOTS 5
 #define NUM_SUBEVENTS 5
@@ -19,6 +20,13 @@ static K_SEM_DEFINE(sem_discovered, 0, 1);
 static K_SEM_DEFINE(sem_written, 0, 1);
 static K_SEM_DEFINE(sem_disconnected, 0, 1);
 
+struct k_poll_event events[] = {
+	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_SEM_AVAILABLE, K_POLL_MODE_NOTIFY_ONLY,
+					&sem_connected, 0),
+	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_SEM_AVAILABLE, K_POLL_MODE_NOTIFY_ONLY,
+					&sem_disconnected, 0),
+};
+
 static struct bt_uuid_128 pawr_char_uuid =
 	BT_UUID_INIT_128(BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1));
 static uint16_t pawr_attr_handle;
@@ -28,7 +36,7 @@ static const struct bt_le_per_adv_param per_adv_params = {
 	.options = 0,
 	.num_subevents = NUM_SUBEVENTS,
 	.subevent_interval = 0x30,
-	.response_slot_delay = 0x5,
+	.response_slot_delay = 0x8,
 	.response_slot_spacing = 0x50,
 	.num_response_slots = NUM_RSP_SLOTS,
 };
@@ -91,9 +99,6 @@ static void response_cb(struct bt_le_ext_adv *adv, struct bt_le_per_adv_response
 	if (buf) {
 		printk("Response: subevent %d, slot %d\n", info->subevent, info->response_slot);
 		bt_data_parse(buf, print_ad_field, NULL);
-	} else {
-		printk("Failed to receive response: subevent %d, slot %d\n", info->subevent,
-		       info->response_slot);
 	}
 }
 
@@ -109,17 +114,13 @@ void connected_cb(struct bt_conn *conn, uint8_t err)
 	__ASSERT(conn == default_conn, "Unexpected connected callback");
 
 	if (err) {
-		bt_conn_unref(default_conn);
-		default_conn = NULL;
+		bt_conn_drop(&default_conn);
 	}
 }
 
 void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 {
-	printk("Disconnected (reason 0x%02X)\n", reason);
-
-	bt_conn_unref(default_conn);
-	default_conn = NULL;
+	printk("Disconnected, reason 0x%02X %s\n", reason, bt_hci_err_to_str(reason));
 
 	k_sem_give(&sem_disconnected);
 }
@@ -156,7 +157,6 @@ static bool data_cb(struct bt_data *data, void *user_data)
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 			 struct net_buf_simple *ad)
 {
-	char addr_str[BT_ADDR_LE_STR_LEN];
 	char name[NAME_LEN];
 	int err;
 
@@ -183,7 +183,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	err = bt_conn_le_create(addr, BT_CONN_LE_CREATE_CONN, BT_LE_CONN_PARAM_DEFAULT,
 				&default_conn);
 	if (err) {
-		printk("Create conn to %s failed (%u)\n", addr_str, err);
+		printk("Create conn to %s failed (%u)\n", bt_addr_le_str(addr), err);
 	}
 }
 
@@ -266,7 +266,7 @@ int main(void)
 		return 0;
 	}
 
-	/* Create a non-connectable non-scannable advertising set */
+	/* Create a non-connectable advertising set */
 	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_NCONN, &adv_cb, &pawr_adv);
 	if (err) {
 		printk("Failed to create advertising set (err %d)\n", err);
@@ -281,13 +281,14 @@ int main(void)
 	}
 
 	/* Enable Periodic Advertising */
+	printk("Start Periodic Advertising\n");
 	err = bt_le_per_adv_start(pawr_adv);
 	if (err) {
 		printk("Failed to enable periodic advertising (err %d)\n", err);
 		return 0;
 	}
 
-	printk("Start Periodic Advertising\n");
+	printk("Start Extended Advertising\n");
 	err = bt_le_ext_adv_start(pawr_adv, BT_LE_EXT_ADV_START_DEFAULT);
 	if (err) {
 		printk("Failed to start extended advertising (err %d)\n", err);
@@ -295,7 +296,8 @@ int main(void)
 	}
 
 	while (num_synced < MAX_SYNCS) {
-		err = bt_le_scan_start(BT_LE_SCAN_PASSIVE, device_found);
+		/* Enable continuous scanning */
+		err = bt_le_scan_start(BT_LE_SCAN_PASSIVE_CONTINUOUS, device_found);
 		if (err) {
 			printk("Scanning failed to start (err %d)\n", err);
 			return 0;
@@ -303,7 +305,14 @@ int main(void)
 
 		printk("Scanning successfully started\n");
 
-		k_sem_take(&sem_connected, K_FOREVER);
+		/* Wait for either remote info available or involuntary disconnect */
+		k_poll(events, ARRAY_SIZE(events), K_FOREVER);
+		err = k_sem_take(&sem_connected, K_NO_WAIT);
+		if (err) {
+			printk("Disconnected before remote info available\n");
+
+			goto disconnected;
+		}
 
 		err = bt_le_per_adv_set_info_transfer(pawr_adv, default_conn, 0);
 		if (err) {
@@ -336,7 +345,7 @@ int main(void)
 		}
 
 		sync_config.subevent = num_synced % NUM_SUBEVENTS;
-		sync_config.response_slot = num_synced / NUM_RSP_SLOTS;
+		sync_config.response_slot = num_synced / NUM_SUBEVENTS;
 		num_synced++;
 
 		write_params.func = write_func;
@@ -366,15 +375,24 @@ int main(void)
 		printk("PAwR config written to sync %d, disconnecting\n", num_synced - 1);
 
 disconnect:
+		/* Adding delay (2ms * interval value, using 2ms instead of the 1.25ms
+		 * used by controller) to ensure sync is established before
+		 * disconnection.
+		 */
+		k_sleep(K_MSEC(per_adv_params.interval_max * 2));
+
 		err = bt_conn_disconnect(default_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
-		if (err) {
+		if (err != 0 && err != -ENOTCONN) {
 			return 0;
 		}
 
+disconnected:
 		k_sem_take(&sem_disconnected, K_FOREVER);
+
+		bt_conn_drop(&default_conn);
 	}
 
-	printk("Maximum numnber of syncs onboarded\n");
+	printk("Maximum number of syncs onboarded\n");
 
 	while (true) {
 		k_sleep(K_SECONDS(1));

@@ -3,35 +3,30 @@
 
 menu "OS Support Library"
 
-config FDTABLE
-	bool "File descriptor table"
+config ZVFS_OPEN_MAX
+	int "Maximum number of open file descriptors"
+	depends on ZVFS
+	default 0
 	help
-	  This file provides generic file descriptor table implementation, suitable
-	  for any I/O object implementing POSIX I/O semantics (i.e. read/write +
-	  aux operations).
+	  Maximum number of open file descriptors, this includes
+	  files, sockets, special devices, etc. If subsystems
+	  specify ZVFS_OPEN_ADD_SIZE_* options, these will be added together
+	  and the sum will be compared to the ZVFS_OPEN_MAX value.
+	  If the sum is greater than the ZVFS_OPEN_MAX option (even if this
+	  has the default 0 value), then the actual file descriptor count will be
+	  rounded up to the sum of the individual requirements (unless the
+	  ZVFS_OPEN_IGNORE_MIN option is enabled). If the final value, after
+	  considering both this option as well as sum of the custom
+	  requirements, ends up being zero, then no file descriptors will be
+	  available.
 
-config JSON_LIBRARY
-	bool "Build JSON library"
+config ZVFS_OPEN_IGNORE_MIN
+	bool "Ignore the minimum fd count requirement"
 	help
-	  Build a minimal JSON parsing/encoding library. Used by sample
-	  applications such as the NATS client.
-
-config RING_BUFFER
-	bool "Ring buffers"
-	help
-	  Enable usage of ring buffers. This is similar to kernel FIFOs but ring
-	  buffers manage their own buffer memory and can store arbitrary data.
-	  For optimal performance, use buffer sizes that are a power of 2.
-
-config NOTIFY
-	bool "Asynchronous Notifications"
-	help
-	  Use this API to support async transactions.
-
-config BASE64
-	bool "Base64 encoding and decoding"
-	help
-	  Enable base64 encoding and decoding functionality
+	  This option can be set to force setting a smaller file descriptor
+	  count than what's specified by enabled subsystems. This can be useful
+	  when optimizing memory usage and a more precise minimum fd count
+	  is known for a given application.
 
 config PRINTK_SYNC
 	bool "Serialize printk() calls"
@@ -49,14 +44,6 @@ config MPSC_PBUF
 	  Enable usage of mpsc packet buffer. Packet buffer is capable of
 	  storing variable length packets in a circular way and operate directly
 	  on the buffer memory.
-
-config ONOFF
-	bool "On-Off Manager"
-	select NOTIFY
-	help
-	  An on-off manager supports an arbitrary number of clients of a
-	  service which has a binary state.  Example applications are power
-	  rails, clocks, and binary device power management.
 
 config SPSC_PBUF
 	bool "Single producer, single consumer packet buffer"
@@ -82,7 +69,9 @@ config SPSC_PBUF_CACHE_ALWAYS
 	bool "Always handle cache"
 	help
 	  Handle cache writeback and invalidation for all instances. Option used
-	  to avoid runtime check and thus reduce memory footprint.
+	  to avoid runtime check and thus reduce memory footprint. Beware! It shall
+	  be used only if all packet buffer instances are used for data sharing
+	  between cores.
 
 config SPSC_PBUF_CACHE_NEVER
 	bool "Never handle cache"
@@ -119,36 +108,21 @@ config SPSC_PBUF_UTILIZATION
 
 endif # SPSC_PBUF
 
-config SHARED_MULTI_HEAP
-	bool "Shared multi-heap manager"
-	help
-	  Enable support for a shared multi-heap manager that uses the
-	  multi-heap allocator to manage a set of reserved memory regions with
-	  different capabilities / attributes (cacheable, non-cacheable,
-	  etc...) defined in the DT.
-
-config WINSTREAM
-	bool "Lockless shared memory window byte stream"
-	help
-	  Winstream is a byte stream IPC for use in shared memory
-	  "windows", generally for transmit to non-Zephyr contexts that
-	  can't share Zephyr APIs or data structures.
-
-if WINSTREAM
-config WINSTREAM_STDLIB_MEMCOPY
-	bool "Use standard memcpy() in winstream"
-	help
-	  The sys_winstream utility is sometimes used in early boot
-	  environments before the standard library is usable.  By
-	  default it uses a simple internal bytewise memcpy().  Set
-	  this to use the one from the standard library.
-endif
-
 if MPSC_PBUF
 config MPSC_CLEAR_ALLOCATED
 	bool "Clear allocated packet"
 	help
 	  When enabled packet space is zeroed before returning from allocation.
+endif
+
+if SCHED_DEADLINE
+
+config P4WQ_INIT_STAGE_EARLY
+	bool "Early initialization of P4WQ threads"
+	help
+	  Initialize P4WQ threads early so that the P4WQ can be used on devices
+	  initialization sequence.
+
 endif
 
 config REBOOT
@@ -157,6 +131,12 @@ config REBOOT
 	  Enable the sys_reboot() API. Enabling this can drag in other subsystems
 	  needed to perform a "safe" reboot (e.g. to stop the system clock before
 	  issuing a reset).
+
+config RESET_ON_FATAL_ERROR
+	bool "Reset the system when a fatal error occurs after printing relevant debug output"
+	select REBOOT
+	help
+		Initiate a system reset when a fatal error would normally halt the system.
 
 config HAS_POWEROFF
 	bool
@@ -169,14 +149,70 @@ config POWEROFF
 	help
 	  Enable support for system power off.
 
-config UTF8
-	bool "UTF-8 string operation supported"
+config BOOT_BANNER
+	bool "Boot banner"
+	default y
+	select PRINTK
 	help
-	  Enable the utf8 API. The API implements functions to specifically
-	  handle UTF-8 encoded strings.
+	  This option outputs a banner to the console device at the end of boot.
 
+config BOOT_BANNER_STRING
+	string "Boot banner string"
+	depends on BOOT_BANNER
+	default "Booting Zephyr OS build"
+	help
+	  Use this option to set the boot banner.
+
+config BOOT_DELAY
+	int "Boot delay in milliseconds"
+	depends on MULTITHREADING
+	default 0
+	help
+	  This option delays bootup for the specified amount of
+	  milliseconds. This is used to allow serial ports to get ready
+	  before starting to print information on them during boot, as
+	  some systems might boot to fast for a receiving endpoint to
+	  detect the new USB serial bus, enumerate it and get ready to
+	  receive before it actually gets data. A similar effect can be
+	  achieved by waiting for DCD on the serial port--however, not
+	  all serial ports have DCD.
+
+config BOOT_CLEAR_SCREEN
+	bool "Clear screen"
+	help
+	  Use this option to clear the screen before printing anything else.
+	  Using a VT100 enabled terminal on the client side is required for this to work.
+
+menuconfig BOOTARGS
+	bool "Support bootargs"
+	help
+	  Enables bootargs support and passing them to main().
+
+if BOOTARGS
+
+config DYNAMIC_BOOTARGS
+	bool "Support dynamic bootargs"
+	help
+	  Enables dynamic bootargs support.
+
+config BOOTARGS_STRING
+	string "static bootargs string"
+	depends on !DYNAMIC_BOOTARGS
+	help
+	  Static bootargs string. It includes argv[0], so if its expected that it
+	  contains executable name it should be put at the beginning of this string.
+
+config BOOTARGS_ARGS_BUFFER_SIZE
+	int "Size of buffer containing main arguments in bytes"
+	default 1024
+	help
+	  Configures size of buffer containing all arguments passed to main.
+
+endif # BOOTARGS
+
+rsource "Kconfig.atomics"
 rsource "Kconfig.cbprintf"
-
-rsource "Kconfig.heap"
+rsource "zvfs/Kconfig"
+rsource "cpu_load/Kconfig"
 
 endmenu

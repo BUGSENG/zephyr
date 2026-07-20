@@ -13,7 +13,7 @@
  *
  *      Copyright 2003-2020 Silicon Laboratories Inc. www.silabs.com
  *
- *                   SPDX-License-Identifier: APACHE-2.0
+ *                   SPDX-License-Identifier: Apache-2.0
  *
  * This software is subject to an open source license and is distributed by
  *  Silicon Laboratories Inc. pursuant to the terms of the Apache License,
@@ -23,12 +23,12 @@
 /**
  * @brief MODBUS transport protocol API
  * @defgroup modbus MODBUS
- * @ingroup io_interfaces
+ * @ingroup connectivity
  * @{
  */
 
-#ifndef ZEPHYR_INCLUDE_MODBUS_H_
-#define ZEPHYR_INCLUDE_MODBUS_H_
+#ifndef ZEPHYR_INCLUDE_MODBUS_MODBUS_H_
+#define ZEPHYR_INCLUDE_MODBUS_MODBUS_H_
 
 #include <zephyr/drivers/uart.h>
 #include <zephyr/sys/slist.h>
@@ -44,16 +44,25 @@ extern "C" {
 /** @name Modbus exception codes
  *  @{
  */
-/* Modbus exception codes */
+/** No exception */
 #define MODBUS_EXC_NONE				0
+/** Illegal function code */
 #define MODBUS_EXC_ILLEGAL_FC			1
+/** Illegal data address */
 #define MODBUS_EXC_ILLEGAL_DATA_ADDR		2
+/** Illegal data value */
 #define MODBUS_EXC_ILLEGAL_DATA_VAL		3
+/** Server device failure */
 #define MODBUS_EXC_SERVER_DEVICE_FAILURE	4
+/** Acknowledge */
 #define MODBUS_EXC_ACK				5
+/** Server device busy */
 #define MODBUS_EXC_SERVER_DEVICE_BUSY		6
+/** Memory parity error */
 #define MODBUS_EXC_MEM_PARITY_ERROR		8
+/** Gateway path unavailable */
 #define MODBUS_EXC_GW_PATH_UNAVAILABLE		10
+/** Gateway target device failed to respond */
 #define MODBUS_EXC_GW_TARGET_FAILED_TO_RESP	11
 /** @} */
 
@@ -384,7 +393,7 @@ struct modbus_user_callbacks {
  *
  * @param iface_name Modbus interface name
  *
- * @retval           Modbus interface index or negative error value.
+ * @return           Modbus interface index or negative error value.
  */
 int modbus_iface_get_by_name(const char *iface_name);
 
@@ -419,7 +428,7 @@ typedef int (*modbus_raw_cb_t)(const int iface, const struct modbus_adu *adu,
  * @param excep_code Pointer to possible exception code
  * @param user_data  Pointer to user data
  *
- * @retval           true If response should be sent, false otherwise
+ * @return           true If response should be sent, false otherwise
  */
 typedef bool (*modbus_custom_cb_t)(const int iface,
 				const struct modbus_adu *const rx_adu,
@@ -438,7 +447,7 @@ struct modbus_custom_fc {
 	uint8_t fc;
 	uint8_t excep_code;
 };
-/** @endcond INTERNAL_HIDDEN */
+/** INTERNAL_HIDDEN @endcond */
 
 /**
  * @brief Helper macro for initializing custom function code structs
@@ -475,13 +484,13 @@ struct modbus_serial_param {
 	 *    UART_CFG_PARITY_ODD
 	 */
 	enum uart_config_parity parity;
-	/** stop_bits_client UART's stop bits setting if in client mode:
+	/** stop_bits UART's stop bits setting in non-compliant mode:
 	 *    UART_CFG_STOP_BITS_0_5,
 	 *    UART_CFG_STOP_BITS_1,
 	 *    UART_CFG_STOP_BITS_1_5,
 	 *    UART_CFG_STOP_BITS_2,
 	 */
-	enum uart_config_stop_bits stop_bits_client;
+	enum uart_config_stop_bits stop_bits;
 };
 
 /**
@@ -628,4 +637,4 @@ int modbus_register_user_fc(const int iface, struct modbus_custom_fc *custom_fc)
  * @}
  */
 
-#endif /* ZEPHYR_INCLUDE_MODBUS_H_ */
+#endif /* ZEPHYR_INCLUDE_MODBUS_MODBUS_H_ */

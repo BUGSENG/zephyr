@@ -29,10 +29,19 @@ static struct bt_uuid_16 uuid = BT_UUID_INIT_16(0);
 static struct bt_gatt_discover_params discover_params;
 static struct bt_gatt_subscribe_params subscribe_params;
 
+#if defined(CONFIG_TEST_CONN_INTERVAL_1MS)
+#define UPDATE_PARAM_INTERVAL_MIN 1
+#define UPDATE_PARAM_INTERVAL_MAX 1
+#define UPDATE_PARAM_LATENCY      0
+#define UPDATE_PARAM_TIMEOUT      10
+#define TEST_NOTIFY_COUNT         3000
+#else /* !CONFIG_TEST_CONN_INTERVAL_1MS */
 #define UPDATE_PARAM_INTERVAL_MIN 25
 #define UPDATE_PARAM_INTERVAL_MAX 45
 #define UPDATE_PARAM_LATENCY      1
 #define UPDATE_PARAM_TIMEOUT      250
+#define TEST_NOTIFY_COUNT         3
+#endif /* !CONFIG_TEST_CONN_INTERVAL_1MS */
 
 static struct bt_le_conn_param update_params = {
 	.interval_min = UPDATE_PARAM_INTERVAL_MIN,
@@ -60,6 +69,7 @@ static uint8_t connected_signal;
  */
 
 #define WAIT_TIME 6 /*seconds*/
+#define WAIT_TIME_TX_DEFER 800 /* milliseconds */
 #define WAIT_TIME_REPEAT 22 /*seconds*/
 extern enum bst_result_t bst_result;
 
@@ -77,7 +87,11 @@ extern enum bst_result_t bst_result;
 
 static void test_con1_init(void)
 {
-	bst_ticker_set_next_tick_absolute(WAIT_TIME*1e6);
+	if (IS_ENABLED(CONFIG_BT_CTLR_TX_DEFER)) {
+		bst_ticker_set_next_tick_absolute(WAIT_TIME_TX_DEFER*1e3);
+	} else {
+		bst_ticker_set_next_tick_absolute(WAIT_TIME*1e6);
+	}
 	bst_result = In_progress;
 }
 
@@ -119,16 +133,32 @@ static uint8_t notify_func(struct bt_conn *conn,
 			struct bt_gatt_subscribe_params *params,
 			const void *data, uint16_t length)
 {
+	static uint32_t cycle_stamp;
 	static int notify_count;
+	uint32_t cycle_now;
+	uint64_t delta;
+
 	if (!data) {
 		printk("[UNSUBSCRIBED]\n");
 		params->value_handle = 0U;
 		return BT_GATT_ITER_STOP;
 	}
 
-	printk("[NOTIFICATION] data %p length %u\n", data, length);
+	cycle_now = k_cycle_get_32();
+	delta = cycle_now - cycle_stamp;
+	cycle_stamp = cycle_now;
+	delta = k_cyc_to_ns_floor64(delta);
 
-	if (notify_count++ >= 1) { /* We consider it passed */
+	if (!IS_ENABLED(CONFIG_TEST_CONN_INTERVAL_1MS) ||
+	    ((delta > (NSEC_PER_MSEC / 2U)) &&
+	     (delta < (NSEC_PER_MSEC + (NSEC_PER_MSEC / 2U))))) {
+		notify_count++;
+	}
+
+	printk("[NOTIFICATION] %u. data %p length %u in %llu ns\n",
+	       notify_count, data, length, delta);
+
+	if (notify_count >= TEST_NOTIFY_COUNT) { /* We consider it passed */
 		int err;
 
 		/* Disconnect before actually passing */
@@ -226,17 +256,14 @@ static struct bt_conn_auth_info_cb auth_cb_success = {
 
 static void connected(struct bt_conn *conn, uint8_t conn_err)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
 	int err;
 
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
 	if (conn_err) {
-		FAIL("Failed to connect to %s (%u)\n", addr, conn_err);
+		FAIL("Failed to connect to %s (%u)\n", bt_conn_dst_str(conn), conn_err);
 		return;
 	}
 
-	printk("Connected: %s\n", addr);
+	printk("Connected: %s\n", bt_conn_dst_str(conn));
 
 	if (conn != default_conn) {
 		return;
@@ -314,7 +341,7 @@ static bool eir_found(struct bt_data *data, void *user_data)
 		}
 
 		for (i = 0; i < data->data_len; i += sizeof(uint16_t)) {
-			struct bt_uuid *uuid;
+			const struct bt_uuid *uuid;
 			struct bt_le_conn_param *param;
 			uint16_t u16;
 			int err;
@@ -348,11 +375,8 @@ static bool eir_found(struct bt_data *data, void *user_data)
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 		struct net_buf_simple *ad)
 {
-	char dev[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(addr, dev, sizeof(dev));
 	printk("[DEVICE]: %s, AD evt type %u, AD data len %u, RSSI %i\n",
-			dev, type, ad->len, rssi);
+			bt_addr_le_str(addr), type, ad->len, rssi);
 
 	/* We're only interested in connectable events */
 	if (type == BT_GAP_ADV_TYPE_ADV_IND ||
@@ -363,19 +387,15 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
 	int err;
 
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
+	printk("Disconnected: %s (reason 0x%02x)\n", bt_conn_dst_str(conn), reason);
 
 	if (default_conn != conn) {
 		return;
 	}
 
-	bt_conn_unref(default_conn);
-	default_conn = NULL;
+	bt_conn_drop(&default_conn);
 
 	/* This demo doesn't require active scan */
 	err = bt_le_scan_start(BT_LE_SCAN_PASSIVE, device_found);
@@ -480,14 +500,14 @@ static const struct bst_test_instance test_connect[] = {
 			      "peripheral device can be found. The test will "
 			      "pass if it can connect to it, and receive a "
 			      "notification in less than 5 seconds.",
-		.test_post_init_f = test_con1_init,
+		.test_pre_init_f = test_con1_init,
 		.test_tick_f = test_con1_tick,
 		.test_main_f = test_con1_main
 	},
 	{
 		.test_id = "central_encrypted",
 		.test_descr = "Same as central but with an encrypted link",
-		.test_post_init_f = test_con_encrypted_init,
+		.test_pre_init_f = test_con_encrypted_init,
 		.test_tick_f = test_con1_tick,
 		.test_main_f = test_con1_main
 	},
@@ -497,7 +517,7 @@ static const struct bst_test_instance test_connect[] = {
 			      "peripheral device can be found. The test will "
 			      "pass if it can connect to it 20 times, in less than 22 seconds."
 			      "Disconnect and re-connect 20 times",
-		.test_post_init_f = test_con20_init,
+		.test_pre_init_f = test_con20_init,
 		.test_tick_f = test_con20_tick,
 		.test_main_f = test_con20_main
 	},

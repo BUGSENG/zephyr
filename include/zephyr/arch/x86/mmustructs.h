@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_ARCH_X86_MMU_H
-#define ZEPHYR_INCLUDE_ARCH_X86_MMU_H
+#ifndef ZEPHYR_INCLUDE_ARCH_X86_MMUSTRUCTS_H_
+#define ZEPHYR_INCLUDE_ARCH_X86_MMUSTRUCTS_H_
 
 #include <zephyr/sys/util.h>
 
@@ -31,6 +31,20 @@
 
 /* Use an PAT bit for this one since it's never set in a mapped PTE */
 #define ARCH_DATA_PAGE_NOT_MAPPED	((uintptr_t)BIT(7))
+
+/*
+ * Special unpaged "location" tags. These are defined as the highest possible
+ * PTE address values unlikely to conflict with backing store locations.
+ * As noted in arch_page_info_get(), those values on PAE systems, whose
+ * pentry_t is larger than uintptr_t get truncated.
+ */
+#if defined(CONFIG_X86_64) || defined(CONFIG_X86_PAE)
+#define ARCH_UNPAGED_ANON_ZERO		((uintptr_t)0x07FFFFFFFFFFF000ULL)
+#define ARCH_UNPAGED_ANON_UNINIT	((uintptr_t)0x07FFFFFFFFFFE000ULL)
+#else
+#define ARCH_UNPAGED_ANON_ZERO		((uintptr_t)0xFFFFF000U)
+#define ARCH_UNPAGED_ANON_UNINIT	((uintptr_t)0xFFFFE000U)
+#endif
 
 /* Always true with 32-bit page tables, don't enable
  * CONFIG_EXECUTE_XOR_WRITE and expect it to work for you
@@ -82,4 +96,4 @@ struct arch_mem_domain {
 };
 #endif /* CONFIG_X86_PAE */
 #endif /* _ASMLANGUAGE */
-#endif /* ZEPHYR_INCLUDE_ARCH_X86_MMU_H */
+#endif /* ZEPHYR_INCLUDE_ARCH_X86_MMUSTRUCTS_H_ */

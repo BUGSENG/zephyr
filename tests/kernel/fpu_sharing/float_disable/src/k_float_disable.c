@@ -17,7 +17,8 @@
 
 #if defined(CONFIG_X86) && defined(CONFIG_X86_SSE)
 #define K_FP_OPTS (K_FP_REGS | K_SSE_REGS)
-#elif defined(CONFIG_X86) || defined(CONFIG_ARM) || defined(CONFIG_SPARC)
+#elif defined(CONFIG_X86) || defined(CONFIG_ARM64) || defined(CONFIG_ARM) || \
+	defined(CONFIG_SPARC)
 #define K_FP_OPTS K_FP_REGS
 #else
 #error "Architecture not supported for this test"
@@ -28,19 +29,28 @@ K_THREAD_STACK_DEFINE(usr_fp_thread_stack, STACKSIZE);
 
 ZTEST_BMEM static volatile int test_ret = TC_PASS;
 
-static void usr_fp_thread_entry_1(void)
+static void usr_fp_thread_entry_1(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	k_yield();
 }
 
-#if defined(CONFIG_ARM) || (defined(CONFIG_X86) && defined(CONFIG_LAZY_FPU_SHARING))
+#if defined(CONFIG_ARM64) || defined(CONFIG_ARM) || \
+	(defined(CONFIG_X86) && defined(CONFIG_LAZY_FPU_SHARING))
 #define K_FLOAT_DISABLE_SYSCALL_RETVAL 0
 #else
 #define K_FLOAT_DISABLE_SYSCALL_RETVAL -ENOTSUP
 #endif
 
-static void usr_fp_thread_entry_2(void)
+static void usr_fp_thread_entry_2(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	k_yield();
 
 	/* System call to disable FP mode */
@@ -65,7 +75,7 @@ ZTEST(k_float_disable, test_k_float_disable_common)
 	 * priority as the current thread.
 	 */
 	k_thread_create(&usr_fp_thread, usr_fp_thread_stack, STACKSIZE,
-		(k_thread_entry_t)usr_fp_thread_entry_1, NULL, NULL, NULL,
+		usr_fp_thread_entry_1, NULL, NULL, NULL,
 		PRIORITY, K_USER | K_FP_OPTS,
 		K_NO_WAIT);
 
@@ -78,7 +88,12 @@ ZTEST(k_float_disable, test_k_float_disable_common)
 		"usr_fp_thread FP options not set (0x%0x)",
 		usr_fp_thread.base.user_options);
 
-#if defined(CONFIG_ARM)
+/*
+ * ARM (Cortex-M/R) restricts k_float_disable() to the current thread only.
+ * ARM64 allows disabling FPU for any thread because SMP configurations
+ * require flush_owned_fpu() to manage FPU state across multiple CPUs.
+ */
+#if defined(CONFIG_ARM) && !defined(CONFIG_ARM64)
 	/* Verify FP mode can only be disabled for current thread */
 	zassert_true((k_float_disable(&usr_fp_thread) == -EINVAL),
 		"k_float_disable() successful on thread other than current!");
@@ -87,7 +102,7 @@ ZTEST(k_float_disable, test_k_float_disable_common)
 	zassert_true(
 		(usr_fp_thread.base.user_options & K_FP_OPTS) != 0,
 		"usr_fp_thread FP options cleared");
-#elif defined(CONFIG_X86) && defined(CONFIG_LAZY_FPU_SHARING)
+#elif defined(CONFIG_ARM64) || (defined(CONFIG_X86) && defined(CONFIG_LAZY_FPU_SHARING))
 	zassert_true((k_float_disable(&usr_fp_thread) == 0),
 		"k_float_disable() failure");
 
@@ -114,7 +129,7 @@ ZTEST(k_float_disable, test_k_float_disable_syscall)
 	 * FP mode.
 	 */
 	k_thread_create(&usr_fp_thread, usr_fp_thread_stack, STACKSIZE,
-		(k_thread_entry_t)usr_fp_thread_entry_2, NULL, NULL, NULL,
+		usr_fp_thread_entry_2, NULL, NULL, NULL,
 		PRIORITY, K_INHERIT_PERMS | K_USER | K_FP_OPTS,
 		K_NO_WAIT);
 
@@ -130,7 +145,8 @@ ZTEST(k_float_disable, test_k_float_disable_syscall)
 	/* Yield will swap-in usr_fp_thread */
 	k_yield();
 
-#if defined(CONFIG_ARM) || (defined(CONFIG_X86) && defined(CONFIG_LAZY_FPU_SHARING))
+#if defined(CONFIG_ARM64) || defined(CONFIG_ARM) || \
+	(defined(CONFIG_X86) && defined(CONFIG_LAZY_FPU_SHARING))
 
 	/* Verify K_FP_OPTS are now cleared by the user thread itself */
 	zassert_true(
@@ -171,8 +187,12 @@ void arm_test_isr_handler(const void *args)
 	}
 }
 
-static void sup_fp_thread_entry(void)
+static void sup_fp_thread_entry(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	/* Verify K_FP_REGS flag is set */
 	if ((sup_fp_thread.base.user_options & K_FP_REGS) == 0) {
 
@@ -191,6 +211,16 @@ static void sup_fp_thread_entry(void)
 			 * are automatically enabled. NVIC_GetEnableIRQ()
 			 * returning false, here, implies that the IRQ line is
 			 * not enabled, thus, currently not in use by Zephyr.
+			 */
+			break;
+		}
+	}
+#elif defined(CONFIG_ARM_CUSTOM_INTERRUPT_CONTROLLER)
+	for (i = CONFIG_NUM_IRQS - 1; i >= 0; i--) {
+		if (z_soc_irq_is_enabled(i) == 0) {
+			/*
+			 * Similar to NVIC, get an IRQ line that is not enabled
+			 * with the custom ARM controller
 			 */
 			break;
 		}
@@ -249,7 +279,7 @@ ZTEST(k_float_disable, test_k_float_disable_irq)
 	 * priority as the current thread.
 	 */
 	k_thread_create(&sup_fp_thread, sup_fp_thread_stack, STACKSIZE,
-		(k_thread_entry_t)sup_fp_thread_entry, NULL, NULL, NULL,
+		sup_fp_thread_entry, NULL, NULL, NULL,
 		PRIORITY, K_FP_REGS,
 		K_NO_WAIT);
 

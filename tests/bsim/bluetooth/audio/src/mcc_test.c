@@ -3,15 +3,29 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
-#ifdef CONFIG_BT_MCC
-
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/addr.h>
 #include <zephyr/bluetooth/audio/mcc.h>
+#include <zephyr/bluetooth/audio/mcs.h>
 #include <zephyr/bluetooth/audio/media_proxy.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/bluetooth/services/ots.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net_buf.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/toolchain.h>
 
+#include "bstests.h"
 #include "common.h"
 
+#ifdef CONFIG_BT_MCC
 extern enum bst_result_t bst_result;
 
 static struct bt_mcc_cb mcc_cb;
@@ -70,7 +84,9 @@ CREATE_FLAG(object_read);
 
 static void mcc_discover_mcs_cb(struct bt_conn *conn, int err)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Discovery of MCS failed (%d)\n", err);
 		return;
 	}
@@ -80,7 +96,10 @@ static void mcc_discover_mcs_cb(struct bt_conn *conn, int err)
 
 static void mcc_read_player_name_cb(struct bt_conn *conn, int err, const char *name)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(name);
+
+	if (err != 0) {
 		FAIL("Player Name read failed (%d)\n", err);
 		return;
 	}
@@ -90,7 +109,9 @@ static void mcc_read_player_name_cb(struct bt_conn *conn, int err, const char *n
 
 static void mcc_read_icon_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Icon Object ID read failed (%d)", err);
 		return;
 	}
@@ -101,7 +122,10 @@ static void mcc_read_icon_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 
 static void mcc_read_icon_url_cb(struct bt_conn *conn, int err, const char *url)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(url);
+
+	if (err != 0) {
 		FAIL("Icon URL read failed (%d)", err);
 		return;
 	}
@@ -111,7 +135,9 @@ static void mcc_read_icon_url_cb(struct bt_conn *conn, int err, const char *url)
 
 static void mcc_track_changed_ntf_cb(struct bt_conn *conn, int err)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Track change notification failed (%d)", err);
 		return;
 	}
@@ -121,7 +147,10 @@ static void mcc_track_changed_ntf_cb(struct bt_conn *conn, int err)
 
 static void mcc_read_track_title_cb(struct bt_conn *conn, int err, const char *title)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(title);
+
+	if (err != 0) {
 		FAIL("Track title read failed (%d)", err);
 		return;
 	}
@@ -131,7 +160,10 @@ static void mcc_read_track_title_cb(struct bt_conn *conn, int err, const char *t
 
 static void mcc_read_track_duration_cb(struct bt_conn *conn, int err, int32_t dur)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(dur);
+
+	if (err != 0) {
 		FAIL("Track duration read failed (%d)", err);
 		return;
 	}
@@ -141,7 +173,9 @@ static void mcc_read_track_duration_cb(struct bt_conn *conn, int err, int32_t du
 
 static void mcc_read_track_position_cb(struct bt_conn *conn, int err, int32_t pos)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Track position read failed (%d)", err);
 		return;
 	}
@@ -152,7 +186,9 @@ static void mcc_read_track_position_cb(struct bt_conn *conn, int err, int32_t po
 
 static void mcc_set_track_position_cb(struct bt_conn *conn, int err, int32_t pos)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Track Position set failed (%d)", err);
 		return;
 	}
@@ -164,7 +200,9 @@ static void mcc_set_track_position_cb(struct bt_conn *conn, int err, int32_t pos
 static void mcc_read_playback_speed_cb(struct bt_conn *conn, int err,
 				       int8_t speed)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Playback speed read failed (%d)", err);
 		return;
 	}
@@ -175,7 +213,9 @@ static void mcc_read_playback_speed_cb(struct bt_conn *conn, int err,
 
 static void mcc_set_playback_speed_cb(struct bt_conn *conn, int err, int8_t speed)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Playback speed set failed (%d)", err);
 		return;
 	}
@@ -187,7 +227,10 @@ static void mcc_set_playback_speed_cb(struct bt_conn *conn, int err, int8_t spee
 static void mcc_read_seeking_speed_cb(struct bt_conn *conn, int err,
 				      int8_t speed)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(speed);
+
+	if (err != 0) {
 		FAIL("Seeking speed read failed (%d)", err);
 		return;
 	}
@@ -198,7 +241,9 @@ static void mcc_read_seeking_speed_cb(struct bt_conn *conn, int err,
 static void mcc_read_segments_obj_id_cb(struct bt_conn *conn, int err,
 					uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Track Segments ID read failed (%d)\n", err);
 		return;
 	}
@@ -210,7 +255,9 @@ static void mcc_read_segments_obj_id_cb(struct bt_conn *conn, int err,
 static void mcc_read_current_track_obj_id_cb(struct bt_conn *conn, int err,
 					     uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Current Track Object ID read failed (%d)\n", err);
 		return;
 	}
@@ -222,7 +269,9 @@ static void mcc_read_current_track_obj_id_cb(struct bt_conn *conn, int err,
 static void mcc_set_current_track_obj_id_cb(struct bt_conn *conn, int err,
 					    uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Current Track Object ID set failed (%d)\n", err);
 		return;
 	}
@@ -234,7 +283,9 @@ static void mcc_set_current_track_obj_id_cb(struct bt_conn *conn, int err,
 static void mcc_read_next_track_obj_id_cb(struct bt_conn *conn, int err,
 					     uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Next Track Object ID read failed (%d)\n", err);
 		return;
 	}
@@ -246,7 +297,9 @@ static void mcc_read_next_track_obj_id_cb(struct bt_conn *conn, int err,
 static void mcc_set_next_track_obj_id_cb(struct bt_conn *conn, int err,
 					    uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Next Track Object ID set failed (%d)\n", err);
 		return;
 	}
@@ -258,7 +311,9 @@ static void mcc_set_next_track_obj_id_cb(struct bt_conn *conn, int err,
 static void mcc_read_current_group_obj_id_cb(struct bt_conn *conn, int err,
 					     uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Current Group Object ID read failed (%d)\n", err);
 		return;
 	}
@@ -270,7 +325,9 @@ static void mcc_read_current_group_obj_id_cb(struct bt_conn *conn, int err,
 static void mcc_set_current_group_obj_id_cb(struct bt_conn *conn, int err,
 					    uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Current Group Object ID set failed (%d)\n", err);
 		return;
 	}
@@ -282,7 +339,9 @@ static void mcc_set_current_group_obj_id_cb(struct bt_conn *conn, int err,
 static void mcc_read_parent_group_obj_id_cb(struct bt_conn *conn, int err,
 					    uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Parent Group Object ID read failed (%d)\n", err);
 		return;
 	}
@@ -293,7 +352,9 @@ static void mcc_read_parent_group_obj_id_cb(struct bt_conn *conn, int err,
 
 static void mcc_read_playing_order_cb(struct bt_conn *conn, int err, uint8_t order)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Playing order read failed (%d)", err);
 		return;
 	}
@@ -304,7 +365,9 @@ static void mcc_read_playing_order_cb(struct bt_conn *conn, int err, uint8_t ord
 
 static void mcc_set_playing_order_cb(struct bt_conn *conn, int err, uint8_t order)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Playing order set failed (%d)", err);
 		return;
 	}
@@ -316,7 +379,10 @@ static void mcc_set_playing_order_cb(struct bt_conn *conn, int err, uint8_t orde
 static void mcc_read_playing_orders_supported_cb(struct bt_conn *conn, int err,
 						 uint16_t orders)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(orders);
+
+	if (err != 0) {
 		FAIL("Playing orders supported read failed (%d)", err);
 		return;
 	}
@@ -326,7 +392,9 @@ static void mcc_read_playing_orders_supported_cb(struct bt_conn *conn, int err,
 
 static void mcc_read_media_state_cb(struct bt_conn *conn, int err, uint8_t state)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Media State read failed (%d)", err);
 		return;
 	}
@@ -337,7 +405,9 @@ static void mcc_read_media_state_cb(struct bt_conn *conn, int err, uint8_t state
 
 static void mcc_send_command_cb(struct bt_conn *conn, int err, const struct mpl_cmd *cmd)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Command send failed (%d) - opcode: %u, param: %d",
 		     err, cmd->opcode, cmd->param);
 		return;
@@ -348,7 +418,9 @@ static void mcc_send_command_cb(struct bt_conn *conn, int err, const struct mpl_
 
 static void mcc_cmd_ntf_cb(struct bt_conn *conn, int err, const struct mpl_cmd_ntf *ntf)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Command notification error (%d) - opcode: %u, result: %u",
 		     err, ntf->requested_opcode, ntf->result_code);
 		return;
@@ -361,6 +433,8 @@ static void mcc_cmd_ntf_cb(struct bt_conn *conn, int err, const struct mpl_cmd_n
 static void mcc_read_opcodes_supported_cb(struct bt_conn *conn, int err,
 					  uint32_t opcodes)
 {
+	ARG_UNUSED(conn);
+
 	if (err != 0) {
 		FAIL("Media State read failed (%d)", err);
 		return;
@@ -373,7 +447,10 @@ static void mcc_read_opcodes_supported_cb(struct bt_conn *conn, int err,
 static void mcc_send_search_cb(struct bt_conn *conn, int err,
 			       const struct mpl_search *search)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(search);
+
+	if (err != 0) {
 		FAIL("Search send failed (%d)", err);
 		return;
 	}
@@ -383,7 +460,9 @@ static void mcc_send_search_cb(struct bt_conn *conn, int err,
 
 static void mcc_search_ntf_cb(struct bt_conn *conn, int err, uint8_t result_code)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Search notification error (%d), result code: %u",
 		     err, result_code);
 		return;
@@ -396,7 +475,9 @@ static void mcc_search_ntf_cb(struct bt_conn *conn, int err, uint8_t result_code
 static void mcc_read_search_results_obj_id_cb(struct bt_conn *conn, int err,
 					      uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Search Results Object ID read failed (%d)", err);
 		return;
 	}
@@ -407,7 +488,10 @@ static void mcc_read_search_results_obj_id_cb(struct bt_conn *conn, int err,
 
 static void mcc_read_content_control_id_cb(struct bt_conn *conn, int err, uint8_t ccid)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(ccid);
+
+	if (err != 0) {
 		FAIL("Content control ID read failed (%d)", err);
 		return;
 	}
@@ -417,7 +501,9 @@ static void mcc_read_content_control_id_cb(struct bt_conn *conn, int err, uint8_
 
 static void mcc_otc_obj_selected_cb(struct bt_conn *conn, int err)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Selecting object failed (%d)\n", err);
 		return;
 	}
@@ -427,7 +513,9 @@ static void mcc_otc_obj_selected_cb(struct bt_conn *conn, int err)
 
 static void mcc_otc_obj_metadata_cb(struct bt_conn *conn, int err)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		FAIL("Reading object metadata failed (%d)\n", err);
 		return;
 	}
@@ -438,7 +526,10 @@ static void mcc_otc_obj_metadata_cb(struct bt_conn *conn, int err)
 static void mcc_icon_object_read_cb(struct bt_conn *conn, int err,
 				    struct net_buf_simple *buf)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(buf);
+
+	if (err != 0) {
 		FAIL("Reading Icon Object failed (%d)", err);
 		return;
 	}
@@ -449,7 +540,10 @@ static void mcc_icon_object_read_cb(struct bt_conn *conn, int err,
 static void mcc_track_segments_object_read_cb(struct bt_conn *conn, int err,
 					      struct net_buf_simple *buf)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(buf);
+
+	if (err != 0) {
 		FAIL("Reading Track Segments Object failed (%d)", err);
 		return;
 	}
@@ -460,7 +554,10 @@ static void mcc_track_segments_object_read_cb(struct bt_conn *conn, int err,
 static void mcc_otc_read_current_track_object_cb(struct bt_conn *conn, int err,
 						 struct net_buf_simple *buf)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(buf);
+
+	if (err != 0) {
 		FAIL("Current Track Object read failed (%d)", err);
 		return;
 	}
@@ -471,7 +568,10 @@ static void mcc_otc_read_current_track_object_cb(struct bt_conn *conn, int err,
 static void mcc_otc_read_next_track_object_cb(struct bt_conn *conn, int err,
 						 struct net_buf_simple *buf)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(buf);
+
+	if (err != 0) {
 		FAIL("Next Track Object read failed (%d)", err);
 		return;
 	}
@@ -482,7 +582,10 @@ static void mcc_otc_read_next_track_object_cb(struct bt_conn *conn, int err,
 static void mcc_otc_read_parent_group_object_cb(struct bt_conn *conn, int err,
 						struct net_buf_simple *buf)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(buf);
+
+	if (err != 0) {
 		FAIL("Parent Group Object read failed (%d)", err);
 		return;
 	}
@@ -493,7 +596,10 @@ static void mcc_otc_read_parent_group_object_cb(struct bt_conn *conn, int err,
 static void mcc_otc_read_current_group_object_cb(struct bt_conn *conn, int err,
 						 struct net_buf_simple *buf)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(buf);
+
+	if (err != 0) {
 		FAIL("Current Group Object read failed (%d)", err);
 		return;
 	}
@@ -596,7 +702,7 @@ static void test_select_obj_id(uint64_t id)
 	UNSET_FLAG(object_selected);
 	err = bt_ots_client_select_id(bt_mcc_otc_inst(default_conn),
 				      default_conn, id);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to select object\n");
 		return;
 	}
@@ -620,7 +726,7 @@ static void test_read_object_meta(void)
 
 	UNSET_FLAG(metadata_read);
 	err = bt_mcc_otc_read_object_metadata(default_conn);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to read object metadata\n");
 		return;
 	}
@@ -642,7 +748,7 @@ static bool test_verify_media_state_wait_flags(uint8_t expected_state)
 
 	UNSET_FLAG(media_state_read);
 	err = bt_mcc_read_media_state(default_conn);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to read media state: %d", err);
 		return false;
 	}
@@ -717,7 +823,7 @@ static void test_invalid_send_cmd(void)
 	}
 }
 
-/* Helper function to write commands to to the control point, including the
+/* Helper function to write commands to the control point, including the
  * flag handling.
  * Will FAIL on error to send the command.
  * Will WAIT for the required flags before returning.
@@ -734,7 +840,7 @@ static void test_send_cmd_wait_flags(struct mpl_cmd *cmd)
 	UNSET_FLAG(command_sent);
 	UNSET_FLAG(command_notified);
 	err = bt_mcc_send_cmd(default_conn, cmd);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to send command: %d, opcode: %u",
 		     err, cmd->opcode);
 		return;
@@ -784,10 +890,13 @@ static void test_cp_pause(void)
 
 static void test_cp_fast_rewind(void)
 {
+	const int32_t tmp_pos = g_pos;
 	struct mpl_cmd cmd;
 
 	cmd.opcode = BT_MCS_OPC_FAST_REWIND;
 	cmd.use_param = false;
+
+	UNSET_FLAG(track_position_read);
 
 	test_send_cmd_wait_flags(&cmd);
 
@@ -799,14 +908,24 @@ static void test_cp_fast_rewind(void)
 	if (test_verify_media_state_wait_flags(BT_MCS_MEDIA_STATE_SEEKING)) {
 		printk("FAST REWIND command succeeded\n");
 	}
+
+	/* Wait for the track position to change during rewinding */
+	WAIT_FOR_FLAG(track_position_read);
+	if (tmp_pos <= g_pos) {
+		FAIL("Position did not change during rewinding");
+		return;
+	}
 }
 
 static void test_cp_fast_forward(void)
 {
+	const int32_t tmp_pos = g_pos;
 	struct mpl_cmd cmd;
 
 	cmd.opcode = BT_MCS_OPC_FAST_FORWARD;
 	cmd.use_param = false;
+
+	UNSET_FLAG(track_position_read);
 
 	test_send_cmd_wait_flags(&cmd);
 
@@ -817,6 +936,13 @@ static void test_cp_fast_forward(void)
 
 	if (test_verify_media_state_wait_flags(BT_MCS_MEDIA_STATE_SEEKING)) {
 		printk("FAST FORWARD command succeeded\n");
+	}
+
+	/* Wait for the track position to change during fast forwarding */
+	WAIT_FOR_FLAG(track_position_read);
+	if (tmp_pos >= g_pos) {
+		FAIL("Position did not change during forwarding");
+		return;
 	}
 }
 
@@ -852,7 +978,7 @@ static void test_cp_move_relative(void)
 	 */
 	UNSET_FLAG(track_position_read);
 	err = bt_mcc_read_track_position(default_conn);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to read track position: %d\n", err);
 		return;
 	}
@@ -873,7 +999,7 @@ static void test_cp_move_relative(void)
 
 	UNSET_FLAG(track_position_read);
 	err = bt_mcc_read_track_position(default_conn);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to read track position: %d\n", err);
 		return;
 	}
@@ -997,7 +1123,7 @@ static void test_read_current_track_object_id_wait_flags(void)
 
 	UNSET_FLAG(current_track_object_id_read);
 	err = bt_mcc_read_current_track_obj_id(default_conn);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to read current track object ID: %d", err);
 		return;
 	}
@@ -1014,7 +1140,7 @@ static void test_cp_prev_track(void)
 	 * and can change between them.
 	 */
 
-	/* To verify that a track change has happeded, the test checks that the
+	/* To verify that a track change has happened, the test checks that the
 	 * current track object ID has changed.
 	 */
 
@@ -1171,7 +1297,7 @@ static void test_read_current_group_object_id_wait_flags(void)
 
 	UNSET_FLAG(current_group_object_id_read);
 	err = bt_mcc_read_current_group_obj_id(default_conn);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to read current group object ID: %d", err);
 		return;
 	}
@@ -1188,7 +1314,7 @@ static void test_cp_prev_group(void)
 	 * and can change between them.
 	 */
 
-	/* To verify that a group change has happeded, the test checks that the
+	/* To verify that a group change has happened, the test checks that the
 	 * current group object ID has changed.
 	 */
 
@@ -1381,7 +1507,7 @@ static void test_search(void)
 	UNSET_FLAG(search_results_object_id_read);
 	err = bt_mcc_read_search_results_obj_id(default_conn);
 
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to read search results object ID: %d", err);
 		return;
 	}
@@ -1413,7 +1539,7 @@ static void test_search(void)
 	UNSET_FLAG(search_results_object_id_read);
 
 	err = bt_mcc_send_search(default_conn, &search);
-	if (err) {
+	if (err != 0) {
 		FAIL("Failed to write to search control point\n");
 		return;
 	}
@@ -1430,7 +1556,7 @@ static void test_search(void)
 	 * results object ID will have been notified if the search gave results
 	 */
 	WAIT_FOR_FLAG(search_results_object_id_read);
-	if (g_search_results_object_id == 0) {
+	if (g_search_results_object_id == 0U) {
 		FAIL("No search results\n");
 		return;
 	}
@@ -2214,7 +2340,7 @@ static void test_set_playing_order(void)
 		return;
 	}
 
-	new_playing_order = 0x00;
+	new_playing_order = 0x00U;
 
 	err = bt_mcc_set_playing_order(default_conn, new_playing_order);
 	if (err == 0) {
@@ -2223,7 +2349,7 @@ static void test_set_playing_order(void)
 		return;
 	}
 
-	new_playing_order = 0x0b;
+	new_playing_order = 0x0bU;
 
 	err = bt_mcc_set_playing_order(default_conn, new_playing_order);
 	if (err == 0) {
@@ -2330,6 +2456,8 @@ static void reset_test_iteration(unsigned int i)
 {
 	struct mpl_cmd cmd;
 
+	ARG_UNUSED(i);
+
 	printk("Resetting test iteration\n");
 
 	g_icon_object_id = 0U;
@@ -2378,7 +2506,7 @@ static void reset_test_iteration(unsigned int i)
 }
 
 /* This function tests all commands in the API in sequence
- * The order of the sequence follows the order of the characterstics in the
+ * The order of the sequence follows the order of the characteristics in the
  * Media Control Service specification
  */
 void test_main(void)
@@ -2408,10 +2536,10 @@ void test_main(void)
 
 	/* Connect ******************************************/
 	for (unsigned int i = 0U; i < iterations; i++) {
-		const uint64_t new_current_group_object_id_1 = 0x10e;
-		const uint64_t new_current_group_object_id_2 = 0x106; /* ID of first group */
-		const uint64_t new_current_track_object_id = 0x103;
-		const uint64_t new_next_track_object = 0x102;
+		const uint64_t new_current_group_object_id_1 = 0x10eU;
+		const uint64_t new_current_group_object_id_2 = 0x106U; /* ID of first group */
+		const uint64_t new_current_track_object_id = 0x103U;
+		const uint64_t new_next_track_object = 0x102U;
 
 		printk("\n########### Running iteration #%u\n\n", i);
 
@@ -2425,15 +2553,16 @@ void test_main(void)
 
 		WAIT_FOR_FLAG(flag_connected);
 
-		char addr[BT_ADDR_LE_STR_LEN];
+		printk("Connected: %s\n", bt_conn_dst_str(default_conn));
 
-		bt_addr_le_to_str(bt_conn_get_dst(default_conn), addr, sizeof(addr));
-		printk("Connected: %s\n", addr);
-
-		bt_conn_le_param_update(default_conn, BT_LE_CONN_PARAM(0x06U, 0x10U, 0U, 400U));
+		bt_conn_le_param_update(default_conn,
+					BT_LE_CONN_PARAM(BT_GAP_US_TO_CONN_INTERVAL(7500),
+							 BT_GAP_US_TO_CONN_INTERVAL(20000), 0U,
+							 BT_GAP_MS_TO_CONN_TIMEOUT(4000U)));
 		WAIT_FOR_FLAG(flag_conn_updated);
 
 		test_discover();
+		test_discover(); /* test that we can discover twice */
 
 		reset_test_iteration(i);
 
@@ -2578,7 +2707,7 @@ void test_main(void)
 static const struct bst_test_instance test_mcs[] = {
 	{
 		.test_id = "mcc",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main
 	},

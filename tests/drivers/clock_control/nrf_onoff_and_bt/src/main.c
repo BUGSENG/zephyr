@@ -14,11 +14,15 @@ LOG_MODULE_REGISTER(test);
 
 #define TEST_TIME_MS 10000
 
+#if defined(CONFIG_SOC_SERIES_NRF54L) || defined(CONFIG_SOC_SERIES_NRF71)
+#define HF_STARTUP_TIME_US 600
+#else
 #define HF_STARTUP_TIME_US 400
+#endif
 
 static bool test_end;
 
-static const struct device *const entropy = DEVICE_DT_GET(DT_CHOSEN(zephyr_entropy));
+static const struct device *entropy;
 static const struct device *const clock_dev = DEVICE_DT_GET_ONE(nordic_nrf_clock);
 static struct onoff_manager *hf_mgr;
 static struct onoff_client cli;
@@ -26,6 +30,8 @@ static uint32_t iteration;
 
 static void *setup(void)
 {
+	entropy = entropy_get_default_device();
+
 	zassert_true(device_is_ready(entropy));
 	zassert_true(device_is_ready(clock_dev));
 
@@ -66,6 +72,7 @@ K_TIMER_DEFINE(timer1, bt_timeout_handler, NULL);
 static void check_hf_status(const struct device *dev, bool exp_on,
 			    bool sw_check)
 {
+	uint32_t key = irq_lock();
 	nrf_clock_hfclk_t type;
 
 	nrf_clock_is_running(NRF_CLOCK, NRF_CLOCK_DOMAIN_HFCLK, &type);
@@ -83,6 +90,7 @@ static void check_hf_status(const struct device *dev, bool exp_on,
 				"%d: Unexpected status: %d", iteration, status);
 	}
 
+	irq_unlock(key);
 }
 
 /* Test controls HF clock from two contexts: thread and timer interrupt.
@@ -223,4 +231,45 @@ ZTEST(nrf_onoff_and_bt, test_bt_interrupted)
 	k_msleep(100);
 	check_hf_status(clock_dev, false, true);
 }
+
+ZTEST(nrf_onoff_and_bt, test_onoff_following_bt)
+{
+	int err;
+	int res = -EIO;
+
+	z_nrf_clock_bt_ctlr_hf_request();
+
+	/* First start can take longer on some platforms due to the tuning. */
+	k_busy_wait(HF_STARTUP_TIME_US + 6000);
+	check_hf_status(clock_dev, true, false);
+
+	z_nrf_clock_bt_ctlr_hf_release();
+
+	for (int i = 0; i < 5; i++) {
+		z_nrf_clock_bt_ctlr_hf_request();
+
+		k_busy_wait(HF_STARTUP_TIME_US + 1200);
+		check_hf_status(clock_dev, true, false);
+
+		z_nrf_clock_bt_ctlr_hf_release();
+
+		check_hf_status(clock_dev, false, false);
+
+		sys_notify_init_spinwait(&cli.notify);
+		err = onoff_request(hf_mgr, &cli);
+		zassert_true(err >= 0, "Unexpected err: %d", err);
+
+		k_busy_wait(HF_STARTUP_TIME_US);
+		err = sys_notify_fetch_result(&cli.notify, &res);
+		zassert_equal(err, 0, "Unexpected err: %d", err);
+		zassert_equal(res, 0, "Unexpected result: %d", res);
+		check_hf_status(clock_dev, true, false);
+
+		err = onoff_release(hf_mgr);
+		zassert_true(err >= 0, "Unexpected err: %d", err);
+
+		check_hf_status(clock_dev, false, false);
+	}
+}
+
 ZTEST_SUITE(nrf_onoff_and_bt, NULL, setup, NULL, NULL, NULL);

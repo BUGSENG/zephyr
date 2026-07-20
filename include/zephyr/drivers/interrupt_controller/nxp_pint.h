@@ -16,8 +16,8 @@
  * the PINT.
  */
 
-#ifndef ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_INTC_NXP_PINT_H_
-#define ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_INTC_NXP_PINT_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_NXP_PINT_H_
+#define ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_NXP_PINT_H_
 
 #include <fsl_pint.h>
 
@@ -50,8 +50,9 @@ typedef void (*nxp_pint_cb_t) (uint8_t pin, void *user);
  * @param pin: pin to use as interrupt source
  *     0-64, corresponding to GPIO0 pin 1 - GPIO1 pin 31)
  * @param trigger: one of nxp_pint_trigger flags
+ * @param wake: indicates if the pin should wakeup the system
  */
-int nxp_pint_pin_enable(uint8_t pin, enum nxp_pint_trigger trigger);
+int nxp_pint_pin_enable(uint8_t pin, enum nxp_pint_trigger trigger, bool wake);
 
 
 /**
@@ -78,5 +79,12 @@ int nxp_pint_pin_set_callback(uint8_t pin, nxp_pint_cb_t cb, void *data);
  */
 void nxp_pint_pin_unset_callback(uint8_t pin);
 
+/**
+ * @brief Get PINT slot index the pin is allocated to
+ *
+ * @param pin: The pin to get the PINT slot index for
+ * @return The allocated slot index, if not allocated, return -EINVAL.
+ */
+int nxp_pint_pin_get_slot_index(uint8_t pin);
 
-#endif /* ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_INTC_NXP_PINT_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_NXP_PINT_H_ */

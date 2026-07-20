@@ -36,7 +36,7 @@ static const struct eswifi_spi_config eswifi_config_spi0 = {
 	.dr = GPIO_DT_SPEC_INST_GET(0, data_gpios),
 	.bus = SPI_DT_SPEC_INST_GET(0, SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB |
 				    SPI_WORD_SET(16) | SPI_HOLD_ON_CS |
-				    SPI_LOCK_ON, 1000U),
+				    SPI_LOCK_ON),
 };
 
 static struct eswifi_spi_data eswifi_spi0;
@@ -219,8 +219,11 @@ static void eswifi_spi_read_msg(struct eswifi_dev *eswifi)
 	eswifi_unlock(eswifi);
 }
 
-static void eswifi_spi_poll_thread(void *p1)
+static void eswifi_spi_poll_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	struct eswifi_dev *eswifi = p1;
 
 	while (1) {
@@ -255,7 +258,7 @@ int eswifi_spi_init(struct eswifi_dev *eswifi)
 
 	k_thread_create(&spi->poll_thread, eswifi_spi_poll_stack,
 			ESWIFI_SPI_THREAD_STACK_SIZE,
-			(k_thread_entry_t)eswifi_spi_poll_thread, eswifi, NULL,
+			eswifi_spi_poll_thread, eswifi, NULL,
 			NULL, K_PRIO_COOP(CONFIG_WIFI_ESWIFI_THREAD_PRIO), 0,
 			K_NO_WAIT);
 

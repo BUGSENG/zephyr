@@ -17,6 +17,8 @@
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/device_mmio.h>
+#include <zephyr/sys/printk-hooks.h>
+#include <zephyr/sys/libc-hooks.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(uart_hvc_xen, CONFIG_UART_LOG_LEVEL);
@@ -180,12 +182,6 @@ static int xen_hvc_irq_is_pending(const struct device *dev)
 	return xen_hvc_irq_rx_ready(dev);
 }
 
-static int xen_hvc_irq_update(const struct device *dev)
-{
-	/* Nothing needs to be updated before actual ISR */
-	return 1;
-}
-
 static void xen_hvc_irq_callback_set(const struct device *dev,
 		 uart_irq_callback_user_data_t cb, void *user_data)
 {
@@ -196,7 +192,7 @@ static void xen_hvc_irq_callback_set(const struct device *dev,
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
-static const struct uart_driver_api xen_hvc_api = {
+static DEVICE_API(uart, xen_hvc_api) = {
 	.poll_in = xen_hvc_poll_in,
 	.poll_out = xen_hvc_poll_out,
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
@@ -208,7 +204,6 @@ static const struct uart_driver_api xen_hvc_api = {
 	.irq_tx_complete = xen_hvc_irq_tx_complete,
 	.irq_rx_ready = xen_hvc_irq_rx_ready,
 	.irq_is_pending = xen_hvc_irq_is_pending,
-	.irq_update = xen_hvc_irq_update,
 	.irq_callback_set = xen_hvc_irq_callback_set,
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
@@ -267,9 +262,6 @@ DEVICE_DT_DEFINE(DT_NODELABEL(xen_hvc), xen_console_init, NULL, &xen_hvc_data,
 		&xen_hvc_api);
 
 #ifdef CONFIG_XEN_EARLY_CONSOLEIO
-extern void __printk_hook_install(int (*fn)(int));
-extern void __stdout_hook_install(int (*fn)(int));
-
 int xen_consoleio_putc(int c)
 {
 	char symbol = (char) c;

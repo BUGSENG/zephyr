@@ -5,7 +5,6 @@
  */
 
 &pinctrl {
-
 	/* Prebuild nodes for peripheral device's characteristics (Optional) */
 	/omit-if-no-ref/ vhif_lpc_sl: devctl-vhif-3p3v-lpc {
 		dev-ctl = <0x0 2 2 0x01>;
@@ -21,6 +20,14 @@
 
 	/omit-if-no-ref/ ext_flash_tris_on: devctl-fiu-ext-tris-on {
 		dev-ctl = <0x0 6 1 0x01>;
+	};
+
+	/omit-if-no-ref/ sio_full_ck48: devctl4-sio-full-ck48 {
+		dev-ctl = <0x6 3 1 0x00>;
+	};
+
+	/omit-if-no-ref/ sio_full_ck50: devctl4-sio-full-ck50 {
+		dev-ctl = <0x6 3 1 0x01>;
 	};
 
 	/* Prebuild nodes for peripheral device's pin-muxing and pad properties */
@@ -461,5 +468,13 @@
 
 	/omit-if-no-ref/ uart4_sout_gp35: periph-uart4-sout {
 		pinmux = <&alte_cr_sout4_sl>;
+	};
+
+	/omit-if-no-ref/ spip_sclk_mosi_miso_gp95_gpa1_gpa3_gpa5_sl: periph-spip-sl {
+		pinmux = <&alt0_spip_sl>;
+	};
+
+	/omit-if-no-ref/ spip_sclk_mosi_miso_gp95_gpa1_gpa3_gpa5_no_spip_inv: periph-no-spip-inv {
+		pinmux = <&alt0_gpio_no_spip>;
 	};
 };

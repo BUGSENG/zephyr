@@ -8,3 +8,13 @@ config ADC_ESP32
 	depends on DT_HAS_ESPRESSIF_ESP32_ADC_ENABLED
 	help
 	  Enable the driver implementation for the ESP32 ADC
+
+if ADC_ESP32
+
+config ADC_ESP32_DMA
+	bool "ESP32 ADC DMA Support"
+	select DMA if DT_HAS_ESPRESSIF_ESP32_GDMA_ENABLED
+	help
+	  Enable the ADC DMA mode
+
+endif

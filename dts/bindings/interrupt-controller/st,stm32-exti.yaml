@@ -1,4 +1,4 @@
-description: STMicroelectronics STM32 family External Interrupt Controller
+description: STM32 External Interrupt Controller
 
 compatible: "st,stm32-exti"
 
@@ -17,13 +17,20 @@ properties:
   num-lines:
     type: int
     required: true
-    description: Number of lines supported by the interrupt controller.
+    description: Total number of lines supported by the interrupt controller.
+
+  num-gpio-lines:
+    type: int
+    default: 16
+    description: |
+      Total number of EXTI lines dedicated to GPIO interrupts.
+      The default value of 16 mirrors hardware of most STM32 devices.
 
   line-ranges:
     type: array
     required: true
     description: |
-      Description of the the input lines range for each interrupt line supported
+      Description of the input lines range for each interrupt line supported
       by the external interrupt controller. For each line a couple of integers is
       provided: the number of the first line of the range start and the length
       of the range.

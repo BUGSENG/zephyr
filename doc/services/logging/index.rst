@@ -32,6 +32,7 @@ Summary of the logging features:
 - Support for logging floating point variables and long long arguments.
 - Built-in copying of transient strings used as arguments.
 - Support for multi-domain logging.
+- Rate-limited logging macros to prevent log flooding when messages are generated frequently.
 
 Logging API is highly configurable at compile time as well as at run time. Using
 Kconfig options (see :ref:`logging_kconfig`) logs can be gradually removed from
@@ -46,14 +47,28 @@ There are four severity levels available in the system: error, warning, info
 and debug. For each severity level the logging API (:zephyr_file:`include/zephyr/logging/log.h`)
 has set of dedicated macros. Logger API also has macros for logging data.
 
-For each level following set of macros are available:
+For each level the following set of macros are available:
 
 - ``LOG_X`` for standard printf-like messages, e.g. :c:macro:`LOG_ERR`.
 - ``LOG_HEXDUMP_X`` for dumping data, e.g. :c:macro:`LOG_HEXDUMP_WRN`.
 - ``LOG_INST_X`` for standard printf-like message associated with the
   particular instance, e.g. :c:macro:`LOG_INST_INF`.
 - ``LOG_INST_HEXDUMP_X`` for dumping data associated with the particular
-  instance, e.g. :c:macro:`LOG_HEXDUMP_INST_DBG`
+  instance, e.g. :c:macro:`LOG_INST_HEXDUMP_DBG`
+
+The warning level also exposes the following additional macro:
+
+- :c:macro:`LOG_WRN_ONCE` for warnings where only the first occurrence is of interest.
+
+Rate-limited logging macros are also available for all severity levels to prevent log flooding:
+
+- ``LOG_X_RATELIMIT`` for rate-limited standard printf-like messages using default rate, e.g. :c:macro:`LOG_ERR_RATELIMIT`.
+- ``LOG_X_RATELIMIT_RATE`` for rate-limited standard printf-like messages with custom rate, e.g. :c:macro:`LOG_ERR_RATELIMIT_RATE`.
+- ``LOG_HEXDUMP_X_RATELIMIT`` for rate-limited data dumping using default rate, e.g. :c:macro:`LOG_HEXDUMP_WRN_RATELIMIT`.
+- ``LOG_HEXDUMP_X_RATELIMIT_RATE`` for rate-limited data dumping with custom rate, e.g. :c:macro:`LOG_HEXDUMP_WRN_RATELIMIT_RATE`.
+
+The convenience macros use the default rate specified by ``CONFIG_LOG_RATELIMIT_INTERVAL_MS``,
+while the explicit rate macros take a rate parameter (in milliseconds) that specifies the minimum interval between log messages.
 
 There are two configuration categories: configurations per module and global
 configuration. When logging is enabled globally, it works for modules. However,
@@ -124,9 +139,9 @@ allocated.
 
 :kconfig:option:`CONFIG_LOG_PRINTK`: Redirect printk calls to the logging.
 
-:kconfig:option:`CONFIG_LOG_PROCESS_TRIGGER_THRESHOLD`: When number of buffered log
-messages reaches the threshold dedicated thread (see :c:func:`log_thread_set`)
-is waken up. If :kconfig:option:`CONFIG_LOG_PROCESS_THREAD` is enabled then this
+:kconfig:option:`CONFIG_LOG_PROCESS_TRIGGER_THRESHOLD`: When the number of buffered log
+messages reaches the threshold, the dedicated thread (see :c:func:`log_thread_set`)
+is woken up. If :kconfig:option:`CONFIG_LOG_PROCESS_THREAD` is enabled then this
 threshold is used by the internal thread.
 
 :kconfig:option:`CONFIG_LOG_PROCESS_THREAD`: When enabled, logging thread is created
@@ -142,9 +157,15 @@ packet buffer.
 
 :kconfig:option:`CONFIG_LOG_FRONTEND_ONLY`: No backends are used when messages goes to frontend.
 
+:kconfig:option:`CONFIG_LOG_FRONTEND_OPT_API`: Optional API optimized for the most common
+simple messages.
+
 :kconfig:option:`CONFIG_LOG_CUSTOM_HEADER`: Injects an application provided header into log.h
 
 :kconfig:option:`CONFIG_LOG_TIMESTAMP_64BIT`: 64 bit timestamp.
+
+:kconfig:option:`CONFIG_LOG_SIMPLE_MSG_OPTIMIZE`: Optimizes simple log messages for size
+and performance. Option available only for 32 bit architectures.
 
 Formatting options:
 
@@ -160,6 +181,11 @@ with function name. Hexdump messages are not prepended.
 :kconfig:option:`CONFIG_LOG_FUNC_NAME_PREFIX_DBG`: Prepend standard DEBUG log messages
 with function name. Hexdump messages are not prepended.
 
+:kconfig:option:`CONFIG_LOG_BACKEND_SHOW_TIMESTAMP`: Enables backend to print timestamps
+with log.
+
+:kconfig:option:`CONFIG_LOG_BACKEND_SHOW_LEVEL`: Enables backend to print levels with log.
+
 :kconfig:option:`CONFIG_LOG_BACKEND_SHOW_COLOR`: Enables coloring of errors (red)
 and warnings (yellow).
 
@@ -168,7 +194,11 @@ formatted to *hh:mm:ss:mmm,uuu*. Otherwise is printed in raw format.
 
 Backend options:
 
-:kconfig:option:`CONFIG_LOG_BACKEND_UART`: Enabled built-in UART backend.
+:kconfig:option:`CONFIG_LOG_BACKEND_UART`: Enable built-in UART backend.
+
+:kconfig:option:`CONFIG_LOG_BACKEND_NET`: Enable built-in Networking backend to send syslog messages
+to a network server.
+
 
 .. _log_usage:
 
@@ -236,7 +266,7 @@ Logging in a module instance
 ============================
 
 In case of modules which are multi-instance and instances are widely used
-across the system enabling logs will lead to flooding. Logger provide the tools
+across the system enabling logs will lead to flooding. The logger provides the tools
 which can be used to provide filtering on instance level rather than module
 level. In that case logging can be enabled for particular instance.
 
@@ -299,20 +329,20 @@ By default, logging processing in deferred mode is handled internally by the
 dedicated task which starts automatically. However, it might not be available
 if multithreading is disabled. It can also be disabled by unsetting
 :kconfig:option:`CONFIG_LOG_PROCESS_TRIGGER_THRESHOLD`. In that case, logging can
-be controlled using API defined in :zephyr_file:`include/zephyr/logging/log_ctrl.h`.
-Logging must be initialized before it can be used. Optionally, user can provide
-function which returns timestamp value. If not provided, :c:macro:`k_cycle_get`
+be controlled using the API defined in :zephyr_file:`include/zephyr/logging/log_ctrl.h`.
+Logging must be initialized before it can be used. Optionally, the user can provide
+a function which returns the timestamp value. If not provided, :c:macro:`k_cycle_get`
 or :c:macro:`k_cycle_get_32` is used for timestamping.
-:c:func:`log_process` function is used to trigger processing of one log
-message (if pending). Function returns true if there is more messages pending.
+The :c:func:`log_process` function is used to trigger processing of one log
+message (if pending), and returns true if there are more messages pending.
 However, it is recommended to use macro wrappers (:c:macro:`LOG_INIT` and
-:c:macro:`LOG_PROCESS`) which handles case when logging is disabled.
+:c:macro:`LOG_PROCESS`) which handle the case where logging is disabled.
 
-Following snippet shows how logging can be processed in simple forever loop.
+The following snippet shows how logging can be processed in simple forever loop.
 
 .. code-block:: c
 
-   #include <zephyr/log_ctrl.h>
+   #include <zephyr/logging/log_ctrl.h>
 
    int main(void)
    {
@@ -330,6 +360,94 @@ Following snippet shows how logging can be processed in simple forever loop.
 If logs are processed from a thread (user or internal) then it is possible to enable
 a feature which will wake up processing thread when certain amount of log messages are
 buffered (see :kconfig:option:`CONFIG_LOG_PROCESS_TRIGGER_THRESHOLD`).
+
+.. _logging_ratelimited:
+
+Rate-limited logging
+********************
+
+Rate-limited logging macros provide a way to prevent log flooding when messages are
+generated frequently. These macros ensure that log messages are not output more
+frequently than a specified interval, similar to Linux's ``printk_ratelimited``
+functionality.
+
+The rate-limited logging system provides two types of macros:
+
+**Convenience macros (using default rate):**
+- :c:macro:`LOG_ERR_RATELIMIT` - Rate-limited error messages
+- :c:macro:`LOG_WRN_RATELIMIT` - Rate-limited warning messages
+- :c:macro:`LOG_INF_RATELIMIT` - Rate-limited info messages
+- :c:macro:`LOG_DBG_RATELIMIT` - Rate-limited debug messages
+- :c:macro:`LOG_HEXDUMP_ERR_RATELIMIT` - Rate-limited error hexdump
+- :c:macro:`LOG_HEXDUMP_WRN_RATELIMIT` - Rate-limited warning hexdump
+- :c:macro:`LOG_HEXDUMP_INF_RATELIMIT` - Rate-limited info hexdump
+- :c:macro:`LOG_HEXDUMP_DBG_RATELIMIT` - Rate-limited debug hexdump
+
+**Explicit rate macros (with custom rate):**
+- :c:macro:`LOG_ERR_RATELIMIT_RATE` - Rate-limited error messages with custom rate
+- :c:macro:`LOG_WRN_RATELIMIT_RATE` - Rate-limited warning messages with custom rate
+- :c:macro:`LOG_INF_RATELIMIT_RATE` - Rate-limited info messages with custom rate
+- :c:macro:`LOG_DBG_RATELIMIT_RATE` - Rate-limited debug messages with custom rate
+- :c:macro:`LOG_HEXDUMP_ERR_RATELIMIT_RATE` - Rate-limited error hexdump with custom rate
+- :c:macro:`LOG_HEXDUMP_WRN_RATELIMIT_RATE` - Rate-limited warning hexdump with custom rate
+- :c:macro:`LOG_HEXDUMP_INF_RATELIMIT_RATE` - Rate-limited info hexdump with custom rate
+- :c:macro:`LOG_HEXDUMP_DBG_RATELIMIT_RATE` - Rate-limited debug hexdump with custom rate
+
+The convenience macros use the default rate specified by :kconfig:option:`CONFIG_LOG_RATELIMIT_INTERVAL_MS`
+(5000ms by default). The explicit rate macros take a rate parameter (in milliseconds) that specifies
+the minimum interval between log messages. The rate limiting is per-macro-call-site, meaning
+that each unique call to a rate-limited macro has its own independent rate limit.
+
+Example usage:
+
+.. code-block:: c
+
+    #include <zephyr/logging/log.h>
+    #include <zephyr/kernel.h>
+
+    LOG_MODULE_REGISTER(my_module, CONFIG_LOG_DEFAULT_LEVEL);
+
+    void process_data(void)
+    {
+        /* Convenience macros using default rate (CONFIG_LOG_RATELIMIT_INTERVAL_MS) */
+        LOG_WRN_RATELIMIT("Data processing warning: %d", error_code);
+        LOG_ERR_RATELIMIT("Critical error occurred: %s", error_msg);
+        LOG_INF_RATELIMIT("Processing status: %d items", item_count);
+        LOG_HEXDUMP_WRN_RATELIMIT(data_buffer, data_len, "Data buffer:");
+
+        /* Explicit rate macros with custom intervals */
+        LOG_WRN_RATELIMIT_RATE(1000, "Fast rate warning: %d", error_code);
+        LOG_ERR_RATELIMIT_RATE(30000, "Slow rate error: %s", error_msg);
+        LOG_INF_RATELIMIT_RATE(2000, "Custom rate status: %d items", item_count);
+        LOG_HEXDUMP_ERR_RATELIMIT_RATE(5000, data_buffer, data_len, "Error data:");
+    }
+
+Rate-limited logging is particularly useful for:
+
+- Error conditions that might occur frequently but don't need to flood the logs
+- Status updates in tight loops or high-frequency callbacks
+- Debug information that could overwhelm the logging system
+- Network or I/O operations that might fail repeatedly
+
+Configuration
+==============
+
+Rate-limited logging can be configured using the following Kconfig options:
+
+- :kconfig:option:`CONFIG_LOG_RATELIMIT` - Master switch to enable/disable rate-limited logging
+- :kconfig:option:`CONFIG_LOG_RATELIMIT_INTERVAL_MS` - Default interval for convenience macros (5000ms)
+
+When :kconfig:option:`CONFIG_LOG_RATELIMIT` is disabled, the behavior of rate-limited macros is controlled
+by the :kconfig:option:`CONFIG_LOG_RATELIMIT_FALLBACK` choice:
+
+- :kconfig:option:`CONFIG_LOG_RATELIMIT_FALLBACK_LOG` - All rate-limited macros behave as regular logging macros
+- :kconfig:option:`CONFIG_LOG_RATELIMIT_FALLBACK_DROP` - All rate-limited macros expand to no-ops (default)
+
+This allows you to control whether rate-limited log macros should always print or be completely
+suppressed when rate limiting is not available.
+
+The rate limiting is implemented using static variables and :c:func:`k_uptime_get_32`
+to track the last log time for each call site.
 
 .. _logging_panic:
 
@@ -350,16 +468,17 @@ that moment all logs are processed in a blocking way.
 Printk
 ******
 
-Typically, logging and :c:func:`printk` is using the same output for which they
-compete. This can lead to issues if the output does not support preemption but
-also it may result in the corrupted output because logging data is interleaved
-with printk data. However, it is possible to redirect printk messages to the
+Typically, logging and :c:func:`printk` use the same output, which they compete
+for. This can lead to issues if the output does not support preemption but it may
+also result in corrupted output because logging data is interleaved with printk
+data. However, it is possible to redirect printk messages to the
 logging subsystem by enabling :kconfig:option:`CONFIG_LOG_PRINTK`. In that case,
 printk entries are treated as log messages with level 0 (they cannot be disabled).
 When enabled, logging manages the output so there is no interleaving. However,
-in the deferred mode it changes the behavior of the printk because output is delayed
-until logging thread processes the data. :kconfig:option:`CONFIG_LOG_PRINTK` is by
-default enabled.
+in deferred mode the printk behaviour is changed since the output is delayed
+until the logging thread processes the data. :kconfig:option:`CONFIG_LOG_PRINTK`
+is enabled by default.
+
 
 .. _log_architecture:
 
@@ -378,27 +497,27 @@ instance of a module.
 Default Frontend
 ================
 
-Default frontend is engaged when logging API is called in a source of logging (e.g.
+Default frontend is engaged when the logging API is called in a source of logging (e.g.
 :c:macro:`LOG_INF`) and is responsible for filtering a message (compile and run
-time), allocating buffer for the message, creating the message and committing that
-message. Since logging API can be called in an interrupt, frontend is optimized
+time), allocating a buffer for the message, creating the message and committing that
+message. Since the logging API can be called in an interrupt, the frontend is optimized
 to log the message as fast as possible.
 
 Log message
 -----------
 
-Log message contains message descriptor (source, domain and level), timestamp,
+A log message contains a message descriptor (source, domain and level), timestamp,
 formatted string details (see :ref:`cbprintf_packaging`) and optional data.
 Log messages are stored in a continuous block of memory.
-Memory is allocated from a circular packet buffer (:ref:`mpsc_pbuf`). It has
-few consequences:
+Memory is allocated from a circular packet buffer (:ref:`mpsc_pbuf`), which has
+a few consequences:
 
- * Each message is self-contained, continuous block of memory thus it is suited
+ * Each message is a self-contained, continuous block of memory thus it is suited
    for copying the message (e.g. for offline processing).
  * Messages must be sequentially freed. Backend processing is synchronous. Backend
    can make a copy for deferred processing.
 
-Log message has following format:
+A log message has following format:
 
 +------------------+----------------------------------------------------+
 | Message Header   | 2 bits: MPSC packet buffer header                  |
@@ -440,12 +559,12 @@ Log message has following format:
 Log message allocation
 ----------------------
 
-It may happen that frontend cannot allocate a message. It happens if system is
-generating more log messages than it can process in certain time frame. There
-are two strategies to handle that case:
+It may happen that the frontend cannot allocate a message. This happens if the
+system is generating more log messages than it can process in certain time
+frame. There are two strategies to handle that case:
 
-- No overflow - new log is dropped if space for a message cannot be allocated.
-- Overflow - oldest pending messages are freed, until new message can be
+- No overflow - the new log is dropped if space for a message cannot be allocated.
+- Overflow - the oldest pending messages are freed, until the new message can be
   allocated. Enabled by :kconfig:option:`CONFIG_LOG_MODE_OVERFLOW`. Note that it degrades
   performance thus it is recommended to adjust buffer size and amount of enabled
   logs to limit dropping.
@@ -476,6 +595,8 @@ particular source will be buffered.
 | INF  | ERR  | INF  | OFF  | ... | OFF  |
 +------+------+------+------+-----+------+
 
+.. _log_frontend:
+
 Custom Frontend
 ===============
 
@@ -487,7 +608,12 @@ backends.
 
 In some cases, logs need to be redirected at the macro level. For these cases,
 :kconfig:option:`CONFIG_LOG_CUSTOM_HEADER` can be used to inject an application provided
-header named `zephyr_custom_log.h` at the end of :zephyr_file:`include/zephyr/logging/log.h`.
+header named :file:`zephyr_custom_log.h` at the end of :zephyr_file:`include/zephyr/logging/log.h`.
+
+Frontend using ARM Coresight STM (System Trace Macrocell)
+---------------------------------------------------------
+
+For more details about logging using ARM Coresight STM see :ref:`logging_cs_stm`.
 
 .. _logging_strings:
 
@@ -653,9 +779,11 @@ not supported.  Occasionally, logging may inform backend about number of dropped
 messages with :c:func:`log_backend_dropped`. Message processing API is version
 specific.
 
-:c:func:`log_backend_msg2_process` is used for processing message. It is common for
+:c:func:`log_backend_msg_process` is used for processing message. It is common for
 standard and hexdump messages because log message hold string with arguments
 and data. It is also common for deferred and immediate logging.
+
+.. _log_output:
 
 Message formatting
 ------------------
@@ -663,7 +791,7 @@ Message formatting
 Logging provides set of function that can be used by the backend to format a
 message. Helper functions are available in :zephyr_file:`include/zephyr/logging/log_output.h`.
 
-Example message formatted using :c:func:`log_output_msg2_process`.
+Example message formatted using :c:func:`log_output_msg_process`.
 
 .. code-block:: console
 
@@ -711,6 +839,18 @@ Here are kconfig options related to dictionary-based logging:
   - :kconfig:option:`CONFIG_LOG_BACKEND_UART_OUTPUT_DICTIONARY_BIN` tells
     the UART backend to output binary data.
 
+- The RTT backend can also be used for dictionary-based logging:
+
+  - :kconfig:option:`CONFIG_LOG_BACKEND_RTT` enables the RTT backend.
+
+  - :kconfig:option:`CONFIG_LOG_BACKEND_RTT_OUTPUT_DICTIONARY` enables
+    dictionary-based output for the RTT backend. Use together with
+    :kconfig:option:`CONFIG_USE_SEGGER_RTT`.
+
+  - :kconfig:option:`CONFIG_LOG_BACKEND_RTT_OUTPUT_DICTIONARY_HEX` tells
+    the RTT backend to output hexadecimal characters for dictionary based
+    logging.
+
 
 Usage
 -----
@@ -721,7 +861,10 @@ in the build directory. This database file contains information for the parser
 to correctly parse the log data. Note that this database file only works
 with the same build, and cannot be used for any other builds.
 
-To use the log parser:
+Offline Parsing
+^^^^^^^^^^^^^^^
+
+To parse a previously captured log file:
 
 .. code-block:: console
 
@@ -734,12 +877,58 @@ hexadecimal characters
 (e.g. when ``CONFIG_LOG_BACKEND_UART_OUTPUT_DICTIONARY_HEX=y``). This tells
 the parser to convert the hexadecimal characters to binary before parsing.
 
-Please refer to the :zephyr:code-sample:`logging-dictionary` sample to learn more on how to use
-the log parser.
+Live Parsing
+^^^^^^^^^^^^
+
+For real-time decoding of dictionary-based log output, use the live log parser.
+It connects to a running device and continuously decodes binary log data as it
+arrives. Note that the live parser only supports binary dictionary output
+(not hex-encoded). The live parser supports three input modes:
+
+**Serial (UART):**
+
+.. code-block:: console
+
+  ./scripts/logging/dictionary/live_log_parser.py <build dir>/log_dictionary.json serial <port> <baudrate>
+
+For example, to read from ``/dev/ttyACM0`` at 115200 baud:
+
+.. code-block:: console
+
+  ./scripts/logging/dictionary/live_log_parser.py build/zephyr/log_dictionary.json serial /dev/ttyACM0 115200
+
+**JLink RTT:**
+
+.. code-block:: console
+
+  ./scripts/logging/dictionary/live_log_parser.py <build dir>/log_dictionary.json jlink-rtt <device_name>
+
+For example, to read RTT output from an nRF5340:
+
+.. code-block:: console
+
+  ./scripts/logging/dictionary/live_log_parser.py build/zephyr/log_dictionary.json jlink-rtt nrf5340_xxaa_app
+
+The JLink RTT mode requires the ``pylink-square`` Python package
+(``pip install pylink-square``). Optional arguments include ``--channel`` to
+select the RTT channel (default: 0), ``--speed`` to set the connection speed,
+and ``--block-address`` to specify the RTT control block address in hex.
+
+**File / stdin:**
+
+.. code-block:: console
+
+  ./scripts/logging/dictionary/live_log_parser.py <build dir>/log_dictionary.json file <filepath>
+
+When ``<filepath>`` is omitted, the parser reads from stdin, which allows piping
+binary data directly into it.
+
+Please refer to the :zephyr:code-sample:`logging-dictionary` sample for more
+examples on using the log parsers.
 
 
-Recommendations
-***************
+Recommendations and limitations
+*******************************
 
 The are following recommendations:
 
@@ -751,13 +940,38 @@ The are following recommendations:
   format specifier and it points to a constant string.
 * It is recommended to cast pointer to ``char *`` when it is used with ``%s``
   format specifier and it points to a transient string.
-* It is recommended to cast character pointer to non character pointer
+* It is required to cast a character pointer to non character pointer
   (e.g., ``void *``) when it is used with ``%p`` format specifier.
 
 .. code-block:: c
 
    LOG_WRN("%s", str);
    LOG_WRN("%p", (void *)str);
+
+There are following limitations:
+
+* Logging does not support string format specifier with width (e.g., ``%.*s`` or ``%8s``). That
+  is because format string content is not used to build a log message, only argument types.
+* If deferred logging is used and log messages are prefixed with the thread name
+  (Kconfig option ``CONFIG_LOG_THREAD_ID_PREFIX=y`` and ``CONFIG_THREAD_NAME=y``), it is assumed that
+  the corresponding :c:struct:`k_thread` structure is still valid when the log message is
+  formatted. This can be an issue when that structure is allocated dynamically, using :c:func:`k_malloc` or
+  :c:func:`malloc` for instance. In this case, if the thread logs some messages and then gets
+  stopped and its ``struct k_thread`` is freed, the log system will still try to access that
+  structure when handling the message later. This creates a use-after-free scenario.
+  To avoid this, a solution consists in calling :c:func:`log_flush` before freeing the structure.
+
+.. code-block:: c
+
+   struct k_thread *thread = k_malloc(sizeof(*thread)); /* struct allocated dynamically */
+   k_thread_create(thread, ...);
+   k_thread_name_set(thread, "foobar");
+
+   /* Thread calls LOG_*(...) */
+
+   k_thread_join(thread, K_FOREVER);
+   log_flush();  /* flush log buffer before freeing the struct k_thread */
+   k_free(thread); /* avoid a potential use-after-free scenario if deferred logging is used */
 
 Benchmark
 *********
@@ -816,9 +1030,6 @@ When :kconfig:option:`CONFIG_LOG_MODE_IMMEDIATE` is used then log message is pro
 which includes string formatting. In case of that mode, stack usage will depend on which backends
 are used.
 
-:zephyr_file:`tests/subsys/logging/log_stack` test is used to characterize stack usage depending
-on mode, optimization and platform used. Test is using only the default backend.
-
 Some of the platforms characterization for log message with two ``integer`` arguments listed below:
 
 +---------------+----------+----------------------------+-----------+-----------------------------+
@@ -835,6 +1046,10 @@ Some of the platforms characterization for log message with two ``integer`` argu
 | x86_64        | 32       | 528                        | 1088      | 1440                        |
 +---------------+----------+----------------------------+-----------+-----------------------------+
 
+Logging using ARM Coresight STM
+*******************************
+
+For logging on NRF54H20 using ARM Coresight STM see :ref:`logging_cs_stm`.
 
 API Reference
 *************
@@ -863,3 +1078,8 @@ Logger output formatting
 ========================
 
 .. doxygengroup:: log_output
+
+.. toctree::
+   :maxdepth: 1
+
+   cs_stm.rst

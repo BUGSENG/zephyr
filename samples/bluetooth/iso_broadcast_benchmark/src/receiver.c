@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Nordic Semiconductor ASA
+ * Copyright (c) 2021-2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/bluetooth/iso.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/console/console.h>
@@ -79,7 +80,6 @@ static bool data_cb(struct bt_data *data, void *user_data)
 static void scan_recv(const struct bt_le_scan_recv_info *info,
 		      struct net_buf_simple *buf)
 {
-	char le_addr[BT_ADDR_LE_STR_LEN];
 	char name[DEVICE_NAME_LEN];
 
 	if (broadcaster_found) {
@@ -99,10 +99,8 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 		return;
 	}
 
-	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
-
 	LOG_INF("Found broadcaster with address %s (RSSI %i)",
-		le_addr, info->rssi);
+		bt_addr_le_str(info->addr), info->rssi);
 
 	broadcaster_found = true;
 
@@ -229,9 +227,20 @@ static void iso_recv(struct bt_iso_chan *chan,
 
 static void iso_connected(struct bt_iso_chan *chan)
 {
+	const struct bt_iso_chan_path hci_path = {
+		.pid = BT_ISO_DATA_PATH_HCI,
+		.format = BT_HCI_CODING_FORMAT_TRANSPARENT,
+	};
+	int err;
+
 	LOG_INF("ISO Channel %p connected", chan);
 
 	big_sync_start_time = k_uptime_get();
+
+	err = bt_iso_setup_data_path(chan, BT_HCI_DATAPATH_DIR_CTLR_TO_HOST, &hci_path);
+	if (err != 0) {
+		printk("Failed to setup ISO RX data path: %d\n", err);
+	}
 
 	k_sem_give(&sem_big_sync);
 }
@@ -372,9 +381,9 @@ static int create_big_sync(struct bt_iso_big **big, struct bt_le_per_adv_sync *s
 					    BT_ISO_SYNC_TIMEOUT_MIN,
 					    BT_ISO_SYNC_TIMEOUT_MAX);
 	big_sync_param.num_bis = bis_count;
-	/* BIS indexes start from 0x01, so add one to `i` */
+	/* BIS indexes start from 0x01 */
 	for (int i = 1; i <= big_sync_param.num_bis; i++) {
-		big_sync_param.bis_bitfield |= BIT(i);
+		big_sync_param.bis_bitfield |= BT_ISO_BIS_INDEX_BIT(i);
 	}
 
 	LOG_INF("Syncing to BIG");

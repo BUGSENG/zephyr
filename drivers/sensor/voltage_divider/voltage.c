@@ -6,25 +6,29 @@
 
 #define DT_DRV_COMPAT voltage_divider
 
+#include <inttypes.h>
+
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/adc/voltage_divider.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/pm/device.h>
+#include <zephyr/pm/device_runtime.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(voltage, CONFIG_SENSOR_LOG_LEVEL);
 
 struct voltage_config {
 	struct voltage_divider_dt_spec voltage;
-#ifdef CONFIG_PM_DEVICE
 	struct gpio_dt_spec gpio_power;
-#endif
+	uint32_t sample_delay_us;
+	bool skip_calibration;
 };
 
 struct voltage_data {
 	struct adc_sequence sequence;
-	int16_t raw;
+	k_timepoint_t earliest_sample_time;
+	uint16_t raw;
 };
 
 static int fetch(const struct device *dev, enum sensor_channel chan)
@@ -37,6 +41,17 @@ static int fetch(const struct device *dev, enum sensor_channel chan)
 		return -ENOTSUP;
 	}
 
+	/* Wait until sampling is valid */
+	k_sleep(sys_timepoint_timeout(data->earliest_sample_time));
+
+	/* configure the active channel to be converted */
+	ret = adc_channel_setup_dt(&config->voltage.port);
+	if (ret != 0) {
+		LOG_ERR("adc_setup failed: %d", ret);
+		return ret;
+	}
+
+	/* start conversion */
 	ret = adc_read(config->voltage.port.dev, &data->sequence);
 	if (ret != 0) {
 		LOG_ERR("adc_read: %d", ret);
@@ -49,8 +64,7 @@ static int get(const struct device *dev, enum sensor_channel chan, struct sensor
 {
 	const struct voltage_config *config = dev->config;
 	struct voltage_data *data = dev->data;
-	int32_t raw_val = data->raw;
-	int32_t v_mv;
+	int32_t raw_val;
 	int ret;
 
 	__ASSERT_NO_MSG(val != NULL);
@@ -59,61 +73,86 @@ static int get(const struct device *dev, enum sensor_channel chan, struct sensor
 		return -ENOTSUP;
 	}
 
-	ret = adc_raw_to_millivolts_dt(&config->voltage.port, &raw_val);
+	if (config->voltage.port.channel_cfg.differential) {
+		raw_val = (int16_t)data->raw;
+	} else {
+		raw_val = data->raw;
+	}
+
+	ret = adc_raw_to_microvolts_dt(&config->voltage.port, &raw_val);
 	if (ret != 0) {
-		LOG_ERR("raw_to_mv: %d", ret);
+		LOG_ERR("raw_to_uv: %d", ret);
 		return ret;
 	}
 
-	v_mv = raw_val;
+	int64_t voltage_uv = raw_val;
 
 	/* Note if full_ohms is not specified then unscaled voltage is returned */
-	(void)voltage_divider_scale_dt(&config->voltage, &v_mv);
+	(void)voltage_divider_scale64_dt(&config->voltage, &voltage_uv);
 
-	LOG_DBG("%d of %d, %dmV, voltage:%dmV", data->raw,
-		(1 << data->sequence.resolution) - 1, raw_val, v_mv);
-	val->val1 = v_mv / 1000;
-	val->val2 = (v_mv * 1000) % 1000000;
-
-	return ret;
+	LOG_DBG("%" PRIu16 " of %lu, %" PRIi32 "uV, voltage:%" PRIi64 "uV", data->raw,
+		BIT_MASK(data->sequence.resolution), raw_val, voltage_uv);
+	return sensor_value_from_micro(val, voltage_uv);
 }
 
-static const struct sensor_driver_api voltage_api = {
+static DEVICE_API(sensor, voltage_api) = {
 	.sample_fetch = fetch,
 	.channel_get = get,
 };
 
-#ifdef CONFIG_PM_DEVICE
 static int pm_action(const struct device *dev, enum pm_device_action action)
 {
 	const struct voltage_config *config = dev->config;
-	int ret;
+	struct voltage_data *data = dev->data;
+	int ret = 0;
 
 	if (config->gpio_power.port == NULL) {
-		LOG_ERR("PM not supported");
-		return -ENOTSUP;
+		/* No work to do */
+		return 0;
 	}
 
 	switch (action) {
+	case PM_DEVICE_ACTION_TURN_ON:
+		ret = gpio_pin_configure_dt(&config->gpio_power, GPIO_OUTPUT_INACTIVE);
+		if (ret != 0) {
+			LOG_ERR("failed to configure GPIO for PM on");
+		}
+		break;
 	case PM_DEVICE_ACTION_RESUME:
 		ret = gpio_pin_set_dt(&config->gpio_power, 1);
 		if (ret != 0) {
 			LOG_ERR("failed to set GPIO for PM resume");
 		}
+		data->earliest_sample_time = sys_timepoint_calc(K_USEC(config->sample_delay_us));
+		/* Power up ADC */
+		ret = pm_device_runtime_get(config->voltage.port.dev);
+		if (ret != 0) {
+			LOG_ERR("failed to power up ADC (%d)", ret);
+			return ret;
+		}
 		break;
+#ifdef CONFIG_PM_DEVICE
 	case PM_DEVICE_ACTION_SUSPEND:
 		ret = gpio_pin_set_dt(&config->gpio_power, 0);
 		if (ret != 0) {
 			LOG_ERR("failed to set GPIO for PM suspend");
 		}
+		/* Power down ADC */
+		ret = pm_device_runtime_put(config->voltage.port.dev);
+		if (ret != 0) {
+			LOG_ERR("failed to Power down ADC (%d)", ret);
+			return ret;
+		}
 		break;
+	case PM_DEVICE_ACTION_TURN_OFF:
+		break;
+#endif /* CONFIG_PM_DEVICE */
 	default:
 		return -ENOTSUP;
 	}
 
 	return ret;
 }
-#endif
 
 static int voltage_init(const struct device *dev)
 {
@@ -121,24 +160,20 @@ static int voltage_init(const struct device *dev)
 	struct voltage_data *data = dev->data;
 	int ret;
 
+	/* Default value to use if `power-gpios` does not exist */
+	data->earliest_sample_time = sys_timepoint_calc(K_NO_WAIT);
+
 	if (!adc_is_ready_dt(&config->voltage.port)) {
-		LOG_ERR("ADC is not ready");
+		LOG_ERR_DEVICE_NOT_READY(config->voltage.port.dev);
 		return -ENODEV;
 	}
 
-#ifdef CONFIG_PM_DEVICE
 	if (config->gpio_power.port != NULL) {
 		if (!gpio_is_ready_dt(&config->gpio_power)) {
-			LOG_ERR("Power GPIO is not ready");
+			LOG_ERR_DEVICE_NOT_READY(config->gpio_power.port);
 			return -ENODEV;
 		}
-
-		ret = gpio_pin_configure_dt(&config->gpio_power, GPIO_OUTPUT_ACTIVE);
-		if (ret != 0) {
-			LOG_ERR("failed to initialize GPIO for reset");
-		}
 	}
-#endif
 
 	ret = adc_channel_setup_dt(&config->voltage.port);
 	if (ret != 0) {
@@ -154,22 +189,19 @@ static int voltage_init(const struct device *dev)
 
 	data->sequence.buffer = &data->raw;
 	data->sequence.buffer_size = sizeof(data->raw);
+	data->sequence.calibrate = !config->skip_calibration;
 
-	return 0;
+	return pm_device_driver_init(dev, pm_action);
 }
-
-#ifdef CONFIG_PM_DEVICE
-#define POWER_GPIOS(inst) .gpio_power = GPIO_DT_SPEC_INST_GET_OR(inst, power_gpios, {0}),
-#else
-#define POWER_GPIOS(inst)
-#endif
 
 #define VOLTAGE_INIT(inst)                                                                         \
 	static struct voltage_data voltage_##inst##_data;                                          \
                                                                                                    \
 	static const struct voltage_config voltage_##inst##_config = {                             \
 		.voltage = VOLTAGE_DIVIDER_DT_SPEC_GET(DT_DRV_INST(inst)),                         \
-		POWER_GPIOS(inst)                                                                  \
+		.gpio_power = GPIO_DT_SPEC_INST_GET_OR(inst, power_gpios, {0}),                    \
+		.sample_delay_us = DT_INST_PROP(inst, power_on_sample_delay_us),                   \
+		.skip_calibration = DT_INST_PROP(inst, skip_calibration),                          \
 	};                                                                                         \
                                                                                                    \
 	PM_DEVICE_DT_INST_DEFINE(inst, pm_action);                                                 \

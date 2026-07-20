@@ -12,7 +12,6 @@ if SMBUS
 
 config SMBUS_SHELL
 	bool "SMBus Shell"
-	default y
 	depends on SHELL
 	help
 	  Enable SMBus Shell.
@@ -25,10 +24,18 @@ config SMBUS_STATS
 
 config SMBUS_INIT_PRIORITY
 	int "Init priority"
-	default KERNEL_INIT_PRIORITY_DEFAULT
+	default KERNEL_INIT_PRIORITY_DEVICE
 	help
 	  SMBus device driver initialization priority.
 
+config SMBUS_SOFT_PEC
+	bool "SMBus software PEC support"
+	select CRC
+	help
+	  Enable software Packet Error Checking (PEC) support.
+
+	  These generic functions can be used by SMBus drivers for transceivers that do not support
+	  PEC in hardware.
 
 module = SMBUS
 module-str = smbus
@@ -77,5 +84,25 @@ config SMBUS_INTEL_PCH_SMBALERT
 	  Support SMBALERT signal from peripheral devices.
 
 endif # SMBUS_INTEL_PCH
+
+menuconfig SMBUS_STM32
+	bool "STM32 SMBus driver"
+	default y
+	depends on DT_HAS_ST_STM32_SMBUS_ENABLED
+	depends on I2C_STM32
+	select PINCTRL
+	select SMBUS_SOFT_PEC
+	help
+	  Enable STM32 SMBus driver.
+
+if SMBUS_STM32
+
+config SMBUS_STM32_SMBALERT
+	bool "SMBus STM32 SMBALERT signal support"
+	default y
+	help
+	  Support SMBALERT signal from peripheral devices.
+
+endif # SMBUS_STM32
 
 endif # SMBUS

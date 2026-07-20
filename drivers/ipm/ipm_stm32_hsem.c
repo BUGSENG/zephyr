@@ -52,8 +52,9 @@ void stm32_hsem_mailbox_ipm_rx_isr(const struct device *dev)
 	uint32_t mask_semid = (1U << data->rx_semid);
 
 	/* Check semaphore rx_semid interrupt status */
-	if (!ll_hsem_isactiveflag_cmisr(HSEM, mask_semid))
+	if (!ll_hsem_isactiveflag_cmisr(HSEM, mask_semid)) {
 		return;
+	}
 
 	/* Notify user with NULL data pointer */
 	if (data->callback) {
@@ -158,11 +159,6 @@ static int stm32_hsem_mailbox_init(const struct device *dev)
 	/* Config transfer semaphore */
 	switch (CONFIG_IPM_STM32_HSEM_CPU) {
 	case HSEM_CPU1:
-		if (!device_is_ready(clk)) {
-			LOG_ERR("clock control device not ready");
-			return -ENODEV;
-		}
-
 		/* Enable clock */
 		if (clock_control_on(clk, (clock_control_subsys_t)&cfg->pclken) != 0) {
 			LOG_WRN("Failed to enable clock");
@@ -183,7 +179,7 @@ static int stm32_hsem_mailbox_init(const struct device *dev)
 	return 0;
 }
 
-static const struct ipm_driver_api stm32_hsem_mailbox_ipm_dirver_api = {
+static DEVICE_API(ipm, stm32_hsem_mailbox_ipm_dirver_api) = {
 	.send = stm32_hsem_mailbox_ipm_send,
 	.register_callback = stm32_hsem_mailbox_ipm_register_callback,
 	.max_data_size_get = stm32_hsem_mailbox_ipm_max_data_size_get,
@@ -193,12 +189,8 @@ static const struct ipm_driver_api stm32_hsem_mailbox_ipm_dirver_api = {
 
 static const struct stm32_hsem_mailbox_config stm32_hsem_mailbox_0_config = {
 	.irq_config_func = stm32_hsem_mailbox_irq_config_func,
-	.pclken = {
-		.bus = DT_INST_CLOCKS_CELL(0, bus),
-		.enr = DT_INST_CLOCKS_CELL(0, bits)
-	},
+	.pclken = STM32_DT_INST_CLOCK_INFO(0),
 };
-
 
 /*
  * STM32 HSEM has its own LL_HSEM(low-level HSEM) API provided by the hal_stm32 module.
@@ -206,15 +198,16 @@ static const struct stm32_hsem_mailbox_config stm32_hsem_mailbox_0_config = {
  * a virtual mailbox device. So there will have only one instance.
  */
 #define IPM_STM32_HSEM_INIT(inst)						\
-	BUILD_ASSERT((inst) == 0,							\
-		     "multiple instances not supported");		\
-	DEVICE_DT_INST_DEFINE(0,							\
-				&stm32_hsem_mailbox_init,				\
-				NULL,			\
-				&stm32_hsem_mailbox_0_data,				\
-				&stm32_hsem_mailbox_0_config,			\
-				POST_KERNEL,							\
-				CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,	\
-				&stm32_hsem_mailbox_ipm_dirver_api);	\
+	BUILD_ASSERT((inst) == 0,						\
+		     "multiple instances not supported");			\
+										\
+	DEVICE_DT_INST_DEFINE(0,						\
+			      &stm32_hsem_mailbox_init,				\
+			      NULL,						\
+			      &stm32_hsem_mailbox_0_data,			\
+			      &stm32_hsem_mailbox_0_config,			\
+			      POST_KERNEL,					\
+			      CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,		\
+			      &stm32_hsem_mailbox_ipm_dirver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(IPM_STM32_HSEM_INIT)

@@ -328,9 +328,6 @@ static void bdma_stm32_irq_handler(const struct device *dev, uint32_t id)
 	callback_arg = id;
 #endif /* CONFIG_DMAMUX_STM32 */
 
-	if (!IS_ENABLED(CONFIG_DMAMUX_STM32)) {
-		channel->busy = false;
-	}
 
 	/* the dma channel id is in range from 0..<dma-requests> */
 	if (stm32_bdma_is_ht_irq_active(dma, id)) {
@@ -340,9 +337,10 @@ static void bdma_stm32_irq_handler(const struct device *dev, uint32_t id)
 		}
 		channel->bdma_callback(dev, channel->user_data, callback_arg, 0);
 	} else if (stm32_bdma_is_tc_irq_active(dma, id)) {
-#ifdef CONFIG_DMAMUX_STM32
-		channel->busy = false;
-#endif
+		/* Circular buffer never stops receiving as long as peripheral is enabled */
+		if (!channel->cyclic) {
+			channel->busy = false;
+		}
 		/* Let HAL DMA handle flags on its own */
 		if (!channel->hal_override) {
 			bdma_stm32_clear_tc(dma, id);
@@ -350,6 +348,7 @@ static void bdma_stm32_irq_handler(const struct device *dev, uint32_t id)
 		channel->bdma_callback(dev, channel->user_data, callback_arg, 0);
 	} else {
 		LOG_ERR("Transfer Error.");
+		channel->busy = false;
 		bdma_stm32_dump_channel_irq(dev, id);
 		bdma_stm32_clear_channel_irq(dev, id);
 		channel->bdma_callback(dev, channel->user_data,
@@ -478,9 +477,9 @@ static bool bdma_stm32_is_valid_memory_address(const uint32_t address, const uin
 }
 
 
-BDMA_STM32_EXPORT_API int bdma_stm32_configure(const struct device *dev,
-					     uint32_t id,
-					     struct dma_config *config)
+static int bdma_stm32_configure(const struct device *dev,
+				uint32_t id,
+				struct dma_config *config)
 {
 	const struct bdma_stm32_config *dev_config = dev->config;
 	struct bdma_stm32_channel *channel =
@@ -553,6 +552,7 @@ BDMA_STM32_EXPORT_API int bdma_stm32_configure(const struct device *dev,
 	channel->user_data	= config->user_data;
 	channel->src_size	= config->source_data_size;
 	channel->dst_size	= config->dest_data_size;
+	channel->cyclic		= config->head_block->source_reload_en;
 
 	/* check dest or source memory address, warn if 0 */
 	if (config->head_block->source_address == 0) {
@@ -633,7 +633,7 @@ BDMA_STM32_EXPORT_API int bdma_stm32_configure(const struct device *dev,
 		return ret;
 	}
 
-	if (config->head_block->source_reload_en) {
+	if (channel->cyclic) {
 		BDMA_InitStruct.Mode = LL_BDMA_MODE_CIRCULAR;
 	} else {
 		BDMA_InitStruct.Mode = LL_BDMA_MODE_NORMAL;
@@ -667,16 +667,16 @@ BDMA_STM32_EXPORT_API int bdma_stm32_configure(const struct device *dev,
 	LL_BDMA_EnableIT_TC(bdma, bdma_stm32_id_to_channel(id));
 
 	/* Enable Half-Transfer irq if circular mode is enabled */
-	if (config->head_block->source_reload_en) {
+	if (channel->cyclic) {
 		LL_BDMA_EnableIT_HT(bdma, bdma_stm32_id_to_channel(id));
 	}
 
 	return ret;
 }
 
-BDMA_STM32_EXPORT_API int bdma_stm32_reload(const struct device *dev, uint32_t id,
-					  uint32_t src, uint32_t dst,
-					  size_t size)
+static int bdma_stm32_reload(const struct device *dev, uint32_t id,
+			     uint32_t src, uint32_t dst,
+			     size_t size)
 {
 	const struct bdma_stm32_config *config = dev->config;
 	BDMA_TypeDef *bdma = (BDMA_TypeDef *)(config->base);
@@ -722,7 +722,7 @@ BDMA_STM32_EXPORT_API int bdma_stm32_reload(const struct device *dev, uint32_t i
 	return 0;
 }
 
-BDMA_STM32_EXPORT_API int bdma_stm32_start(const struct device *dev, uint32_t id)
+static int bdma_stm32_start(const struct device *dev, uint32_t id)
 {
 	const struct bdma_stm32_config *config = dev->config;
 	BDMA_TypeDef *bdma = (BDMA_TypeDef *)(config->base);
@@ -748,7 +748,7 @@ BDMA_STM32_EXPORT_API int bdma_stm32_start(const struct device *dev, uint32_t id
 	return 0;
 }
 
-BDMA_STM32_EXPORT_API int bdma_stm32_stop(const struct device *dev, uint32_t id)
+static int bdma_stm32_stop(const struct device *dev, uint32_t id)
 {
 	const struct bdma_stm32_config *config = dev->config;
 	struct bdma_stm32_channel *channel = &config->channels[id];
@@ -756,6 +756,11 @@ BDMA_STM32_EXPORT_API int bdma_stm32_stop(const struct device *dev, uint32_t id)
 
 	if (id >= config->max_channels) {
 		return -EINVAL;
+	}
+
+	if (channel->hal_override) {
+		channel->busy = false;
+		return 0;
 	}
 
 	/* Repeated stop : return now if channel is already stopped */
@@ -781,11 +786,6 @@ static int bdma_stm32_init(const struct device *dev)
 	const struct bdma_stm32_config *config = dev->config;
 	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 
-	if (!device_is_ready(clk)) {
-		LOG_ERR("clock control device not ready");
-		return -ENODEV;
-	}
-
 	if (clock_control_on(clk,
 		(clock_control_subsys_t) &config->pclken) != 0) {
 		LOG_ERR("clock op failed\n");
@@ -806,26 +806,26 @@ static int bdma_stm32_init(const struct device *dev)
 	((struct bdma_stm32_data *)dev->data)->dma_ctx.dma_channels = 0;
 	((struct bdma_stm32_data *)dev->data)->dma_ctx.atomic = 0;
 
-	/* The BDMA can only access SRAM4 and assumes it's nocachable
-	 * This check verifies that the non-cachable flag is set in the DTS.
+	/* The BDMA can only access SRAM4 and assumes it's uncached
+	 * This check verifies that the nocache memory attribute is set in the devicetree.
 	 * For example:
 	 *	&sram4 {
-	 *		zephyr,memory-attr = "RAM_NOCACHE";
+	 *		zephyr,memory-attr = <DT_MEM_ARM_MPU_RAM_NOCACHE>;
 	 *	};
 	 */
 #if DT_NODE_HAS_PROP(DT_NODELABEL(sram4), zephyr_memory_attr)
 	if ((DT_PROP(DT_NODELABEL(sram4), zephyr_memory_attr) & DT_MEM_ARM_MPU_RAM_NOCACHE) == 0) {
-		LOG_ERR("SRAM4 is not set as non-cachable.");
+		LOG_ERR("SRAM4 is not set as uncached.");
 		return -EIO;
 	}
 #else
-#error "BDMA driver expects SRAM4 to be set as RAM_NOCACHE in DTS"
+#error "BDMA driver expects SRAM4 to be set as uncached in devicetree"
 #endif
 
 	return 0;
 }
 
-BDMA_STM32_EXPORT_API int bdma_stm32_get_status(const struct device *dev,
+static int bdma_stm32_get_status(const struct device *dev,
 				uint32_t id, struct dma_status *stat)
 {
 	const struct bdma_stm32_config *config = dev->config;
@@ -844,7 +844,7 @@ BDMA_STM32_EXPORT_API int bdma_stm32_get_status(const struct device *dev,
 	return 0;
 }
 
-static const struct dma_driver_api dma_funcs = {
+static DEVICE_API(dma, dma_funcs) = {
 	.reload		 = bdma_stm32_reload,
 	.config		 = bdma_stm32_configure,
 	.start		 = bdma_stm32_start,
@@ -859,36 +859,34 @@ static const struct dma_driver_api dma_funcs = {
 #define BDMA_STM32_OFFSET_INIT(index)
 #endif /* CONFIG_DMAMUX_STM32 */
 
-#define BDMA_STM32_INIT_DEV(index)					\
-static struct bdma_stm32_channel					\
-	bdma_stm32_channels_##index[BDMA_STM32_##index##_CHANNEL_COUNT];\
-									\
-const struct bdma_stm32_config bdma_stm32_config_##index = {		\
-	.pclken = { .bus = DT_INST_CLOCKS_CELL(index, bus),		\
-		    .enr = DT_INST_CLOCKS_CELL(index, bits) },		\
-	.config_irq = bdma_stm32_config_irq_##index,			\
-	.base = DT_INST_REG_ADDR(index),				\
-	.support_m2m = DT_INST_PROP(index, st_mem2mem),			\
-	.max_channels = BDMA_STM32_##index##_CHANNEL_COUNT,		\
-	.channels = bdma_stm32_channels_##index,			\
-	BDMA_STM32_OFFSET_INIT(index)					\
-};									\
-									\
-static struct bdma_stm32_data bdma_stm32_data_##index = {		\
-};									\
-									\
-DEVICE_DT_INST_DEFINE(index,							\
-		    &bdma_stm32_init,						\
-		    NULL,							\
-		    &bdma_stm32_data_##index, &bdma_stm32_config_##index,	\
-		    PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,		\
-		    &dma_funcs)
+#define BDMA_STM32_INIT_DEV(index)						\
+	static struct bdma_stm32_channel					\
+		bdma_stm32_channels_##index[BDMA_STM32_##index##_CHANNEL_COUNT];\
+										\
+	const struct bdma_stm32_config bdma_stm32_config_##index = {		\
+		.pclken = STM32_DT_INST_CLOCK_INFO(index),			\
+		.config_irq = bdma_stm32_config_irq_##index,			\
+		.base = DT_INST_REG_ADDR(index),				\
+		.support_m2m = DT_INST_PROP(index, st_mem2mem),			\
+		.max_channels = BDMA_STM32_##index##_CHANNEL_COUNT,		\
+		.channels = bdma_stm32_channels_##index,			\
+		BDMA_STM32_OFFSET_INIT(index)					\
+	};									\
+										\
+	static struct bdma_stm32_data bdma_stm32_data_##index;			\
+										\
+	DEVICE_DT_INST_DEFINE(index, bdma_stm32_init, NULL,			\
+			      &bdma_stm32_data_##index,				\
+			      &bdma_stm32_config_##index,			\
+			      PRE_KERNEL_1,					\
+			      CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,		\
+			      &dma_funcs)
 
-#define BDMA_STM32_DEFINE_IRQ_HANDLER(bdma, chan)			\
-static void bdma_stm32_irq_##bdma##_##chan(const struct device *dev)	\
-{									\
-	bdma_stm32_irq_handler(dev, chan);				\
-}
+#define BDMA_STM32_DEFINE_IRQ_HANDLER(bdma, chan)				\
+	static void bdma_stm32_irq_##bdma##_##chan(const struct device *dev)	\
+	{									\
+		bdma_stm32_irq_handler(dev, chan);				\
+	}
 
 
 #define BDMA_STM32_IRQ_CONNECT(bdma, chan)				\
@@ -901,7 +899,7 @@ static void bdma_stm32_irq_##bdma##_##chan(const struct device *dev)	\
 	} while (false)
 
 
-#if DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_DRV_INST(0))
 
 #define BDMA_STM32_DEFINE_IRQ_HANDLER_GEN(i, _) \
 	BDMA_STM32_DEFINE_IRQ_HANDLER(0, i)
@@ -918,4 +916,4 @@ static void bdma_stm32_config_irq_0(const struct device *dev)
 
 BDMA_STM32_INIT_DEV(0);
 
-#endif /* DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay) */
+#endif /* DT_NODE_HAS_STATUS_OKAY(DT_DRV_INST(0)) */

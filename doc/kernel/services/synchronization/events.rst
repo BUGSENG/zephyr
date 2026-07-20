@@ -33,10 +33,10 @@ conditions of multiple threads waiting on the event object. All threads whose
 match conditions have been met are made active at the same time.
 
 Threads may wait on one or more events. They may either wait for all of the
-the requested events, or for any of them. Furthermore, threads making a wait
-request have the option of resetting the current set of events tracked by the
-event object prior to waiting. Care must be taken with this option when
-multiple threads wait on the same event object.
+requested events, or for any of them. Furthermore, threads making a wait request
+have the option of resetting the current set of events tracked by the event
+object prior to waiting. Care must be taken with this option when multiple
+threads wait on the same event object.
 
 .. note::
     The kernel does allow an ISR to query an event object, however the ISR must
@@ -108,8 +108,8 @@ the event object.
         ...
     }
 
-Waiting for Events
-==================
+Waiting for Events (without removal)
+====================================
 
 Threads wait for events by calling :c:func:`k_event_wait`.
 
@@ -143,6 +143,58 @@ before continuing.
         uint32_t  events;
 
         events = k_event_wait_all(&my_event, 0x121, false, K_MSEC(50));
+        if (events == 0) {
+            printk("At least one input device is not available!");
+        } else {
+            /* Access the desired input devices */
+            ...
+        }
+        ...
+    }
+
+Waiting for Events (with removal)
+=================================
+
+Threads wait for events (with atomic removal upon receipt) by calling
+:c:func:`k_event_wait_safe`.
+
+The following code builds on the example above, and waits up to 50 milliseconds
+for any of the specified events to be posted.  A warning is issued if none
+of the events are posted in time.
+
+If events are received on time, then they will not be present in the event
+object until the next time that the events are set or posted.
+
+.. code-block:: c
+
+    void consumer_thread(void)
+    {
+        uint32_t  events;
+
+        events = k_event_wait_safe(&my_event, 0xFFF, false, K_MSEC(50));
+        if (events == 0) {
+            printk("No input devices are available!");
+        } else {
+            /* Access the desired input device(s) */
+            ...
+        }
+        ...
+    }
+
+Alternatively, the consumer thread may desire to wait for all the events
+(with atomic removal upon receipt) before continuing using
+:c:func:`k_event_wait_all_safe`.
+
+If all events are received on time, then they will not be present in the event
+object until the next time that the events are set or posted.
+
+.. code-block:: c
+
+    void consumer_thread(void)
+    {
+        uint32_t  events;
+
+        events = k_event_wait_all_safe(&my_event, 0x121, false, K_MSEC(50));
         if (events == 0) {
             printk("At least one input device is not available!");
         } else {

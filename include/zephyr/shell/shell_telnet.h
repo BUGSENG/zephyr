@@ -4,16 +4,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef SHELL_TELNET_H__
-#define SHELL_TELNET_H__
+/**
+ * @file
+ * @brief Header file for the Telnet shell backend.
+ * @ingroup shell_telnet
+ */
 
+#ifndef ZEPHYR_INCLUDE_SHELL_SHELL_TELNET_H_
+#define ZEPHYR_INCLUDE_SHELL_SHELL_TELNET_H_
+
+#include <zephyr/net/socket.h>
 #include <zephyr/shell/shell.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/** @cond INTERNAL_HIDDEN */
 extern const struct shell_transport_api shell_telnet_transport_api;
+
+#define SHELL_TELNET_POLLFD_COUNT 3
+#define SHELL_TELNET_MAX_CMD_SIZE 3
 
 /** Line buffer structure. */
 struct shell_telnet_line_buf {
@@ -35,11 +46,19 @@ struct shell_telnet {
 	/** Buffer for outgoing line. */
 	struct shell_telnet_line_buf line_out;
 
-	/** Network context of TELNET client. */
-	struct net_context *client_ctx;
+	/** Array for sockets used by the telnet service. */
+	struct zsock_pollfd fds[SHELL_TELNET_POLLFD_COUNT];
 
-	/** RX packet FIFO. */
-	struct k_fifo rx_fifo;
+	/** Input buffer. */
+	uint8_t rx_buf[CONFIG_SHELL_CMD_BUFF_SIZE];
+
+	/** Number of data bytes within the input buffer. */
+	size_t rx_len;
+
+	/** Mutex protecting the input buffer access. */
+	struct k_mutex rx_lock;
+	uint8_t cmd_buf[SHELL_TELNET_MAX_CMD_SIZE];
+	uint8_t cmd_len;
 
 	/** The delayed work is used to send non-lf terminated output that has
 	 *  been around for "too long". This will prove to be useful
@@ -51,7 +70,20 @@ struct shell_telnet {
 	/** If set, no output is sent to the TELNET client. */
 	bool output_lock;
 };
+/** @endcond */
 
+/**
+ * @defgroup shell_telnet Telnet shell backend
+ * @ingroup shell_backends
+ * @brief Shell access over a TELNET connection.
+ * @{
+ */
+
+/**
+ * @brief Define a Telnet shell transport instance.
+ *
+ * @param _name Name of the transport instance.
+ */
 #define SHELL_TELNET_DEFINE(_name)					\
 	static struct shell_telnet _name##_shell_telnet;		\
 	struct shell_transport _name = {				\
@@ -69,8 +101,10 @@ struct shell_telnet {
  */
 const struct shell *shell_backend_telnet_get_ptr(void);
 
+/** @} */
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* SHELL_TELNET_H__ */
+#endif /* ZEPHYR_INCLUDE_SHELL_SHELL_TELNET_H_ */

@@ -6,13 +6,15 @@
 #ifndef __BT_HCI_RAW_INTERNAL_H
 #define __BT_HCI_RAW_INTERNAL_H
 
+#include <zephyr/devicetree.h>
+#include <zephyr/net_buf.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct bt_dev_raw {
-	/* Registered HCI driver */
-	const struct bt_hci_driver *drv;
+	const struct device *hci;
 };
 
 extern struct bt_dev_raw bt_dev;

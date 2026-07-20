@@ -6,7 +6,8 @@
 
 /**
  * @file
- * Public APIs for external cache controller drivers
+ * @ingroup cache_external_interface
+ * @brief Main header file for external cache controller driver API.
  */
 
 #ifndef ZEPHYR_INCLUDE_DRIVERS_CACHE_H_
@@ -15,8 +16,8 @@
 #include <stddef.h>
 
 /**
- * @brief External Cache Controller Interface
- * @defgroup cache_external_interface External Cache Controller Interface
+ * @brief Interfaces for external cache controllers.
+ * @defgroup cache_external_interface External Cache Controller
  * @ingroup io_interfaces
  * @{
  */
@@ -46,9 +47,8 @@ void cache_data_disable(void);
  *
  * Flush the whole data cache.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_data_flush_all(void);
 
@@ -57,9 +57,8 @@ int cache_data_flush_all(void);
  *
  * Invalidate the whole data cache.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_data_invd_all(void);
 
@@ -68,9 +67,8 @@ int cache_data_invd_all(void);
  *
  * Flush and Invalidate the whole data cache.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_data_flush_and_invd_all(void);
 
@@ -89,9 +87,8 @@ int cache_data_flush_and_invd_all(void);
  * @param addr Starting address to flush.
  * @param size Range size.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_data_flush_range(void *addr, size_t size);
 
@@ -111,9 +108,8 @@ int cache_data_flush_range(void *addr, size_t size);
  * @param addr Starting address to invalidate.
  * @param size Range size.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_data_invd_range(void *addr, size_t size);
 
@@ -133,9 +129,8 @@ int cache_data_invd_range(void *addr, size_t size);
  * @param addr Starting address to flush and invalidate.
  * @param size Range size.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_data_flush_and_invd_range(void *addr, size_t size);
 
@@ -151,7 +146,7 @@ int cache_data_flush_and_invd_range(void *addr, size_t size);
  * defined.
  *
  * @retval size Size of the d-cache line.
- * @retval 0 If the d-cache is not enabled.
+ * @retval 0 The d-cache is not enabled.
  */
 size_t cache_data_line_size_get(void);
 
@@ -180,9 +175,8 @@ void cache_instr_disable(void);
  *
  * Flush the whole instruction cache.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_instr_flush_all(void);
 
@@ -191,9 +185,8 @@ int cache_instr_flush_all(void);
  *
  * Invalidate the whole instruction cache.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_instr_invd_all(void);
 
@@ -202,9 +195,8 @@ int cache_instr_invd_all(void);
  *
  * Flush and Invalidate the whole instruction cache.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_instr_flush_and_invd_all(void);
 
@@ -223,9 +215,8 @@ int cache_instr_flush_and_invd_all(void);
  * @param addr Starting address to flush.
  * @param size Range size.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_instr_flush_range(void *addr, size_t size);
 
@@ -245,9 +236,8 @@ int cache_instr_flush_range(void *addr, size_t size);
  * @param addr Starting address to invalidate.
  * @param size Range size.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_instr_invd_range(void *addr, size_t size);
 
@@ -267,9 +257,8 @@ int cache_instr_invd_range(void *addr, size_t size);
  * @param addr Starting address to flush and invalidate.
  * @param size Range size.
  *
- * @retval 0 If succeeded.
- * @retval -ENOTSUP If not supported.
- * @retval -errno Negative errno for other failures.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOTSUP Not supported.
  */
 int cache_instr_flush_and_invd_range(void *addr, size_t size);
 
@@ -285,7 +274,7 @@ int cache_instr_flush_and_invd_range(void *addr, size_t size);
  * defined.
  *
  * @retval size Size of the d-cache line.
- * @retval 0 If the d-cache is not enabled.
+ * @retval 0 The d-cache is not enabled.
  */
 size_t cache_instr_line_size_get(void);
 

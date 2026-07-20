@@ -31,16 +31,16 @@ bool lwm2m_obj_path_equal(const struct lwm2m_obj_path *a, const struct lwm2m_obj
 /**
  * @brief Used for debugging to print ip addresses.
  *
- * @param addr sockaddr for socket using ipv4 or ipv6
+ * @param addr net_sockaddr for socket using ipv4 or ipv6
  * @return ip address in readable form
  */
-char *lwm2m_sprint_ip_addr(const struct sockaddr *addr);
+char *lwm2m_sprint_ip_addr(const struct net_sockaddr *addr);
 
 /**
  * @brief Converts the token to a printable format.
  *
  * @param[in] token Token to be printed
- * @param[in] tkl Lenghts of token
+ * @param[in] tkl Lengths of token
  * @return char buffer with the string representation of the token
  */
 char *sprint_token(const uint8_t *token, uint8_t tkl);

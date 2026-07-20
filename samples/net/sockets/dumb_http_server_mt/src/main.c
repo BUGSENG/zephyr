@@ -8,6 +8,9 @@
 #define LOG_LEVEL LOG_LEVEL_DBG
 LOG_MODULE_REGISTER(net_dumb_http_srv_mt_sample);
 
+#include <zephyr/posix/sys/socket.h>
+#include <zephyr/posix/unistd.h>
+
 #include <zephyr/kernel.h>
 #include <errno.h>
 #include <zephyr/net/net_ip.h>
@@ -19,6 +22,12 @@ LOG_MODULE_REGISTER(net_dumb_http_srv_mt_sample);
 #include <zephyr/net/conn_mgr_monitor.h>
 
 #define MY_PORT 8080
+
+/* If accept returns an error, then we are probably running
+ * out of resource. Sleep a small amount of time in order the
+ * system to cool down.
+ */
+#define ACCEPT_ERROR_WAIT 100 /* in ms */
 
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
 #define STACK_SIZE 4096
@@ -92,7 +101,7 @@ K_THREAD_DEFINE(tcp6_thread_id, STACK_SIZE,
 		    NET_EVENT_L4_DISCONNECTED)
 
 static void event_handler(struct net_mgmt_event_callback *cb,
-			  uint32_t mgmt_event, struct net_if *iface)
+			  uint64_t mgmt_event, struct net_if *iface)
 {
 	if ((mgmt_event & EVENT_MASK) != mgmt_event) {
 		return;
@@ -268,8 +277,9 @@ static int process_tcp(int *sock, int *accepted)
 	client = accept(*sock, (struct sockaddr *)&client_addr,
 			&client_addr_len);
 	if (client < 0) {
-		LOG_ERR("Error in accept %d, stopping server", -errno);
-		return -errno;
+		LOG_DBG("Error in accept %d, ignored", -errno);
+		k_msleep(ACCEPT_ERROR_WAIT);
+		return 0;
 	}
 
 	slot = get_free_slot(accepted);
@@ -287,7 +297,7 @@ static int process_tcp(int *sock, int *accepted)
 			&tcp6_handler_thread[slot],
 			tcp6_handler_stack[slot],
 			K_THREAD_STACK_SIZEOF(tcp6_handler_stack[slot]),
-			(k_thread_entry_t)client_conn_handler,
+			client_conn_handler,
 			INT_TO_POINTER(slot),
 			&accepted[slot],
 			&tcp6_handler_tid[slot],
@@ -302,7 +312,7 @@ static int process_tcp(int *sock, int *accepted)
 			&tcp4_handler_thread[slot],
 			tcp4_handler_stack[slot],
 			K_THREAD_STACK_SIZEOF(tcp4_handler_stack[slot]),
-			(k_thread_entry_t)client_conn_handler,
+			client_conn_handler,
 			INT_TO_POINTER(slot),
 			&accepted[slot],
 			&tcp4_handler_tid[slot],
@@ -406,7 +416,7 @@ int main(void)
 {
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
 	int err = tls_credential_add(SERVER_CERTIFICATE_TAG,
-				     TLS_CREDENTIAL_SERVER_CERTIFICATE,
+				     TLS_CREDENTIAL_PUBLIC_CERTIFICATE,
 				     server_certificate,
 				     sizeof(server_certificate));
 	if (err < 0) {

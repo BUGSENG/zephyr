@@ -16,6 +16,8 @@
 #include <zephyr/irq.h>
 LOG_MODULE_REGISTER(timer, LOG_LEVEL_ERR);
 
+#define COUNT_1US (EC_FREQ / USEC_PER_SEC - 1)
+
 BUILD_ASSERT(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC == 32768,
 	     "ITE RTOS timer HW frequency is fixed at 32768Hz");
 
@@ -71,9 +73,19 @@ const int32_t z_sys_timer_irq_for_test = DT_IRQ_BY_IDX(DT_NODELABEL(timer), 5, i
 #define EVEN_TIMER_MAX_CNT_SYS_TICK	(EVENT_TIMER_MAX_CNT \
 					/ HW_CNT_PER_SYS_TICK)
 
+/* Timer tick threshold to prevent SoC from entering idle mode.
+ * Calculated as 150µs converted to timer ticks using the formula:
+ *   ticks = us * timer_clk_src / 1000000
+ * where (event/free run timers)timer_clk_src is fixed at 32768Hz
+ */
+#define IDLE_BLOCK_TIMER_TICKS DIV_ROUND_UP(150 * CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC, 1000000)
+
 static struct k_spinlock lock;
 /* Last HW count that we called sys_clock_announce() */
 static volatile uint32_t last_announced_hw_cnt;
+/* Last system (kernel) elapse and ticks */
+static volatile uint32_t last_elapsed;
+static volatile uint32_t last_ticks;
 
 enum ext_timer_raw_cnt {
 	EXT_NOT_RAW_CNT = 0,
@@ -145,6 +157,8 @@ void timer_5ms_one_shot(void)
 #ifdef CONFIG_ARCH_HAS_CUSTOM_BUSY_WAIT
 void arch_busy_wait(uint32_t usec_to_wait)
 {
+	uint32_t start = IT8XXX2_EXT_CNTOX(BUSY_WAIT_H_TIMER);
+
 	if (!usec_to_wait) {
 		return;
 	}
@@ -152,16 +166,8 @@ void arch_busy_wait(uint32_t usec_to_wait)
 	/* Decrease 1us here to calibrate our access registers latency */
 	usec_to_wait--;
 
-	/*
-	 * We want to set the bit(1) re-start busy wait timer as soon
-	 * as possible, so we directly write 0xb instead of | bit(1).
-	 */
-	IT8XXX2_EXT_CTRLX(BUSY_WAIT_L_TIMER) = IT8XXX2_EXT_ETX_COMB_RST_EN;
-
 	for (;;) {
-		uint32_t curr = IT8XXX2_EXT_CNTOX(BUSY_WAIT_H_TIMER);
-
-		if (curr >= usec_to_wait) {
+		if ((IT8XXX2_EXT_CNTOX(BUSY_WAIT_H_TIMER) - start) >= usec_to_wait) {
 			break;
 		}
 	}
@@ -192,6 +198,8 @@ static void evt_timer_isr(const void *unused)
 		uint32_t dticks = (~(IT8XXX2_EXT_CNTOX(FREE_RUN_TIMER)) -
 				   last_announced_hw_cnt) / HW_CNT_PER_SYS_TICK;
 		last_announced_hw_cnt += (dticks * HW_CNT_PER_SYS_TICK);
+		last_ticks += dticks;
+		last_elapsed = 0;
 
 		sys_clock_announce(dticks);
 	} else {
@@ -215,7 +223,7 @@ static void free_run_timer_overflow_isr(const void *unused)
 	 */
 }
 
-void sys_clock_set_timeout(int32_t ticks, bool idle)
+void sys_clock_set_timeout(uint32_t ticks, bool idle)
 {
 	uint32_t hw_cnt;
 
@@ -232,33 +240,37 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 	/* Disable event timer */
 	IT8XXX2_EXT_CTRLX(EVENT_TIMER) &= ~IT8XXX2_EXT_ETXEN;
 
-	if (ticks == K_TICKS_FOREVER) {
+	if (IS_ENABLED(CONFIG_SYSTEM_CLOCK_SLOPPY_IDLE) && ticks == SYS_CLOCK_MAX_WAIT) {
 		/*
-		 * If kernel doesn't have a timeout:
-		 * 1.CONFIG_SYSTEM_CLOCK_SLOPPY_IDLE = y (no future timer interrupts
-		 *   are expected), kernel pass K_TICKS_FOREVER (0xFFFF FFFF FFFF FFFF),
-		 *   we handle this case in here.
-		 * 2.CONFIG_SYSTEM_CLOCK_SLOPPY_IDLE = n (schedule timeout as far
-		 *   into the future as possible), kernel pass INT_MAX (0x7FFF FFFF),
-		 *   we handle it in later else {}.
+		 * The kernel has no pending timeout, which it signals with
+		 * ticks == SYS_CLOCK_MAX_WAIT. Under sloppy idle no future
+		 * timer interrupt is required, so leave the event timer
+		 * disabled and stop waking up. Without sloppy idle we fall
+		 * through to the else and still schedule the (capped) timeout
+		 * so the uptime tick count stays correct.
 		 */
 		k_spin_unlock(&lock, key);
 		return;
-	} else if (ticks <= 1) {
-		/*
-		 * Ticks <= 1 means the kernel wants the tick announced
-		 * as soon as possible, ideally no more than one system tick
-		 * in the future. So set event timer count to 1 system tick or
-		 * at least 1 hw count.
-		 */
-		hw_cnt = MAX((1 * HW_CNT_PER_SYS_TICK), 1);
 	} else {
+		uint32_t next_cycs;
+		uint32_t now;
+		uint32_t dcycles;
+
 		/*
-		 * Set event timer count to EVENT_TIMER_MAX_CNT, after
-		 * interrupt fired the remaining time will be set again
-		 * by sys_clock_announce().
+		 * If ticks <= 1 means the kernel wants the tick announced
+		 * as soon as possible, ideally no more than one system tick
+		 * in the future. So set event timer count to 1 HW tick.
 		 */
-		hw_cnt = MIN((ticks * HW_CNT_PER_SYS_TICK), EVENT_TIMER_MAX_CNT);
+		ticks = CLAMP(ticks, 1, EVEN_TIMER_MAX_CNT_SYS_TICK);
+
+		next_cycs = (last_ticks + last_elapsed + ticks) * HW_CNT_PER_SYS_TICK;
+		now = ~(IT8XXX2_EXT_CNTOX(FREE_RUN_TIMER));
+		if (unlikely(next_cycs <= now)) {
+			hw_cnt = 1;
+		} else {
+			dcycles = next_cycs - now;
+			hw_cnt = MIN(dcycles, EVENT_TIMER_MAX_CNT);
+		}
 	}
 
 	/* Set event timer 24-bit count */
@@ -290,6 +302,8 @@ uint32_t sys_clock_elapsed(void)
 	 */
 	uint32_t dticks = (~(IT8XXX2_EXT_CNTOX(FREE_RUN_TIMER)) -
 				last_announced_hw_cnt) / HW_CNT_PER_SYS_TICK;
+	last_elapsed = dticks;
+
 	k_spin_unlock(&lock, key);
 
 	return dticks;
@@ -326,15 +340,15 @@ static int timer_init(enum ext_timer_idx ext_timer,
 	if (raw == EXT_RAW_CNT) {
 		hw_cnt = ms;
 	} else {
-		if (clock_source_sel == EXT_PSR_32P768K)
+		if (clock_source_sel == EXT_PSR_32P768K) {
 			hw_cnt = MS_TO_COUNT(32768, ms);
-		else if (clock_source_sel == EXT_PSR_1P024K)
+		} else if (clock_source_sel == EXT_PSR_1P024K) {
 			hw_cnt = MS_TO_COUNT(1024, ms);
-		else if (clock_source_sel == EXT_PSR_32)
+		} else if (clock_source_sel == EXT_PSR_32) {
 			hw_cnt = MS_TO_COUNT(32, ms);
-		else if (clock_source_sel == EXT_PSR_8M)
-			hw_cnt = 8000 * ms;
-		else {
+		} else if (clock_source_sel == EXT_PSR_EC_CLK) {
+			hw_cnt = MS_TO_COUNT(EC_FREQ, ms);
+		} else {
 			LOG_ERR("Timer %d clock source error !", ext_timer);
 			return -1;
 		}
@@ -367,10 +381,11 @@ static int timer_init(enum ext_timer_idx ext_timer,
 
 	/* Disable external timer x */
 	IT8XXX2_EXT_CTRLX(ext_timer) &= ~IT8XXX2_EXT_ETXEN;
-	if (start == EXT_START_TIMER)
+	if (start == EXT_START_TIMER) {
 		/* Enable and re-start external timer x */
 		IT8XXX2_EXT_CTRLX(ext_timer) |= (IT8XXX2_EXT_ETXEN |
 						 IT8XXX2_EXT_ETXRST);
+	}
 
 	if (with_int == EXT_WITH_TIMER_INT) {
 		irq_enable(irq_num);
@@ -379,6 +394,12 @@ static int timer_init(enum ext_timer_idx ext_timer,
 	}
 
 	return 0;
+}
+
+bool ite_ec_timer_block_idle(void)
+{
+	return (IT8XXX2_EXT_CNTOX(EVENT_TIMER) < IDLE_BLOCK_TIMER_TICKS) ||
+	       (IT8XXX2_EXT_CNTOX(FREE_RUN_TIMER) < IDLE_BLOCK_TIMER_TICKS);
 }
 
 static int sys_clock_driver_init(void)
@@ -424,7 +445,7 @@ static int sys_clock_driver_init(void)
 		IT8XXX2_EXT_CTRLX(BUSY_WAIT_L_TIMER) |= IT8XXX2_EXT_ETXCOMB;
 
 		/* Set 32-bit timer6 to count-- every 1us */
-		ret = timer_init(BUSY_WAIT_H_TIMER, EXT_PSR_8M, EXT_RAW_CNT,
+		ret = timer_init(BUSY_WAIT_H_TIMER, EXT_PSR_EC_CLK, EXT_RAW_CNT,
 				 BUSY_WAIT_TIMER_H_MAX_CNT, EXT_FIRST_TIME_ENABLE,
 				 BUSY_WAIT_H_TIMER_IRQ, BUSY_WAIT_H_TIMER_FLAG,
 				 EXT_WITHOUT_TIMER_INT, EXT_START_TIMER);
@@ -438,11 +459,12 @@ static int sys_clock_driver_init(void)
 		 * NOTE: When the timer5 count down to overflow in combinational
 		 *       mode, timer6 counter will automatically decrease one count
 		 *       and timer5 will automatically re-start counting down
-		 *       from 0x7. Timer5 clock source is 8MHz (=0.125ns), so the
-		 *       time period from 0x7 to overflow is 0.125ns * 8 = 1us.
+		 *       from COUNT_1US. Timer5 clock source is EC_FREQ, so the
+		 *       time period from COUNT_1US to overflow is
+		 *       (1 / EC_FREQ) * (EC_FREQ / USEC_PER_SEC) = 1us.
 		 */
-		ret = timer_init(BUSY_WAIT_L_TIMER, EXT_PSR_8M, EXT_RAW_CNT,
-				 0x7, EXT_FIRST_TIME_ENABLE,
+		ret = timer_init(BUSY_WAIT_L_TIMER, EXT_PSR_EC_CLK, EXT_RAW_CNT,
+				 COUNT_1US, EXT_FIRST_TIME_ENABLE,
 				 BUSY_WAIT_L_TIMER_IRQ, BUSY_WAIT_L_TIMER_FLAG,
 				 EXT_WITHOUT_TIMER_INT, EXT_START_TIMER);
 		if (ret < 0) {

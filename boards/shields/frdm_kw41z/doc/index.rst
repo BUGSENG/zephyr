@@ -6,14 +6,14 @@ NXP FRDM-KW41Z Shield
 Overview
 ********
 
-The FRDM-KW41Z is a development kit enabled by the Kinetis |reg| W series
-KW41Z/31Z/21Z (KW41Z) family built on ARM |reg| Cortex |reg|-M0+ processor with
-integrated 2.4 GHz transceiver supporting Bluetooth |reg| Smart/Bluetooth
-|reg| Low Energy
-(BLE) v4.2, Generic FSK, IEEE |reg| 802.15.4 and Thread.
+The FRDM-KW41Z is a development kit enabled by the Kinetis® W series
+KW41Z/31Z/21Z (KW41Z) family built on ARM® Cortex®-M0+ processor with
+integrated 2.4 GHz transceiver supporting Bluetooth® Smart/Bluetooth®
+Low Energy
+(BLE) v4.2, Generic FSK, IEEE® 802.15.4 and Thread.
 
 The FRDM-KW41Z can be used as a standalone board or as an Arduino shield. This
-document covers usage as a shield; see :ref:`frdm_kw41z` for usage as a
+document covers usage as a shield; see :zephyr:board:`frdm_kw41z` for usage as a
 standalone board.
 
 Bluetooth Controller
@@ -53,9 +53,9 @@ host controller interface (HCI):
    OpenSDA circuit.
 
 #. Attach the FRDM-KW41Z to the Arduino header on your selected main board,
-   such as :ref:`mimxrt1050_evk` or :ref:`frdm_k64f`.
+   such as :zephyr:board:`mimxrt1050_evk` or :zephyr:board:`frdm_k64f`.
 
-#. Set ``-DSHIELD=frdm_kw41z`` when you invoke ``west build`` in
+#. Set ``--shield frdm_kw41z`` when you invoke ``west build`` in
    your Zephyr bluetooth application. For example,
 
    .. zephyr-app-commands::
@@ -63,6 +63,9 @@ host controller interface (HCI):
       :board: frdm_k64f
       :shield: frdm_kw41z
       :goals: build
+
+.. include:: ../../../nxp/common/board-footer.rst.inc
+
 
 References
 **********

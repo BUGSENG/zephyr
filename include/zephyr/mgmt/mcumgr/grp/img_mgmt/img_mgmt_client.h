@@ -4,12 +4,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef H_IMG_MGMT_CLIENT_
-#define H_IMG_MGMT_CLIENT_
+/**
+ * @file
+ * @brief Header file for the MCUmgr image management client API.
+ * @ingroup mcumgr_img_mgmt_client
+ */
+
+#ifndef ZEPHYR_INCLUDE_MGMT_MCUMGR_GRP_IMG_MGMT_IMG_MGMT_CLIENT_H_
+#define ZEPHYR_INCLUDE_MGMT_MCUMGR_GRP_IMG_MGMT_IMG_MGMT_CLIENT_H_
 
 #include <inttypes.h>
+#include <zephyr/mgmt/mcumgr/mgmt/mgmt_defines.h>
 #include <zephyr/mgmt/mcumgr/grp/img_mgmt/img_mgmt.h>
 #include <zephyr/mgmt/mcumgr/smp/smp_client.h>
+
+/**
+ * @brief MCUmgr Image management client API
+ * @defgroup mcumgr_img_mgmt_client Image Management Client
+ * @ingroup mcumgr_img_mgmt
+ * @{
+ */
 
 #ifdef __cplusplus
 extern "C" {
@@ -186,8 +200,12 @@ int img_mgmt_client_state_read(struct img_mgmt_client *client, struct mcumgr_ima
 
 int img_mgmt_client_erase(struct img_mgmt_client *client, uint32_t slot);
 
+/**
+ * @}
+ */
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* H_IMG_MGMT_CLIENT_ */
+#endif /* ZEPHYR_INCLUDE_MGMT_MCUMGR_GRP_IMG_MGMT_IMG_MGMT_CLIENT_H_ */

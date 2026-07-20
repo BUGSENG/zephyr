@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-if (CONFIG_PERCEPIO_TRACERECORDER OR CONFIG_PERCEPIO_DFM)
+if(CONFIG_PERCEPIO_TRACERECORDER OR CONFIG_PERCEPIO_DFM)
   zephyr_library()
 endif()
 
@@ -38,7 +38,7 @@ if(CONFIG_PERCEPIO_TRACERECORDER)
     ${TRACERECORDER_DIR}/trcTimestamp.c
     ${TRACERECORDER_DIR}/trcDependency.c
     ${TRACERECORDER_DIR}/trcRunnable.c
-    )
+  )
 
   if(CONFIG_PERCEPIO_TRC_CFG_STREAM_PORT_RTT)
     zephyr_library_sources(
@@ -73,7 +73,18 @@ if(CONFIG_PERCEPIO_TRACERECORDER)
     )
   endif()
 
-  if (CONFIG_PERCEPIO_TRC_CFG_STREAM_PORT_ZEPHYR_SEMIHOST)
+  if(CONFIG_PERCEPIO_TRC_CFG_STREAM_PORT_FILE)
+    zephyr_library_sources(
+      ${TRACERECORDER_DIR}/streamports/File/trcStreamPort.c
+    )
+
+    zephyr_include_directories(
+      ${TRACERECORDER_DIR}/kernelports/Zephyr/streamports/File/config/
+      ${TRACERECORDER_DIR}/streamports/File/include/
+    )
+  endif()
+
+  if(CONFIG_PERCEPIO_TRC_CFG_STREAM_PORT_ZEPHYR_SEMIHOST)
     zephyr_library_sources(
       ${TRACERECORDER_DIR}/kernelports/Zephyr/streamports/Semihost/trcStreamPort.c
     )
@@ -92,9 +103,17 @@ if(CONFIG_PERCEPIO_TRACERECORDER)
     ${TRACERECORDER_DIR}/include
     )
 
-  set_property(GLOBAL APPEND PROPERTY extra_post_build_commands
-      COMMAND python3 ${TRACERECORDER_DIR}/kernelports/Zephyr/scripts/tz_parse_syscalls.py ${CMAKE_BINARY_DIR} ${ZEPHYR_BASE}
+  if(CONFIG_PERCEPIO_TRC_CFG_USE_SYSCALL_EXTENSION)
+    set_property(GLOBAL APPEND PROPERTY extra_post_build_commands
+      COMMAND ${PYTHON_EXECUTABLE} ${TRACERECORDER_DIR}/kernelports/Zephyr/scripts/tz_parse_syscalls.py ${CMAKE_BINARY_DIR} ${ZEPHYR_BASE}
     )
+  endif()
+
+  if(CONFIG_PERCEPIO_TRC_CFG_AUTOISR)
+    set_property(GLOBAL APPEND PROPERTY extra_post_build_commands
+      COMMAND ${PYTHON_EXECUTABLE} ${TRACERECORDER_DIR}/kernelports/Zephyr/scripts/tz_parse_irqs.py --xml-out ${CMAKE_BINARY_DIR}/AutoISR-v1.1.0.xml --edt-pickle ${EDT_PICKLE}
+    )
+  endif()
 
 endif()
 
@@ -102,16 +121,16 @@ if(CONFIG_PERCEPIO_DFM)
 
   set(DFM_DIR ${ZEPHYR_CURRENT_MODULE_DIR}/DFM)
 
-  zephyr_library_sources_ifdef(
-    CONFIG_PERCEPIO_DFM
+  zephyr_library_sources(
     ${DFM_DIR}/dfm.c
     ${DFM_DIR}/dfmAlert.c
     ${DFM_DIR}/dfmCloud.c
     ${DFM_DIR}/dfmEntry.c
+    ${DFM_DIR}/dfmRetainedMemory.c
     ${DFM_DIR}/dfmSession.c
     ${DFM_DIR}/dfmStorage.c
     ${DFM_DIR}/kernelports/Zephyr/dfmKernelPort.c
-    )
+  )
 
   if(CONFIG_PERCEPIO_DFM_CFG_STORAGEPORT_NONE)
     zephyr_library_sources(
@@ -130,6 +149,16 @@ if(CONFIG_PERCEPIO_DFM)
 
     zephyr_include_directories(
       ${DFM_DIR}/kernelports/Zephyr/storageports/Flash/include/
+    )
+  endif()
+
+  if(CONFIG_PERCEPIO_DFM_CFG_STORAGEPORT_FILESYSTEM)
+    zephyr_library_sources(
+      ${DFM_DIR}/kernelports/Zephyr/storageports/Filesystem/dfmStoragePort.c
+    )
+
+    zephyr_include_directories(
+      ${DFM_DIR}/kernelports/Zephyr/storageports/Filesystem/include/
     )
   endif()
 
@@ -153,6 +182,11 @@ if(CONFIG_PERCEPIO_DFM)
       ${DFM_DIR}/kernelports/Zephyr/cloudports/Serial/include/
     )
   endif()
+
+  zephyr_library_sources_ifdef(
+    CONFIG_PERCEPIO_DFM_CFG_RETAINED_MEMORY
+    ${DFM_DIR}/kernelports/Zephyr/dfmRetainedMemoryPort.c
+  )
 
   zephyr_include_directories(
     ${DFM_DIR}/kernelports/Zephyr/config

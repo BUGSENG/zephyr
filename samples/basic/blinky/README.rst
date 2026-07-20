@@ -40,8 +40,9 @@ Build and flash Blinky as follows, changing ``reel_board`` for your board:
    :goals: build flash
    :compact:
 
-After flashing, the LED starts to blink. If a runtime error occurs, the sample
-exits without printing to the console.
+After flashing, the LED starts to blink and messages with the current LED state
+are printed on the console. If a runtime error occurs, the sample exits without
+printing to the console.
 
 Build errors
 ************
@@ -77,8 +78,8 @@ To add support for your board, add something like this to your devicetree:
    };
 
 The above sets your board's ``led0`` alias to use pin 13 on GPIO controller
-``gpio0``. The pin flags :c:macro:`GPIO_ACTIVE_HIGH` mean the LED is on when
-the pin is set to its high state, and off when the pin is in its low state.
+``gpio0``. The pin flags :c:macro:`GPIO_ACTIVE_LOW` mean the LED is on when
+the pin is set to its low state, and off when the pin is in its high state.
 
 Tips:
 

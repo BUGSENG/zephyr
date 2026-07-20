@@ -174,15 +174,22 @@ Here is an example. We'll assume the ``remotes`` given above.
      # [... same remotes as above...]
      projects:
        - name: proj1
+         description: the first example project
          remote: remote1
          path: extra/project-1
        - name: proj2
+         description: |
+           A multi-line description of the second example
+           project.
          repo-path: my-path
          remote: remote2
          revision: v1.3
        - name: proj3
          url: https://github.com/user/project-three
          revision: abcde413a111
+       - name: proj4
+         url: https://github.com/user/project-four
+         revision: pull/69/head # GitHub Pull Request
 
 In this manifest:
 
@@ -229,6 +236,10 @@ next.
        reserved values "west" or "manifest". The name must be unique in the
        manifest file.
 
+   * - ``description``
+     - Optional, an informational description of the project. Added in
+       west v1.2.0.
+
    * - ``remote``, ``url``
      - Mandatory (one of the two, but not both).
 
@@ -240,7 +251,7 @@ next.
        remote Git repository.
 
        If the project has neither, the ``defaults`` section must specify a
-       ``remote``, which will be used as the the project's remote. Otherwise,
+       ``remote``, which will be used as the project's remote. Otherwise,
        the manifest is invalid.
 
    * - ``repo-path``
@@ -255,7 +266,7 @@ next.
        ``revision`` value from the ``defaults`` subsection will be used if
        present.
 
-       A project revision can be a branch, tag, or SHA.
+       A project revision can be any fetchable git reference: branch, tag, SHA, pull request,...
 
        The default ``revision`` is ``master`` if not otherwise specified.
 
@@ -331,9 +342,13 @@ so far using ``defaults`` is:
 
      projects:
        - name: proj1
+         description: the first example project
          path: extra/project-1
          revision: master
        - name: proj2
+         description: |
+           A multi-line description of the second example
+           project.
          repo-path: my-path
          remote: remote2
        - name: proj3
@@ -486,6 +501,10 @@ about the manifest file features that were introduced in that version.
    * - ``"1.0"``
      - Identical to ``"0.13"``, but available for use by users that
        do not wish to use a ``"0.x"`` version field.
+
+   * - ``"1.2"``
+     - Support for ``description:`` in ``projects:``
+       (:ref:`west-manifests-projects`)
 
 .. note::
 
@@ -664,6 +683,67 @@ The value of the configuration option overrides any data in the manifest file.
 You can think of this as if the ``manifest.group-filter`` configuration option
 is appended to the ``manifest: group-filter:`` list from YAML, with "last entry
 wins" semantics.
+
+Practical Example: Reducing Workspace Downloads
+-----------------------------------------------
+
+By default, ``west update`` fetches all active projects defined
+in the manifest. Large workspaces may include optional modules,
+vendor HALs, experimental components, or platform-specific
+dependencies and vulnerabilities that are not required for every workflow.
+
+Project groups can be used to control which grouped projects
+are considered active during ``west`` operations.
+
+For example, consider the following manifest fragment:
+
+.. code-block:: yaml
+
+  manifest:
+    projects:
+      - name: hal_nordic
+        groups:
+          - nordic
+      - name: hal_stm32
+        groups:
+          - stm32
+      - name: experimental_lib
+        groups:
+          - optional
+
+A workspace targeting Nordic devices can disable the
+``stm32`` and ``optional`` groups before running
+``west update``:
+
+.. code-block:: shell
+
+   west config manifest.group-filter -- "-stm32,-optional"
+
+After configuring the filter, running:
+
+.. code-block:: shell
+
+   west update
+
+This skips projects that belong only to disabled groups.
+
+.. note::
+
+   Project groups only affect projects explicitly assigned
+   to matching groups in the manifest. Projects without
+   matching group definitions remain active regardless of
+   the configured ``manifest.group-filter`` value.
+
+.. note::
+
+   Changing ``manifest.group-filter`` does not automatically
+   remove repositories already cloned into the workspace.
+   It affects whether projects are considered active during
+   subsequent ``west`` operations.
+
+This workflow can help reduce unnecessary downloads and
+simplify workspace management in large multi-project
+environments.
 
 .. _west-project-group-examples:
 
@@ -1108,7 +1188,7 @@ recursively update the project's Git submodules whenever it updates the project
 itself. If it's ``false`` or missing, it has no effect.
 
 For example, let's say you have a source code repository ``foo``, which has
-some submodules, and you want ``west update`` to keep all of them them in sync,
+some submodules, and you want ``west update`` to keep all of them in sync,
 along with another project named ``bar`` in the same workspace.
 
 You can do that with this manifest file:
@@ -1242,21 +1322,28 @@ The ``import`` key can be a boolean, path, mapping, or sequence. We'll describe
 these in order, using examples:
 
 - :ref:`Boolean <west-manifest-import-bool>`
-   - :ref:`west-manifest-ex1.1`
-   - :ref:`west-manifest-ex1.2`
-   - :ref:`west-manifest-ex1.3`
+
+  - :ref:`west-manifest-ex1.1`
+  - :ref:`west-manifest-ex1.2`
+  - :ref:`west-manifest-ex1.3`
+
 - :ref:`Relative path <west-manifest-import-path>`
-   - :ref:`west-manifest-ex2.1`
-   - :ref:`west-manifest-ex2.2`
-   - :ref:`west-manifest-ex2.3`
+
+  - :ref:`west-manifest-ex2.1`
+  - :ref:`west-manifest-ex2.2`
+  - :ref:`west-manifest-ex2.3`
+
 - :ref:`Mapping with additional configuration <west-manifest-import-map>`
-   - :ref:`west-manifest-ex3.1`
-   - :ref:`west-manifest-ex3.2`
-   - :ref:`west-manifest-ex3.3`
-   - :ref:`west-manifest-ex3.4`
+
+  - :ref:`west-manifest-ex3.1`
+  - :ref:`west-manifest-ex3.2`
+  - :ref:`west-manifest-ex3.3`
+  - :ref:`west-manifest-ex3.4`
+
 - :ref:`Sequence of paths and mappings <west-manifest-import-seq>`
-   - :ref:`west-manifest-ex4.1`
-   - :ref:`west-manifest-ex4.2`
+
+  - :ref:`west-manifest-ex4.1`
+  - :ref:`west-manifest-ex4.2`
 
 A more :ref:`formal description <west-manifest-formal>` of how this works is
 last, after the examples.
@@ -2033,8 +2120,8 @@ The ultimate outcomes of resolving manifest imports are:
 - a ``projects`` list, which is produced by combining the ``projects`` defined
   in the top-level file with those defined in imported files
 
-- a set of extension commands, which are drawn from the the ``west-commands``
-  keys in in the top-level file and any imported files
+- a set of extension commands, which are drawn from the ``west-commands``
+  keys in the top-level file and any imported files
 
 - a ``group-filter`` list, which is produced by combining the top-level and any
   imported filters

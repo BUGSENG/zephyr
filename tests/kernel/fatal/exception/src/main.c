@@ -7,15 +7,19 @@
 #include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
 #include <zephyr/tc_util.h>
-#include <zephyr/kernel_structs.h>
+#include <zephyr/test_toolchain.h>
 #include <zephyr/irq_offload.h>
 #include <kswap.h>
 #include <assert.h>
 
 #if defined(CONFIG_USERSPACE)
-#include <zephyr/sys/mem_manage.h>
-#include <zephyr/syscall_handler.h>
+#include <zephyr/kernel/mm.h>
+#include <zephyr/internal/syscall_handler.h>
 #include "test_syscalls.h"
+#endif
+
+#if defined(CONFIG_DEMAND_PAGING)
+#include <zephyr/kernel/mm/demand_paging.h>
 #endif
 
 #if defined(CONFIG_X86) && defined(CONFIG_X86_MMU)
@@ -46,26 +50,26 @@ volatile int rv;
 
 static ZTEST_DMEM volatile int expected_reason = -1;
 
-void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *pEsf)
+void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *pEsf)
 {
 	TC_PRINT("Caught system error -- reason %d\n", reason);
 
 	if (expected_reason == -1) {
 		printk("Was not expecting a crash\n");
-		printk("PROJECT EXECUTION FAILED\n");
+		TC_END_REPORT(TC_FAIL);
 		k_fatal_halt(reason);
 	}
 
 	if (k_current_get() != &alt_thread) {
 		printk("Wrong thread crashed\n");
-		printk("PROJECT EXECUTION FAILED\n");
+		TC_END_REPORT(TC_FAIL);
 		k_fatal_halt(reason);
 	}
 
 	if (reason != expected_reason) {
 		printk("Wrong crash type got %d expected %d\n", reason,
 		       expected_reason);
-		printk("PROJECT EXECUTION FAILED\n");
+		TC_END_REPORT(TC_FAIL);
 		k_fatal_halt(reason);
 	}
 
@@ -78,13 +82,13 @@ void entry_cpu_exception(void *p1, void *p2, void *p3)
 
 #if defined(CONFIG_X86)
 	__asm__ volatile ("ud2");
-#elif defined(CONFIG_NIOS2)
-	__asm__ volatile ("trap");
 #elif defined(CONFIG_ARC)
 	__asm__ volatile ("swi");
 #elif defined(CONFIG_RISCV)
 	/* Illegal instruction on RISCV. */
 	__asm__ volatile (".word 0x77777777");
+#elif defined(CONFIG_OPENRISC)
+	__asm__ volatile ("l.trap 0");
 #else
 	/* Triggers usage fault on ARM, illegal instruction on
 	 * xtensa, TLB exception (instruction fetch) on MIPS.
@@ -104,21 +108,29 @@ void entry_cpu_exception_extend(void *p1, void *p2, void *p3)
 #if defined(CONFIG_ARM64)
 	__asm__ volatile ("svc 0");
 #elif defined(CONFIG_CPU_AARCH32_CORTEX_R) || defined(CONFIG_CPU_AARCH32_CORTEX_A)
-	__asm__ volatile ("BKPT");
+	__asm__ volatile ("udf #0");
 #elif defined(CONFIG_CPU_CORTEX_M)
-	__asm__ volatile ("swi 0");
-#elif defined(CONFIG_NIOS2)
-	__asm__ volatile ("trap");
+	__asm__ volatile ("udf #0");
+#elif defined(CONFIG_RX)
+	__asm__ volatile ("brk");
+#elif defined(CONFIG_SOC_FAMILY_MAX32_RV32)
+	/* The MAX32 RV32 core does not trap on writes to
+	 * non-existent CSRs, so use a different illegal instruction
+	 * for this test.
+	 */
+	__asm__ volatile (".word 0");
 #elif defined(CONFIG_RISCV)
 	/* In riscv architecture, use an undefined
 	 * instruction to trigger illegal instruction on RISCV.
 	 */
-	__asm__ volatile (".word 0x77777777");
+	__asm__ volatile ("unimp");
+#elif defined(CONFIG_ARC)
 	/* In arc architecture, SWI instruction is used
 	 * to trigger soft interrupt.
 	 */
-#elif defined(CONFIG_ARC)
 	__asm__ volatile ("swi");
+#elif defined(CONFIG_OPENRISC)
+	__asm__ volatile ("l.trap 0");
 #else
 	/* used to create a divide by zero error on X86 and MIPS */
 	volatile int error;
@@ -188,20 +200,16 @@ __no_optimization void blow_up_stack(void)
 /* stack sentinel doesn't catch it in time before it trashes the entire kernel
  */
 
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpragmas"
-#pragma GCC diagnostic ignored "-Winfinite-recursion"
-#endif
+TOOLCHAIN_DISABLE_WARNING(TOOLCHAIN_WARNING_PRAGMAS)
+TOOLCHAIN_DISABLE_WARNING(TOOLCHAIN_WARNING_INFINITE_RECURSION)
 
 __no_optimization int stack_smasher(int val)
 {
 	return stack_smasher(val * 2) + stack_smasher(val * 3);
 }
 
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
+TOOLCHAIN_ENABLE_WARNING(TOOLCHAIN_WARNING_PRAGMAS)
+TOOLCHAIN_ENABLE_WARNING(TOOLCHAIN_WARNING_INFINITE_RECURSION)
 
 void blow_up_stack(void)
 {
@@ -221,7 +229,7 @@ static inline void z_vrfy_blow_up_priv_stack(void)
 {
 	z_impl_blow_up_priv_stack();
 }
-#include <syscalls/blow_up_priv_stack_mrsh.c>
+#include <zephyr/syscalls/blow_up_priv_stack_mrsh.c>
 
 #endif /* CONFIG_USERSPACE */
 #endif /* CONFIG_STACK_SENTINEL */
@@ -299,7 +307,7 @@ void check_stack_overflow(k_thread_entry_t handler, uint32_t flags)
  * should match. Check for stack sentinel feature by overflowing the
  * thread's stack and check for the exception.
  *
- * @ingroup kernel_common_tests
+ * @ingroup kernel_fatal_tests
  */
 ZTEST(fatal_exception, test_fatal)
 {
@@ -386,7 +394,7 @@ ZTEST(fatal_exception, test_fatal)
 
 #ifndef CONFIG_ARCH_POSIX
 
-#ifdef CONFIG_STACK_SENTINEL
+#if defined(CONFIG_STACK_SENTINEL) && !defined(CONFIG_HW_SHADOW_STACK)
 	TC_PRINT("test stack sentinel overflow - timer irq\n");
 	check_stack_overflow(stack_sentinel_timer, 0);
 
@@ -445,54 +453,6 @@ ZTEST(fatal_exception, test_fatal)
 
 static void *fatal_setup(void)
 {
-#if defined(CONFIG_DEMAND_PAGING) && \
-	!defined(CONFIG_LINKER_GENERIC_SECTIONS_PRESENT_AT_BOOT)
-	uintptr_t pin_addr;
-	size_t pin_size, obj_size;
-
-	/* Need to pin the whole stack object (including reserved
-	 * space), or else it would cause double faults: exception
-	 * being processed while page faults on the stacks.
-	 *
-	 * Same applies for some variables needed during exception
-	 * processing.
-	 */
-#if defined(CONFIG_STACK_SENTINEL) && !defined(CONFIG_ARCH_POSIX)
-
-	obj_size = K_THREAD_STACK_SIZEOF(overflow_stack);
-#if defined(CONFIG_USERSPACE)
-	obj_size = Z_THREAD_STACK_SIZE_ADJUST(obj_size);
-#endif
-
-	k_mem_region_align(&pin_addr, &pin_size,
-			   POINTER_TO_UINT(&overflow_stack),
-			   obj_size, CONFIG_MMU_PAGE_SIZE);
-
-	k_mem_pin(UINT_TO_POINTER(pin_addr), pin_size);
-#endif /* CONFIG_STACK_SENTINEL && !CONFIG_ARCH_POSIX */
-
-	obj_size = K_THREAD_STACK_SIZEOF(alt_stack);
-#if defined(CONFIG_USERSPACE)
-	obj_size = Z_THREAD_STACK_SIZE_ADJUST(obj_size);
-#endif
-
-	k_mem_region_align(&pin_addr, &pin_size,
-			   POINTER_TO_UINT(&alt_stack),
-			   obj_size,
-			   CONFIG_MMU_PAGE_SIZE);
-
-	k_mem_pin(UINT_TO_POINTER(pin_addr), pin_size);
-
-	k_mem_region_align(&pin_addr, &pin_size,
-			   POINTER_TO_UINT((void *)&expected_reason),
-			   sizeof(expected_reason),
-			   CONFIG_MMU_PAGE_SIZE);
-
-	k_mem_pin(UINT_TO_POINTER(pin_addr), pin_size);
-#endif /* CONFIG_DEMAND_PAGING
-	* && !CONFIG_LINKER_GENERIC_SECTIONS_PRESENT_AT_BOOT
-	*/
-
 	return NULL;
 }
 

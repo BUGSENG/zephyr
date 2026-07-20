@@ -4,49 +4,52 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "common.h"
+#include <stddef.h>
+#include <errno.h>
+#include <zephyr/kernel.h>
+#include <zephyr/types.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/att.h>
 
-CREATE_FLAG(flag_discover_complete);
+#include "babblekit/testcase.h"
+#include "babblekit/flags.h"
+#include "babblekit/sync.h"
+#include "common.h"
+
+DEFINE_FLAG_STATIC(flag_discover_complete);
 
 extern enum bst_result_t bst_result;
 
-CREATE_FLAG(flag_is_connected);
+DEFINE_FLAG_STATIC(flag_is_connected);
 
 static struct bt_conn *g_conn;
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
 	if (err != 0) {
-		FAIL("Failed to connect to %s (%u)\n", addr, err);
+		TEST_FAIL("Failed to connect to %s (%u)", bt_conn_dst_str(conn), err);
 		return;
 	}
 
-	printk("Connected to %s\n", addr);
+	printk("Connected to %s\n", bt_conn_dst_str(conn));
 	g_conn = bt_conn_ref(conn);
 	SET_FLAG(flag_is_connected);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
 	if (conn != g_conn) {
 		return;
 	}
 
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	printk("Disconnected: %s (reason 0x%02x)\n", bt_conn_dst_str(conn), reason);
 
-	printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
+	bt_conn_drop(&g_conn);
 
-	bt_conn_unref(g_conn);
-
-	g_conn = NULL;
 	UNSET_FLAG(flag_is_connected);
 }
 
@@ -65,7 +68,7 @@ static uint8_t discover_func(struct bt_conn *conn,
 
 	if (attr == NULL) {
 		if (chrc_handle == 0) {
-			FAIL("Did not discover chrc (%x)", chrc_handle);
+			TEST_FAIL("Did not discover chrc (%x)", chrc_handle);
 		}
 
 		(void)memset(params, 0, sizeof(*params));
@@ -86,7 +89,7 @@ static uint8_t discover_func(struct bt_conn *conn,
 
 		err = bt_gatt_discover(conn, params);
 		if (err != 0) {
-			FAIL("Discover failed (err %d)\n", err);
+			TEST_FAIL("Discover failed (err %d)", err);
 		}
 
 		return BT_GATT_ITER_STOP;
@@ -119,7 +122,7 @@ static void gatt_discover(void)
 
 	err = bt_gatt_discover(g_conn, &discover_params);
 	if (err != 0) {
-		FAIL("Discover failed(err %d)\n", err);
+		TEST_FAIL("Discover failed(err %d)", err);
 	}
 
 	printk("Discovery complete\n");
@@ -146,7 +149,7 @@ void subscribed_cb(struct bt_conn *conn, uint8_t err,
 	       params->ccc_handle);
 
 	printk("Sending sync to peer\n");
-	device_sync_send();
+	bk_sync_send();
 }
 
 static struct bt_gatt_discover_params disc_params;
@@ -159,8 +162,7 @@ static void gatt_subscribe(void)
 	subscribe_params.notify = notify_cb;
 	subscribe_params.subscribe = subscribed_cb;
 
-	/* Use the BT_GATT_AUTO_DISCOVER_CCC feature */
-	subscribe_params.ccc_handle = 0;
+	subscribe_params.ccc_handle = BT_GATT_AUTO_DISCOVER_CCC_HANDLE;
 	subscribe_params.disc_params = &disc_params,
 	subscribe_params.value = BT_GATT_CCC_NOTIFY;
 	subscribe_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
@@ -169,7 +171,7 @@ static void gatt_subscribe(void)
 	printk("Subscribing: val %x\n", chrc_handle);
 	err = bt_gatt_subscribe(g_conn, &subscribe_params);
 	if (err != 0) {
-		FAIL("Subscription failed(err %d)\n", err);
+		TEST_FAIL("Subscription failed(err %d)", err);
 	}
 }
 
@@ -180,19 +182,19 @@ static void test_main(void)
 		BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR))
 	};
 
-	device_sync_init(CENTRAL_ID);
+	TEST_ASSERT(bk_sync_init() == 0, "Failed to open backchannel");
 
 	err = bt_enable(NULL);
 	if (err != 0) {
-		FAIL("Bluetooth init failed (err %d)\n", err);
+		TEST_FAIL("Bluetooth init failed (err %d)", err);
 		return;
 	}
 
 	printk("Bluetooth initialized\n");
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err != 0) {
-		FAIL("Advertising failed to start (err %d)\n", err);
+		TEST_FAIL("Advertising failed to start (err %d)", err);
 		return;
 	}
 
@@ -210,16 +212,14 @@ static void test_main(void)
 	gatt_subscribe();
 
 	printk("Waiting for final sync\n");
-	device_sync_wait();
+	bk_sync_wait();
 
-	PASS("Server Passed\n");
+	TEST_PASS("Server Passed");
 }
 
 static const struct bst_test_instance test_server[] = {
 	{
 		.test_id = "server",
-		.test_post_init_f = test_init,
-		.test_tick_f = test_tick,
 		.test_main_f = test_main
 	},
 	BSTEST_END_MARKER

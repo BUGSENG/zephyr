@@ -17,6 +17,8 @@
 /**
  * @brief Network long timeout primitives and helpers
  * @defgroup net_timeout Network long timeout primitives and helpers
+ * @since 1.14
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
@@ -61,12 +63,13 @@ struct net_timeout {
 	 */
 	sys_snode_t node;
 
-	/* Time at which the timer was last set.
+	/** Time at which the timer was last set.
 	 *
-	 * This usually corresponds to the low 32 bits of k_uptime_get(). */
+	 * This usually corresponds to the low 32 bits of k_uptime_get().
+	 */
 	uint32_t timer_start;
 
-	/* Portion of remaining timeout that does not exceed
+	/** Portion of remaining timeout that does not exceed
 	 * NET_TIMEOUT_MAX_VALUE.
 	 *
 	 * This value is updated in parallel with timer_start and wrap_counter
@@ -74,7 +77,7 @@ struct net_timeout {
 	 */
 	uint32_t timer_timeout;
 
-	/* Timer wrap count.
+	/** Timer wrap count.
 	 *
 	 * This tracks multiples of NET_TIMEOUT_MAX_VALUE milliseconds that
 	 * have yet to pass.  It is also updated along with timer_start and
@@ -127,7 +130,7 @@ int64_t net_timeout_deadline(const struct net_timeout *timeout,
  * k_uptime_get_32().
  *
  * @retval 0 if the timeout has completed.
- * @retval positive the remaining duration of the timeout, in seconds.
+ * @retval >0 the remaining duration of the timeout, in seconds.
  */
 uint32_t net_timeout_remaining(const struct net_timeout *timeout,
 			       uint32_t now);
@@ -147,7 +150,7 @@ uint32_t net_timeout_remaining(const struct net_timeout *timeout,
  * k_uptime_get_32().
  *
  * @retval 0 if the timeout has completed
- * @retval positive the maximum delay until the state of this timeout should
+ * @retval >0 the maximum delay until the state of this timeout should
  * be re-evaluated, in milliseconds.
  */
 uint32_t net_timeout_evaluate(struct net_timeout *timeout,

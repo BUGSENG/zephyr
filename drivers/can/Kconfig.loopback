@@ -12,7 +12,7 @@ config CAN_LOOPBACK
 
 if CAN_LOOPBACK
 
-config CAN_MAX_FILTER
+config CAN_LOOPBACK_MAX_FILTERS
 	int "Maximum number of concurrent active filters"
 	default 16
 	range 1 1024
@@ -22,7 +22,7 @@ config CAN_MAX_FILTER
 
 config CAN_LOOPBACK_TX_THREAD_STACK_SIZE
 	int "TX thread stack size"
-	default 256
+	default 512
 	help
 	  Stack size of the TX thread.
 	  The TX thread calls the callbacks of the receiver

@@ -1,10 +1,13 @@
 .. _rk055hdmipi4m:
 
-RK055HDMIPI4M MIPI Display
-##########################
+NXP RK055HDMIPI4M MIPI Display
+##############################
 
 Overview
 ********
+
+This product is not recommended for new designs. The replacement for this
+LCD is the :ref:`rk055hdmipi4ma0` 5.5-inch LCD Panel.
 
 The Rocktech RK055HDMIPI4M MIPI Display is a 5.5 inch TFT 720x1280 pixels
 panel with LED backlighting, full viewing angle, MIPI interface and
@@ -50,14 +53,17 @@ for the 40 pin FPC interface
 Programming
 ***********
 
-Set ``-DSHIELD=rk055hdmipi4m`` when you invoke ``west build``. For
+Set ``--shield rk055hdmipi4m`` when you invoke ``west build``. For
 example:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/drivers/display
-   :board: mixmrt1170_evk_cm7
+   :board: mimxrt1170_evk//cm7
    :shield: rk055hdmipi4m
    :goals: build
+
+.. include:: ../../../nxp/common/board-footer.rst.inc
+
 
 References
 **********

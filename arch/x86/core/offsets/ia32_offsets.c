@@ -33,6 +33,12 @@
 GEN_OFFSET_SYM(_thread_arch_t, excNestCount);
 #endif
 
+#if defined(CONFIG_FPU_SHARING)
+GEN_OFFSET_SYM(_kernel_t, cpus);
+GEN_OFFSET_SYM(_cpu_t, arch);
+GEN_OFFSET_SYM(_cpu_arch_t, fpu_owner);
+#endif
+
 #ifdef CONFIG_USERSPACE
 GEN_OFFSET_SYM(_thread_arch_t, psp);
 #ifndef CONFIG_X86_COMMON_PAGE_TABLE
@@ -41,6 +47,18 @@ GEN_OFFSET_SYM(_thread_arch_t, ptables);
 #endif
 
 GEN_OFFSET_SYM(_thread_arch_t, preempFloatReg);
+
+#ifdef CONFIG_HW_SHADOW_STACK
+GEN_OFFSET_SYM(_thread_arch_t, shstk_addr);
+GEN_OFFSET_SYM(_thread_arch_t, shstk_size);
+GEN_OFFSET_SYM(_thread_arch_t, shstk_base);
+
+GEN_OFFSET_SYM(_kernel_t, cpus);
+GEN_OFFSET_SYM(_cpu_t, arch);
+GEN_OFFSET_SYM(_cpu_arch_t, shstk_addr);
+GEN_OFFSET_SYM(_cpu_arch_t, shstk_size);
+GEN_OFFSET_SYM(_cpu_arch_t, shstk_base);
+#endif
 
 /**
  * size of the struct k_thread structure sans save area for floating
@@ -52,7 +70,6 @@ GEN_ABSOLUTE_SYM(_K_THREAD_NO_FLOAT_SIZEOF,
 
 GEN_OFFSET_SYM(_callee_saved_t, esp);
 
-/* z_arch_esf_t structure member offsets */
-
-GEN_OFFSET_SYM(z_arch_esf_t, eflags);
+/* struct arch_esf structure member offsets */
+GEN_OFFSET_STRUCT(arch_esf, eflags);
 #endif /* _X86_OFFSETS_INC_ */

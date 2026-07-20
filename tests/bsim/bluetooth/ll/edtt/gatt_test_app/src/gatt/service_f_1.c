@@ -1,5 +1,6 @@
 /**
  * Copyright (c) 2019 Oticon A/S
+ * Copyright (c) 2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -149,10 +150,12 @@ static ssize_t write_value_v15(struct bt_conn *conn,
 {
 	uint8_t *value = attr->user_data;
 
-	if (offset >= sizeof(value_v15_value))
+	if (offset >= sizeof(value_v15_value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
-	if (offset + len > sizeof(value_v15_value))
+	}
+	if (offset + len > sizeof(value_v15_value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
 
 	memcpy(value + offset, buf, len);
 
@@ -202,10 +205,12 @@ static ssize_t write_value_v6(struct bt_conn *conn,
 	uint16_t *value = attr->user_data;
 	uint16_t value_v6_conv = sys_cpu_to_le16(*value);
 
-	if (offset >= sizeof(value_v6_value))
+	if (offset >= sizeof(value_v6_value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
-	if (offset + len > sizeof(value_v6_value))
+	}
+	if (offset + len > sizeof(value_v6_value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
 
 	memcpy((uint8_t *)&value_v6_conv + offset, buf, len);
 
@@ -257,10 +262,12 @@ static ssize_t write_value_v7(struct bt_conn *conn,
 	uint32_t *value = attr->user_data;
 	uint32_t value_v7_conv = sys_cpu_to_le32(*value);
 
-	if (offset >= sizeof(value_v7_value))
+	if (offset >= sizeof(value_v7_value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
-	if (offset + len > sizeof(value_v7_value))
+	}
+	if (offset + len > sizeof(value_v7_value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
 
 	memcpy((uint8_t *)&value_v7_conv + offset, buf, len);
 
@@ -375,7 +382,7 @@ static struct bt_gatt_attr service_f_1_attrs[] = {
 		BT_GATT_PERM_READ,
 		read_agg_format, NULL, &agg_format_value, 0xAF),
 	BT_GATT_H_CHARACTERISTIC(BT_UUID_VALUE_V17,
-		BT_GATT_CHRC_READ | BT_GATT_CHRC_AUTH,
+		BT_GATT_CHRC_READ,
 		BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
 		read_value_v17, NULL, &value_v17_value, 0xB0)
 };

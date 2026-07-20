@@ -7,7 +7,8 @@
 
 /**
  * @file
- * @brief Disk Driver Interface
+ * @ingroup disk_driver_interface
+ * @brief Main header file for disk driver API.
  *
  * This file contains interface for disk access. Apart from disks, various
  * other storage media like Flash and RAM disks may implement this interface to
@@ -19,10 +20,17 @@
 #define ZEPHYR_INCLUDE_DRIVERS_DISK_H_
 
 /**
- * @brief Disk Driver Interface
- * @defgroup disk_driver_interface Disk Driver Interface
+ * @brief Interfaces for disks.
+ * @defgroup disk_driver_interface Disk Access
+ * @since 1.6
+ * @version 1.1.0
  * @ingroup io_interfaces
  * @{
+ *
+ * @defgroup disk_driver_interface_ext Device-specific Disk Access API extensions
+ *
+ * @{
+ * @}
  */
 
 #include <zephyr/kernel.h>
@@ -34,7 +42,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Possible Cmd Codes for disk_ioctl()
+ * @brief Possible Cmd Codes for @ref disk_access_ioctl()
  */
 
 /** Get the number of sectors in the disk  */
@@ -47,9 +55,32 @@ extern "C" {
 #define DISK_IOCTL_GET_ERASE_BLOCK_SZ		4
 /** Commit any cached read/writes to disk */
 #define DISK_IOCTL_CTRL_SYNC			5
+/** Initialize the disk. This IOCTL must be issued before the disk can be
+ * used for I/O. It is reference counted, so only the first successful
+ * invocation of this macro on an uninitialized disk will initialize the IO
+ * device
+ */
+#define DISK_IOCTL_CTRL_INIT			6
+/** Deinitialize the disk. This IOCTL can be used to de-initialize the disk,
+ * enabling it to be removed from the system if the disk is hot-pluggable.
+ * Disk usage is reference counted, so for a given disk the
+ * `DISK_IOCTL_CTRL_DEINIT` IOCTL must be issued as many times as the
+ * `DISK_IOCTL_CTRL_INIT` IOCTL was issued in order to de-initialize it.
+ *
+ * This macro optionally accepts a pointer to a boolean as the `buf` parameter,
+ * which if true indicates the disk should be forcibly stopped, ignoring all
+ * reference counts. The disk driver must report success if a forced stop is
+ * requested, but this operation is inherently unsafe.
+ */
+#define DISK_IOCTL_CTRL_DEINIT			7
+/** Get Card identification (CID) register value.
+ * Passed buffer must be four 32-bit integer long to hold CID register value
+ * read from the card.
+ */
+#define DISK_IOCTL_GET_CARD_CID			8
 
 /**
- * @brief Possible return bitmasks for disk_status()
+ * @brief Possible return bitmasks for @ref disk_access_status()
  */
 
 /** Disk status okay */
@@ -70,11 +101,13 @@ struct disk_info {
 	/** Internally used list node */
 	sys_dnode_t node;
 	/** Disk name */
-	char *name;
+	const char *name;
 	/** Disk operations */
 	const struct disk_operations *ops;
 	/** Device associated to this disk */
 	const struct device *dev;
+	/** Internally used disk reference count */
+	uint16_t refcnt;
 };
 
 /**
@@ -87,6 +120,7 @@ struct disk_operations {
 		    uint32_t start_sector, uint32_t num_sector);
 	int (*write)(struct disk_info *disk, const uint8_t *data_buf,
 		     uint32_t start_sector, uint32_t num_sector);
+	int (*erase)(struct disk_info *disk, uint32_t start_sector, uint32_t num_sector);
 	int (*ioctl)(struct disk_info *disk, uint8_t cmd, void *buff);
 };
 

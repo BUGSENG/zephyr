@@ -15,6 +15,8 @@
 /**
  * @brief Definitions for IEEE 802.3 management interface
  * @defgroup ethernet_mdio IEEE 802.3 management interface
+ * @since 3.5
+ * @version 0.8.0
  * @ingroup ethernet
  * @{
  */
@@ -97,6 +99,10 @@ enum mdio_opcode {
 #define MDIO_PKGID1			0x000EU
 /** Package identifier (2) */
 #define MDIO_PKGID2			0x000FU
+/* PCS Register: EEE capability Register */
+#define MDIO_PCS_EEE_CAP		0x0014U
+/* Auto-negotiation Register: EEE advertisement Register */
+#define MDIO_AN_EEE_ADV			0x003CU
 
 
 /* BASE-T1 registers */
@@ -110,6 +116,15 @@ enum mdio_opcode {
 #define MDIO_AN_T1_ADV_M		0x0203U
 /** BASE-T1 Auto-negotiation advertisement register [47:32] */
 #define MDIO_AN_T1_ADV_H		0x0204U
+/** BASE-T1 Auto-negotiation link partner ability register [15:0] */
+#define MDIO_AN_T1_LP_ADV_L		0x0205U
+/** BASE-T1 Auto-negotiation link partner ability register [31:16] */
+#define MDIO_AN_T1_LP_ADV_M		0x0206U
+/** BASE-T1 Auto-negotiation link partner ability register [47:32] */
+#define MDIO_AN_T1_LP_ADV_H		0x0207U
+
+/** BASE-T1 PMA/PMD control register */
+#define MDIO_PMA_PMD_BT1_CTRL		0x0834U
 
 /* BASE-T1 Auto-negotiation Control register */
 /** Auto-negotiation Restart */
@@ -150,10 +165,16 @@ enum mdio_opcode {
 #define MDIO_AN_T1_ADV_M_MST		BIT(4)
 
 /* BASE-T1 Auto-negotiation Advertisement register [47:32] */
-/* 10BASE-T1L High Level Transmit Operating Mode Request */
+/** 10BASE-T1L High Level Transmit Operating Mode Request */
 #define MDIO_AN_T1_ADV_H_10L_TX_HI_REQ	BIT(12)
-/* 10BASE-T1L High Level Transmit Operating Mode Ability */
+/** 10BASE-T1L High Level Transmit Operating Mode Ability */
 #define MDIO_AN_T1_ADV_H_10L_TX_HI	BIT(13)
+/** 10BASE-T1L Energy Efficient Ethernet (EEE) Ability */
+#define MDIO_AN_T1_ADV_H_10L_EEE	BIT(14)
+
+/* BASE-T1 PMA/PMD control register */
+/** BASE-T1 master/slave configuration */
+#define MDIO_PMA_PMD_BT1_CTRL_CFG_MST	BIT(14)
 
 
 /* 10BASE-T1L registers */
@@ -161,6 +182,8 @@ enum mdio_opcode {
 #define MDIO_PMA_B10L_CTRL		0x08F6U
 /** 10BASE-T1L PMA status */
 #define MDIO_PMA_B10L_STAT		0x08F7U
+/** 10BASE-T1L test mode control */
+#define MDIO_PMA_B10L_TEST_CTRL		0x08F8U
 /** 10BASE-T1L PMA link status*/
 #define MDIO_PMA_B10L_LINK_STAT		0x8302U
 /** 10BASE-T1L PCS control */
@@ -196,6 +219,16 @@ enum mdio_opcode {
 /** 10BASE-T1L PHY has loopback ability */
 #define MDIO_PMA_B10L_STAT_LB_ABLE			BIT(13)
 
+/* 10BASE-T1L test mode control register */
+/** 10BASE-T1L test mode field */
+#define MDIO_PMA_B10L_TEST_CTRL_TEST_MODE_MASK		GENMASK(15, 13)
+/** select 10BASE-T1L test mode 1 */
+#define MDIO_PMA_B10L_TEST_CTRL_TEST_MODE_1		BIT(13)
+/** select 10BASE-T1L test mode 2 */
+#define MDIO_PMA_B10L_TEST_CTRL_TEST_MODE_2		BIT(14)
+/** select 10BASE-T1L test mode 3 */
+#define MDIO_PMA_B10L_TEST_CTRL_TEST_MODE_3		(BIT(13) | BIT(14))
+
 /* 10BASE-T1L PMA link status*/
 /** 10BASE-T1L Remote Receiver Status OK Latch Low */
 #define MDIO_PMA_B10L_LINK_STAT_REM_RCVR_STAT_OK_LL	BIT(9)
@@ -221,6 +254,12 @@ enum mdio_opcode {
 /* 10BASE-T1L PCS status */
 /** 10BASE-T1L PCS Descrambler Status */
 #define MDIO_PCS_B10L_STAT_DSCR_STAT_OK_LL		BIT(2)
+
+/* Auto-negotiation Register: EEE advertisement Register */
+/** Advertise 1000T capability */
+#define MDIO_AN_EEE_ADV_1000T				BIT(2)
+/** Advertise 100TX capability */
+#define MDIO_AN_EEE_ADV_100TX				BIT(1)
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (c) 2022 Intel corporation
 # SPDX-License-Identifier: Apache-2.0
-import sys
+import argparse
 import re
 
 # Scratch register allocator.  Zephyr uses multiple Xtensa SRs as
@@ -11,15 +11,51 @@ import re
 # -dM") core-isa.h file for the current architecture and assigns
 # registers to usages.
 
-NEEDED = ("ALLOCA", "CPU", "FLUSH")
 
-coreisa = sys.argv[1]
-outfile = sys.argv[2]
+def parse_args():
+    parser = argparse.ArgumentParser(allow_abbrev=False)
+
+    parser.add_argument(
+        "--flush-reg",
+        action="store_true",
+        help="Enable scratch register ZSR_FLUSH for cache flushing",
+    )
+    parser.add_argument("--mmu", action="store_true", help="Enable scratch registers for MMU usage")
+    parser.add_argument(
+        "--load-store-emulation",
+        action="store_true",
+        help="Enable scratch registers for load/store emulation",
+    )
+    parser.add_argument(
+        "--syscall-scratch",
+        action="store_true",
+        help="Enable scratch registers for syscalls if needed",
+    )
+    parser.add_argument("coreisa", help="Path to preprocessed core-isa.h")
+    parser.add_argument("outfile", help="Output file")
+
+    return parser.parse_args()
+
+
+args = parse_args()
+
+NEEDED = ["A0SAVE", "CPU"]
+if args.mmu:
+    NEEDED += ["DBLEXC", "DEPC_SAVE", "EXCCAUSE_SAVE"]
+if args.load_store_emulation:
+    NEEDED += ["LSE_SAVE0", "LSE_SAVE1", "LSE_SAVE2"]
+if args.flush_reg:
+    NEEDED += ["FLUSH"]
+
+coreisa = args.coreisa
+outfile = args.outfile
 
 syms = {}
 
+
 def get(s):
-    return syms[s] if s in syms else 0
+    return syms.get(s, 0)
+
 
 with open(coreisa) as infile:
     for line in infile.readlines():
@@ -28,7 +64,15 @@ with open(coreisa) as infile:
             syms[m.group(1)] = m.group(2)
 
 # Use MISC registers first if available, that's what they're for
-regs = [ f"MISC{n}" for n in range(0, int(get("XCHAL_NUM_MISC_REGS"))) ]
+regs = [f"MISC{n}" for n in range(0, int(get("XCHAL_NUM_MISC_REGS")))]
+
+if args.syscall_scratch:
+    # If there is no THREADPTR, we need to use syscall for
+    # arch_is_user_context() where the code needs a scratch
+    # register.
+    have_threadptr = int(get("XCHAL_HAVE_THREADPTR"))
+    if have_threadptr == 0:
+        NEEDED.append("SYSCALL_SCRATCH")
 
 # Next come EXCSAVE. Also record our highest non-debug interrupt level.
 maxint = 0

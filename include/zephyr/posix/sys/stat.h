@@ -27,8 +27,8 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#ifndef ZEPHYR_POSIX_SYS_STAT_H_
-#define ZEPHYR_POSIX_SYS_STAT_H_
+#ifndef ZEPHYR_INCLUDE_POSIX_SYS_STAT_H_
+#define ZEPHYR_INCLUDE_POSIX_SYS_STAT_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,43 +36,8 @@ extern "C" {
 
 #include <time.h>
 #include <sys/cdefs.h>
-#include <sys/types.h>
-#include <sys/_timespec.h>
 
-#ifndef _DEV_T_DECLARED
-typedef int dev_t;
-#define _DEV_T_DECLARED
-#endif
-
-#ifndef _INO_T_DECLARED
-typedef int ino_t;
-#define _INO_T_DECLARED
-#endif
-
-#ifndef _NLINK_T_DECLARED
-typedef unsigned short nlink_t;
-#define _NLINK_T_DECLARED
-#endif
-
-#ifndef _UID_T_DECLARED
-typedef unsigned short uid_t;
-#define _UID_T_DECLARED
-#endif
-
-#ifndef _GID_T_DECLARED
-typedef unsigned short gid_t;
-#define _GID_T_DECLARED
-#endif
-
-#ifndef _BLKSIZE_T_DECLARED
-typedef unsigned long blksize_t;
-#define _BLKSIZE_T_DECLARED
-#endif
-
-#ifndef _BLKCNT_T_DECLARED
-typedef unsigned long blkcnt_t;
-#define _BLKCNT_T_DECLARED
-#endif
+#include <zephyr/posix/posix_types.h>
 
 /* dj's stat defines _STAT_H_ */
 #ifndef _STAT_H_
@@ -114,7 +79,7 @@ struct stat {
 #define st_mtime st_mtim.tv_sec
 #define st_ctime st_ctim.tv_sec
 #if defined(__linux) && defined(__x86_64__)
-	__uint64_t __glibc_reserved[3];
+	uint64_t __glibc_reserved[3];
 #endif
 #else
 #if defined(__rtems__)
@@ -273,4 +238,4 @@ int _fstat64(int __fd, struct stat64 *__sbuf);
 #ifdef __cplusplus
 }
 #endif
-#endif /* ZEPHYR_POSIX_SYS_STAT_H_ */
+#endif /* ZEPHYR_INCLUDE_POSIX_SYS_STAT_H_ */

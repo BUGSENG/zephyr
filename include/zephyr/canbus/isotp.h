@@ -18,12 +18,14 @@
  * @brief CAN ISO-TP Protocol
  * @defgroup can_isotp CAN ISO-TP Protocol
  * @ingroup connectivity
+ * @since 2.2
+ * @version 1.0.0
  * @{
  */
 
 #include <zephyr/drivers/can.h>
 #include <zephyr/types.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 
 /*
  * Abbreviations
@@ -153,10 +155,10 @@ extern "C" {
 /** Message uses extended (29-bit) CAN ID */
 #define ISOTP_MSG_IDE BIT(2)
 
-/** Message uses CAN-FD format (FDF) */
+/** Message uses CAN FD format (FDF) */
 #define ISOTP_MSG_FDF BIT(3)
 
-/** Message uses CAN-FD Baud Rate Switch (BRS). Only valid in combination with ``ISOTP_MSG_FDF``. */
+/** Message uses CAN FD Baud Rate Switch (BRS). Only valid in combination with ``ISOTP_MSG_FDF``. */
 #define ISOTP_MSG_BRS BIT(4)
 
 /** @} */
@@ -182,7 +184,7 @@ struct isotp_msg_id {
 	/**
 	 * ISO-TP frame data length (TX_DL for TX address or RX_DL for RX address).
 	 *
-	 * Valid values are 8 for classical CAN or 8, 12, 16, 20, 24, 32, 48 and 64 for CAN-FD.
+	 * Valid values are 8 for classical CAN or 8, 12, 16, 20, 24, 32, 48 and 64 for CAN FD.
 	 *
 	 * 0 will be interpreted as 8 or 64 (if ISOTP_MSG_FDF is set).
 	 *
@@ -275,7 +277,7 @@ void isotp_unbind(struct isotp_recv_ctx *rctx);
  * @param len     Size of the buffer.
  * @param timeout Timeout for incoming data.
  *
- * @retval Number of bytes copied on success
+ * @return Number of bytes copied on success
  * @retval ISOTP_RECV_TIMEOUT when "timeout" timed out
  * @retval ISOTP_N_* on error
  */
@@ -295,7 +297,7 @@ int isotp_recv(struct isotp_recv_ctx *rctx, uint8_t *data, size_t len, k_timeout
  * @param buffer  Pointer where the net_buf pointer is written to.
  * @param timeout Timeout for incoming data.
  *
- * @retval Remaining data length for this transfer if BS > 0, 0 for BS = 0
+ * @return Remaining data length for this transfer if BS > 0, 0 for BS = 0
  * @retval ISOTP_RECV_TIMEOUT when "timeout" timed out
  * @retval ISOTP_N_* on error
  */

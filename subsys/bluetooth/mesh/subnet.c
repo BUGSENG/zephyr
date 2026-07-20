@@ -14,7 +14,7 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/iterable_sections.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/mesh.h>
@@ -22,8 +22,6 @@
 #include "common/bt_str.h"
 
 #include "crypto.h"
-#include "adv.h"
-#include "mesh.h"
 #include "net.h"
 #include "lpn.h"
 #include "friend.h"
@@ -53,7 +51,7 @@ struct net_key_update {
 
 /* NetKey storage information */
 struct net_key_val {
-	uint8_t kr_flag:1,
+	uint8_t unused:1,
 		kr_phase:7;
 	struct bt_mesh_key val[2];
 } __packed;
@@ -108,7 +106,7 @@ static void store_subnet(uint16_t net_idx)
 
 	memcpy(&key.val[0], &sub->keys[0].net, sizeof(struct bt_mesh_key));
 	memcpy(&key.val[1], &sub->keys[1].net, sizeof(struct bt_mesh_key));
-	key.kr_flag = 0U; /* Deprecated */
+	key.unused = 0U;
 	key.kr_phase = sub->kr_phase;
 
 	err = settings_save_one(path, &key, sizeof(key));
@@ -204,7 +202,7 @@ static void subnet_keys_destroy(struct bt_mesh_subnet_keys *key)
 #if defined(CONFIG_BT_MESH_GATT_PROXY)
 	bt_mesh_key_destroy(&key->identity);
 #endif
-#if defined(CONFIG_BT_MESH_V1d1)
+#if defined(CONFIG_BT_MESH_PRIV_BEACONS)
 	bt_mesh_key_destroy(&key->priv_beacon);
 #endif
 }
@@ -252,7 +250,7 @@ void bt_mesh_kr_update(struct bt_mesh_subnet *sub, bool kr_flag, bool new_key)
 	}
 
 	if (sub->kr_phase == BT_MESH_KR_PHASE_1) {
-		/* Bluetooth Mesh Profile Specification Section 3.10.4.1:
+		/* MshPRTv1.1: 3.11.4.1:
 		 * Can skip phase 2 if we get KR=0 on new key.
 		 */
 		key_refresh(sub, (kr_flag ? BT_MESH_KR_PHASE_2 :
@@ -511,7 +509,7 @@ void bt_mesh_friend_cred_destroy(struct bt_mesh_net_cred *cred)
 
 uint8_t bt_mesh_subnet_kr_phase_set(uint16_t net_idx, uint8_t *phase)
 {
-	/* Table in Bluetooth Mesh Profile Specification Section 4.2.14: */
+	/* Table in MshPRTv1.1: 4.2.15: */
 	const uint8_t valid_transitions[] = {
 		BIT(BT_MESH_KR_PHASE_3), /* Normal phase: KR is started by key update */
 		BIT(BT_MESH_KR_PHASE_2) | BIT(BT_MESH_KR_PHASE_3), /* Phase 1 */
@@ -582,7 +580,7 @@ uint8_t bt_mesh_subnet_node_id_set(uint16_t net_idx,
 	}
 
 #if defined(CONFIG_BT_MESH_PRIV_BEACONS)
-	/* Implements binding from section 4.2.46.1 of MshPRTv1.1. When enabling non-private node
+	/* Implements binding from MshPRTv1.1: 4.2.46.1. When enabling non-private node
 	 * identity state, disable its private counterpart.
 	 */
 	for (int i = 0; i < ARRAY_SIZE(subnets); i++) {
@@ -645,8 +643,8 @@ uint8_t bt_mesh_subnet_priv_node_id_set(uint16_t net_idx,
 	}
 
 #if defined(CONFIG_BT_MESH_PRIV_BEACONS)
-	/* Reverse binding from section 4.2.46.1 doesn't allow to set private state if non-private
-	 * state is enabled.
+	/* Reverse binding from MshPRTv1.1: 4.2.46.1 doesn't
+	 * allow to set private state if non-private state is enabled.
 	 */
 	for (int i = 0; i < ARRAY_SIZE(subnets); i++) {
 		if (subnets[i].net_idx != BT_MESH_KEY_UNUSED &&
@@ -971,6 +969,10 @@ static int net_key_set(const char *name, size_t len_rd,
 	struct bt_mesh_key val[2];
 	int err;
 	uint16_t net_idx;
+
+	if (!IS_ENABLED(CONFIG_BT_SETTINGS)) {
+		return 0;
+	}
 
 	if (!name) {
 		LOG_ERR("Insufficient number of arguments");

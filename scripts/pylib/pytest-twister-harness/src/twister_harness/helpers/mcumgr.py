@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shlex
-
-from subprocess import check_output, getstatusoutput
-from pathlib import Path
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
+from subprocess import check_output, getstatusoutput
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +55,11 @@ class MCUmgr:
     def reset_device(self):
         self.run_command('reset')
 
-    def image_upload(self, image: Path | str, timeout: int = 30):
-        self.run_command(f'-t {timeout} image upload {image}')
+    def image_upload(self, image: Path | str, slot: int | None = None, timeout: int = 30):
+        command = f'-t {timeout} image upload {image}'
+        if slot is not None:
+            command += f' -e -n {slot}'
+        self.run_command(command)
         logger.info('Image successfully uploaded')
 
     def get_image_list(self) -> list[MCUmgrImage]:
@@ -88,10 +92,19 @@ class MCUmgr:
 
     def get_hash_to_test(self) -> str:
         image_list = self.get_image_list()
-        if len(image_list) < 2:
-            logger.info(image_list)
-            raise MCUmgrException('Please check image list returned by mcumgr')
-        return image_list[1].hash
+        for image in image_list:
+            if 'active' not in image.flags:
+                return image.hash
+        logger.warning(f'Images returned by mcumgr (no not active):\n{image_list}')
+        raise MCUmgrException('No not active image found')
+
+    def get_hash_to_confirm(self):
+        image_list = self.get_image_list()
+        for image in image_list:
+            if 'confirmed' not in image.flags:
+                return image.hash
+        logger.warning(f'Images returned by mcumgr (no not confirmed):\n{image_list}')
+        raise MCUmgrException('No not confirmed image found')
 
     def image_test(self, hash: str | None = None):
         if not hash:
@@ -100,6 +113,26 @@ class MCUmgr:
 
     def image_confirm(self, hash: str | None = None):
         if not hash:
-            image_list = self.get_image_list()
-            hash = image_list[0].hash
+            hash = self.get_hash_to_confirm()
         self.run_command(f'image confirm {hash}')
+
+
+class MCUmgrBle(MCUmgr):
+    """MCUmgr wrapper for BLE connection"""
+
+    @classmethod
+    def create_for_ble(cls, hci_index: int, peer_name: str) -> MCUmgr:
+        """Create MCUmgr instance for BLE connection"""
+        connection_string = (
+            f'--conntype ble --hci {hci_index} '
+            f'--connstring peer_name="{peer_name}"'
+        )
+        return cls(connection_options=connection_string)
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Check if mcumgr is available. For BLE, it requires root privileges."""
+        if os.getuid() != 0 and 'sudo' not in cls.mcumgr_exec:
+            mcumgr_path = shutil.which(cls.mcumgr_exec)
+            cls.mcumgr_exec = f'sudo {mcumgr_path}'
+        return super().is_available()

@@ -1,7 +1,8 @@
-.. _bluetooth_mtu_update_sample:
+.. zephyr:code-sample:: bluetooth_mtu_update
+   :name: MTU Update
+   :relevant-api: bt_gatt bluetooth
 
-Bluetooth: MTU Update
-#####################
+   Configure and exchange MTU between two devices.
 
 Q&A:
 ****
@@ -72,10 +73,25 @@ RSSI filtering.
 Building and Running
 ********************
 
-This sample can be found under :zephyr_file:`samples/bluetooth/mtu_update` in
-the Zephyr tree.
+Build and flash each application as follows, replacing ``<board>`` with your target board:
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+Central:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/mtu_update/central
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+Peripheral:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/mtu_update/peripheral
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+See :zephyr:code-sample-category:`bluetooth` samples for details.
 
 If the devices are close enough, the central should connect to the peripheral
 and send his MTU to the other device. If the MTU exchange succeeds, the central

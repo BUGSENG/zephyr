@@ -9,8 +9,7 @@
 #ifndef ZEPHYR_DRIVERS_DISPLAY_DISPLAY_ILI9XXX_H_
 #define ZEPHYR_DRIVERS_DISPLAY_DISPLAY_ILI9XXX_H_
 
-#include <zephyr/drivers/gpio.h>
-#include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/mipi_dbi.h>
 #include <zephyr/sys/util.h>
 
 /* Commands/registers. */
@@ -23,8 +22,12 @@
 #define ILI9XXX_CASET 0x2a
 #define ILI9XXX_PASET 0x2b
 #define ILI9XXX_RAMWR 0x2c
+#define ILI9XXX_RGBSET 0x2d
+#define ILI9XXX_RAMRD 0x2e
+#define ILI9XXX_TEON 0x35
 #define ILI9XXX_MADCTL 0x36
 #define ILI9XXX_PIXSET 0x3A
+#define ILI9XXX_RAMRD_CONT 0x3e
 
 /* MADCTL register fields. */
 #define ILI9XXX_MADCTL_MY BIT(7U)
@@ -54,28 +57,29 @@
 /** Reset wait time (ms), ref 15.4 of ILI9XXX manual. */
 #define ILI9XXX_RESET_WAIT_TIME 5
 
-enum madctl_cmd_set {
-	CMD_SET_1,	/* Default for most of ILI9xxx display controllers */
-	CMD_SET_2,	/* Used by ILI9342c */
-};
-
-struct ili9xxx_quirks {
-	enum madctl_cmd_set cmd_set;
-};
-
 struct ili9xxx_config {
-	const struct ili9xxx_quirks *quirks;
-
-	struct spi_dt_spec spi;
-	struct gpio_dt_spec cmd_data;
-	struct gpio_dt_spec reset;
+	const struct device *mipi_dev;
+	struct mipi_dbi_config dbi_config;
 	uint8_t pixel_format;
 	uint16_t rotation;
 	uint16_t x_resolution;
 	uint16_t y_resolution;
-	bool inversion;
+	bool bit_inversion;
+	bool disable_bgr_mode;
+	bool horizontal_mirror;
+	bool vertical_mirror;
+	bool bottom_top_refresh;
+	bool right_left_refresh;
+	uint8_t te_mode;
 	const void *regs;
 	int (*regs_init_fn)(const struct device *dev);
+};
+
+struct ili9xxx_data {
+	uint8_t bytes_per_pixel;
+	enum display_pixel_format pixel_format;
+	enum display_orientation orientation;
+	uint8_t madctl; /* Cached value for quick access and runtime config */
 };
 
 int ili9xxx_transmit(const struct device *dev, uint8_t cmd,

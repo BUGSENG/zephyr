@@ -7,6 +7,39 @@ Demand paging provides a mechanism where data is only brought into physical
 memory as required by current execution context. The physical memory is
 conceptually divided in page-sized page frames as regions to hold data.
 
+The Zephyr kernel image itself is always resident in physical memory and is
+never a candidate for eviction. Demand paging applies only to:
+
+* anonymous memory mappings created at runtime via :c:func:`k_mem_map()`, and
+* memory placed in explicit on-demand linker sections via the
+  ``__ondemand_func`` / ``__ondemand_rodata`` attributes when
+  :kconfig:option:`CONFIG_LINKER_USE_ONDEMAND_SECTION` is enabled.
+
+This is the same model used by every major operating system: the dispatch
+path for an exception or interrupt is never on a pageable page, so a fault
+during fault-handling is impossible by construction. Code or data added to
+an ``__ondemand_*`` section is the contributor's explicit opt-in to make
+that region pageable, and carries the responsibility of ensuring it is not
+reached from the page-fault handler's own execution path.
+
+.. note::
+
+   Earlier versions of Zephyr also supported a selective-pinning scheme
+   based on ``__pinned_*`` linker attributes that kept only the tagged
+   subset of the kernel image resident and demand-paged the rest. That
+   model was found to be both unsafe and/or very invasive: a CPU
+   exception dispatch could target a thread's privileged stack on an
+   evictable page, escalating to a double fault on x86 or a nested
+   abort on ARM64 if that page had been evicted; and the contract that
+   every byte on the fault-handler-reachable surface (scheduler,
+   drivers, libc, locking primitives) be exhaustively tagged was
+   impractical to establish once and unmaintainable thereafter. The
+   ``__pinned_*`` attribute family, the corresponding Kconfig options
+   (``LINKER_USE_PINNED_SECTION`` /
+   ``LINKER_GENERIC_SECTIONS_PRESENT_AT_BOOT``) and the
+   ``K_*_PINNED_STACK_*`` stack macros were removed in Zephyr 4.4.
+   See :github:`108773` for the full analysis.
+
 * When the processor tries to access data and the data page exists in
   one of the page frames, the execution continues without any interruptions.
 
@@ -36,6 +69,16 @@ a considerable amount of time. This frees up page frames so that the next
 page in can be executed faster as the paging code does not need to invoke
 the eviction algorithm.
 
+A data region can also be **pinned** in physical memory using
+:c:func:`k_mem_pin()`. This pages the region in if necessary and marks its page
+frames so that the eviction algorithm will never select them, guaranteeing that
+the region remains resident and that accesses to it never fault. This is a
+stronger form of :c:func:`k_mem_page_in()` and is appropriate for latency- or
+safety-critical data that must always be available. A pinned region is later
+released with :c:func:`k_mem_unpin()`, which marks the page frames as evictable
+again; unpinning does not itself evict the region, so it may be followed by
+:c:func:`k_mem_page_out()` if immediate eviction is desired.
+
 Terminology
 ***********
 
@@ -50,28 +93,32 @@ Page Frame
   A page frame is a page-sized physical memory region in RAM. It is a
   container where a data page may be placed. It is always referred to by
   physical address. Zephyr has a convention of using ``uintptr_t`` for physical
-  addresses. For every page frame, a ``struct z_page_frame`` is instantiated to
+  addresses. For every page frame, a ``struct k_mem_page_frame`` is instantiated to
   store metadata. Flags for each page frame:
 
-  * ``Z_PAGE_FRAME_PINNED`` indicates a page frame is pinned in memory
+  * ``K_MEM_PAGE_FRAME_FREE`` indicates a page frame is unused and on the list of
+    free page frames. When this flag is set, none of the other flags are
+    meaningful and they must not be modified.
+
+  * ``K_MEM_PAGE_FRAME_PINNED`` indicates a page frame is pinned in memory
     and should never be paged out.
 
-  * ``Z_PAGE_FRAME_RESERVED`` indicates a physical page reserved by hardware
+  * ``K_MEM_PAGE_FRAME_RESERVED`` indicates a physical page reserved by hardware
     and should not be used at all.
 
-  * ``Z_PAGE_FRAME_MAPPED`` is set when a physical page is mapped to
+  * ``K_MEM_PAGE_FRAME_MAPPED`` is set when a physical page is mapped to
     virtual memory address.
 
-  * ``Z_PAGE_FRAME_BUSY`` indicates a page frame is currently involved in
+  * ``K_MEM_PAGE_FRAME_BUSY`` indicates a page frame is currently involved in
     a page-in/out operation.
 
-  * ``Z_PAGE_FRAME_BACKED`` indicates a page frame has a clean copy
+  * ``K_MEM_PAGE_FRAME_BACKED`` indicates a page frame has a clean copy
     in the backing store.
 
-Z_SCRATCH_PAGE
+K_MEM_SCRATCH_PAGE
   The virtual address of a special page provided to the backing store to:
-  * Copy a data page from ``Z_SCRATCH_PAGE`` to the specified location; or,
-  * Copy a data page from the provided location to ``Z_SCRATCH_PAGE``.
+  * Copy a data page from ``k_MEM_SCRATCH_PAGE`` to the specified location; or,
+  * Copy a data page from the provided location to ``K_MEM_SCRATCH_PAGE``.
   This is used as an intermediate page for page in/out operations. This
   scratch needs to be mapped read/write for backing store code to access.
   However the data page itself may only be mapped as read-only in virtual
@@ -114,11 +161,18 @@ Eviction Algorithm
 
 The eviction algorithm is used to determine which data page and its
 corresponding page frame can be paged out to free up a page frame
-for the next page in operation. There are two functions which are
+for the next page in operation. There are four functions which are
 called from the kernel paging code:
 
 * :c:func:`k_mem_paging_eviction_init()` is called to initialize
   the eviction algorithm. This is called at ``POST_KERNEL``.
+
+* :c:func:`k_mem_paging_eviction_add()` is called each time a data page becomes
+  eligible for future eviction.
+
+* :c:func:`k_mem_paging_eviction_remove()` is called when a data page is no
+  longer eligible for eviction. This may happen if the given data page becomes
+  pinned, gets unmapped or is about to be evicted.
 
 * :c:func:`k_mem_paging_eviction_select()` is called to select
   a data page to evict. A function argument ``dirty`` is written to
@@ -129,13 +183,28 @@ called from the kernel paging code:
   The function returns a pointer to the page frame corresponding to
   the selected data page.
 
-Currently, a NRU (Not-Recently-Used) eviction algorithm has been
-implemented as a sample. This is a very simple algorithm which
-ranks each data page on whether they have been accessed and modified.
-The selection is based on this ranking.
+There is one additional function which is called by the architecture's memory
+management code to flag data pages when they trigger an access fault:
+:c:func:`k_mem_paging_eviction_accessed()`. This is used by the LRU algorithm
+to requeue "used" pages.
 
-To implement a new eviction algorithm, the two functions mentioned
-above must be implemented.
+Two eviction algorithms are currently available:
+
+* An NRU (Not-Recently-Used) eviction algorithm has been implemented as a
+  sample. This is a very simple algorithm which ranks data pages on whether
+  they have been accessed and modified. The selection is based on this ranking.
+
+* An LRU (Least-Recently-Used) eviction algorithm is also available. It is
+  based on a sorted queue of data pages. The LRU code is more complex compared
+  to the NRU code but also considerably more efficient. This is recommended for
+  production use.
+
+To implement a new eviction algorithm, :c:func:`k_mem_paging_eviction_init()`
+and :c:func:`k_mem_paging_eviction_select()` must be implemented.
+If :kconfig:option:`CONFIG_EVICTION_TRACKING` is enabled for an algorithm,
+these additional functions must also be implemented,
+:c:func:`k_mem_paging_eviction_add()`, :c:func:`k_mem_paging_eviction_remove()`,
+:c:func:`k_mem_paging_eviction_accessed()`.
 
 Backing Store
 *************
@@ -157,12 +226,17 @@ which must be implemented:
   free a backing store location (the ``location`` token) which can
   then be used for subsequent page out operation.
 
+* :c:func:`k_mem_paging_backing_store_location_query()` is called to obtain
+  the ``location`` token corresponding to storage content to be virtually
+  mapped and paged-in on demand. Most useful with
+  :kconfig:option:`CONFIG_DEMAND_MAPPING`.
+
 * :c:func:`k_mem_paging_backing_store_page_in()` copies a data page
   from the backing store location associated with the provided
-  ``location`` token to the page pointed by ``Z_SCRATCH_PAGE``.
+  ``location`` token to the page pointed by ``K_MEM_SCRATCH_PAGE``.
 
 * :c:func:`k_mem_paging_backing_store_page_out()` copies a data page
-  from ``Z_SCRATCH_PAGE`` to the backing store location associated
+  from ``K_MEM_SCRATCH_PAGE`` to the backing store location associated
   with the provided ``location`` token.
 
 * :c:func:`k_mem_paging_backing_store_page_finalize()` is invoked after
@@ -179,16 +253,13 @@ API Reference
 *************
 
 .. doxygengroup:: mem-demand-paging
-   :project: Zephyr
 
 Eviction Algorithm APIs
 =======================
 
 .. doxygengroup:: mem-demand-paging-eviction
-   :project: Zephyr
 
 Backing Store APIs
 ==================
 
 .. doxygengroup:: mem-demand-paging-backing-store
-   :project: Zephyr

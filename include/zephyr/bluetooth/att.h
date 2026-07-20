@@ -17,8 +17,12 @@
  * @{
  */
 
-#include <zephyr/sys/slist.h>
+#include <stdint.h>
+#include <stddef.h>
+
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/sys/slist.h>
+#include <zephyr/sys/util_macro.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -96,20 +100,59 @@ extern "C" {
 
 /* Handle 0x0000 is reserved for future use */
 #define BT_ATT_FIRST_ATTRIBUTE_HANDLE           0x0001
-#define BT_ATT_FIRST_ATTTRIBUTE_HANDLE __DEPRECATED_MACRO BT_ATT_FIRST_ATTRIBUTE_HANDLE
 /* 0xffff is defined as the maximum, and thus last, valid attribute handle */
 #define BT_ATT_LAST_ATTRIBUTE_HANDLE            0xffff
-#define BT_ATT_LAST_ATTTRIBUTE_HANDLE __DEPRECATED_MACRO BT_ATT_LAST_ATTRIBUTE_HANDLE
 
-#if defined(CONFIG_BT_EATT)
-#if defined(CONFIG_BT_TESTING)
+/** Converts a ATT error to string.
+ *
+ * The error codes are described in the Bluetooth Core specification,
+ * Vol 3, Part F, Section 3.4.1.1 and in
+ * The Supplement to the Bluetooth Core Specification (CSS), v11,
+ * Part B, Section 1.2.
+ *
+ * The ATT and GATT documentation found in Vol 4, Part F and
+ * Part G describe when the different error codes are used.
+ *
+ * See also the defined BT_ATT_ERR_* macros.
+ *
+ * @return The string representation of the ATT error code.
+ *         If @kconfig{CONFIG_BT_ATT_ERR_TO_STR} is not enabled,
+ *         this just returns the empty string
+ */
+#if defined(CONFIG_BT_ATT_ERR_TO_STR)
+const char *bt_att_err_to_str(uint8_t att_err);
+#else
+#include <zephyr/toolchain.h>
 
+static inline const char *bt_att_err_to_str(uint8_t att_err)
+{
+	ARG_UNUSED(att_err);
+
+	return "";
+}
+#endif
+
+/** @cond INTERNAL_HIDDEN */
+/**
+ * @brief Test function to disconnect a single EATT bearer
+ *
+ * @kconfig_dep{CONFIG_BT_EATT,CONFIG_BT_TESTING}
+ *
+ * @param conn The connection to disconnect the EATT bearer on
+ * @return 0 in case of success, else negative errno value
+ */
 int bt_eatt_disconnect_one(struct bt_conn *conn);
 
-/* Reconfigure all EATT channels on connection */
+/**
+ * @brief Test function to reconfigure all EATT channels on connection
+ *
+ * @kconfig_dep{CONFIG_BT_EATT,CONFIG_BT_TESTING}
+ *
+ * @param conn The connection to disconnect the EATT bearer on
+ * @return 0 in case of success, else negative errno value
+ */
 int bt_eatt_reconfigure(struct bt_conn *conn, uint16_t mtu);
-
-#endif /* CONFIG_BT_TESTING */
+/** @endcond */
 
 /** @brief Connect Enhanced ATT channels
  *
@@ -117,8 +160,10 @@ int bt_eatt_reconfigure(struct bt_conn *conn, uint16_t mtu);
  * Enhanced ATT channels. The peer may have limited resources and fewer channels
  * may be created.
  *
+ * @kconfig_dep{CONFIG_BT_EATT}
+ *
  * @param conn The connection to send the request on
- * @param num_channels The number of Enhanced ATT beares to request.
+ * @param num_channels The number of Enhanced ATT bearers to request.
  * Must be in the range 1 - @kconfig{CONFIG_BT_EATT_MAX}, inclusive.
  *
  * @return 0 in case of success or negative value in case of error.
@@ -130,14 +175,14 @@ int bt_eatt_connect(struct bt_conn *conn, size_t num_channels);
 
 /** @brief Get number of EATT channels connected.
  *
+ * @kconfig_dep{CONFIG_BT_EATT}
+ *
  * @param conn The connection to get the number of EATT channels for.
  *
  * @return The number of EATT channels connected.
  * Returns 0 if @p conn is NULL or not connected.
  */
 size_t bt_eatt_count(struct bt_conn *conn);
-
-#endif /* CONFIG_BT_EATT */
 
 /** @brief ATT channel option bit field values.
  * @note @ref BT_ATT_CHAN_OPT_UNENHANCED_ONLY and @ref BT_ATT_CHAN_OPT_ENHANCED_ONLY are mutually

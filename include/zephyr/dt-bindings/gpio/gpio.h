@@ -8,14 +8,12 @@
 #define ZEPHYR_INCLUDE_DT_BINDINGS_GPIO_GPIO_H_
 
 /**
- * @brief GPIO Driver APIs
- * @defgroup gpio_interface GPIO Driver APIs
- * @ingroup io_interfaces
+ * @addtogroup gpio_interface
  * @{
  */
 
 /** Mask for DT GPIO flags. */
-#define GPIO_DT_FLAGS_MASK 0x3F
+#define GPIO_DT_FLAGS_MASK 0x7F
 
 /**
  * @name GPIO pin active level flags
@@ -78,6 +76,11 @@
 #define GPIO_PULL_DOWN          (1 << 5)
 
 /** @} */
+
+/**
+ * Configures GPIO interrupt to wakeup the system from low power mode.
+ */
+#define GPIO_INT_WAKEUP         (1 << 6)
 
 /* Note: Bits 15 downto 8 are reserved for SoC specific flags. */
 

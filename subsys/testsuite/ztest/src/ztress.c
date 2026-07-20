@@ -7,6 +7,7 @@
 #include <zephyr/ztest_test.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/random/random.h>
+#include <zephyr/sys/cpu_load.h>
 #include <string.h>
 
 /* Flag set at startup which determines if stress test can run on this platform.
@@ -18,20 +19,20 @@ static bool cpu_sys_clock_ok;
 
 /* Timer used for adjusting contexts backoff time to get optimal CPU load. */
 static void ctrl_timeout(struct k_timer *timer);
-K_TIMER_DEFINE(ctrl_timer, ctrl_timeout, NULL);
+static K_TIMER_DEFINE(ctrl_timer, ctrl_timeout, NULL);
 
 /* Timer used for reporting test progress. */
 static void progress_timeout(struct k_timer *timer);
-K_TIMER_DEFINE(progress_timer, progress_timeout, NULL);
+static K_TIMER_DEFINE(progress_timer, progress_timeout, NULL);
 
 /* Timer used for higher priority context. */
 static void ztress_timeout(struct k_timer *timer);
-K_TIMER_DEFINE(ztress_timer, ztress_timeout, NULL);
+static K_TIMER_DEFINE(ztress_timer, ztress_timeout, NULL);
 
 /* Timer handling test timeout which ends test prematurely. */
 static k_timeout_t timeout;
 static void test_timeout(struct k_timer *timer);
-K_TIMER_DEFINE(test_timer, test_timeout, NULL);
+static K_TIMER_DEFINE(test_timer, test_timeout, NULL);
 
 static atomic_t active_cnt;
 static struct k_thread threads[CONFIG_ZTRESS_MAX_THREADS];
@@ -115,34 +116,40 @@ static void progress_timeout(struct k_timer *timer)
 
 static void control_load(void)
 {
-	static uint64_t prev_idle_cycles;
-	static uint64_t total_cycles;
-	uint64_t idle_cycles = 0;
-	k_thread_runtime_stats_t rt_stats_all;
-	int err = 0;
-	unsigned int num_cpus = arch_num_cpus();
+	int load;
 
-	for (int i = 0; i < num_cpus; i++) {
-		k_thread_runtime_stats_t thread_stats;
+	if (IS_ENABLED(CONFIG_CPU_LOAD)) {
+		load = cpu_load_get(true);
+	} else {
+		int err;
+		static uint64_t total_cycles;
+		static uint64_t prev_idle_cycles;
+		uint64_t idle_cycles = 0;
+		k_thread_runtime_stats_t rt_stats_all;
+		unsigned int num_cpus = arch_num_cpus();
 
-		err = k_thread_runtime_stats_get(idle_tid[i], &thread_stats);
+		for (int i = 0; i < num_cpus; i++) {
+			k_thread_runtime_stats_t thread_stats;
+
+			err = k_thread_runtime_stats_get(idle_tid[i], &thread_stats);
+			if (err < 0) {
+				return;
+			}
+
+			idle_cycles += thread_stats.execution_cycles;
+		}
+
+		err = k_thread_runtime_stats_all_get(&rt_stats_all);
 		if (err < 0) {
 			return;
 		}
 
-		idle_cycles += thread_stats.execution_cycles;
+		load = 1000 - (1000 * (idle_cycles - prev_idle_cycles) /
+				(rt_stats_all.execution_cycles - total_cycles));
+		prev_idle_cycles = idle_cycles;
+		total_cycles = rt_stats_all.execution_cycles;
 	}
 
-	err = k_thread_runtime_stats_all_get(&rt_stats_all);
-	if (err < 0) {
-		return;
-	}
-
-	int load = 1000 - (1000 * (idle_cycles - prev_idle_cycles) /
-			(rt_stats_all.execution_cycles - total_cycles));
-
-	prev_idle_cycles = idle_cycles;
-	total_cycles = rt_stats_all.execution_cycles;
 
 	int avg_load = (rt.cpu_load * rt.cpu_load_measurements + load) /
 			(rt.cpu_load_measurements + 1);
@@ -216,7 +223,7 @@ static k_timeout_t randomize_t(k_timeout_t t)
 static void microdelay(void)
 {
 	static volatile int microdelay_cnt;
-	uint32_t repeat = sys_rand32_get() & 0xff;
+	uint8_t repeat = sys_rand8_get();
 
 	for (int i = 0; i < repeat; i++) {
 		microdelay_cnt++;
@@ -292,6 +299,9 @@ static void ztress_init(struct ztress_context_data *thread_data)
 	k_thread_foreach(thread_cb, NULL);
 	k_msleep(10);
 
+	if (IS_ENABLED(CONFIG_CPU_LOAD)) {
+		(void)cpu_load_get(true);
+	}
 	k_timer_start(&ctrl_timer, K_MSEC(100), K_MSEC(100));
 	k_timer_user_data_set(&progress_timer, thread_data);
 	k_timer_start(&progress_timer,

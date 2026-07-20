@@ -5,6 +5,7 @@
  */
 #include "mesh_test.h"
 #include "mesh/net.h"
+#include "mesh/lpn.h"
 #include "mesh/transport.h"
 #include "mesh/va.h"
 #include <zephyr/sys/byteorder.h>
@@ -47,16 +48,9 @@ static uint8_t test_va_col_uuid[][16] = {
 };
 static uint16_t test_va_col_addr = 0x809D;
 
-static void test_common_init(const struct bt_mesh_test_cfg *cfg)
-{
-	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
-
-	bt_mesh_test_cfg_set(cfg, WAIT_TIME);
-}
-
 static void test_friend_init(void)
 {
-	test_common_init(&friend_cfg);
+	bt_mesh_test_cfg_set(&friend_cfg, WAIT_TIME);
 }
 
 static void test_lpn_init(void)
@@ -67,12 +61,12 @@ static void test_lpn_init(void)
 	 */
 	lpn_cfg.addr = LPN_ADDR_START + get_device_nbr();
 	lpn_cfg.dev_key[0] = get_device_nbr();
-	test_common_init(&lpn_cfg);
+	bt_mesh_test_cfg_set(&lpn_cfg, WAIT_TIME);
 }
 
 static void test_other_init(void)
 {
-	test_common_init(&other_cfg);
+	bt_mesh_test_cfg_set(&other_cfg, WAIT_TIME);
 }
 
 static void friend_wait_for_polls(int polls)
@@ -104,7 +98,7 @@ static void friend_wait_for_polls(int polls)
 static void test_friend_est(void)
 {
 	bt_mesh_test_setup();
-
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
@@ -124,9 +118,7 @@ static void test_friend_est_multi(void)
 	int err;
 
 	bt_mesh_test_setup();
-
 	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
-
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
 	for (int i = 0; i < CONFIG_BT_MESH_FRIEND_LPN_COUNT; i++) {
@@ -152,7 +144,7 @@ static void test_friend_est_multi(void)
 static void test_friend_msg(void)
 {
 	bt_mesh_test_setup();
-
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
@@ -220,7 +212,7 @@ static void test_friend_msg(void)
 static void test_friend_overflow(void)
 {
 	bt_mesh_test_setup();
-
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
@@ -305,7 +297,7 @@ static void test_friend_group(void)
 	const struct bt_mesh_va *va;
 
 	bt_mesh_test_setup();
-
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
@@ -347,6 +339,24 @@ static void test_friend_group(void)
 }
 
 
+/** Initialize as a friend, wait for establishment and termination. */
+static void test_friend_est_clear(void)
+{
+	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
+	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
+
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
+						       K_SECONDS(5)),
+		      "Friendship not established");
+
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_TERMINATED,
+						       K_SECONDS(10)),
+		      "Friendship not terminated");
+
+	PASS();
+}
+
 /* Friend no-establish test functions */
 
 /** Initialize as a friend and no friendships to be established.
@@ -354,6 +364,7 @@ static void test_friend_group(void)
 static void test_friend_no_est(void)
 {
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
 	if (!bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
@@ -371,7 +382,7 @@ static void test_friend_va_collision(void)
 	const struct bt_mesh_va *va[2];
 
 	bt_mesh_test_setup();
-
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
@@ -446,6 +457,7 @@ static void test_friend_va_collision(void)
 static void test_lpn_est(void)
 {
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	/* This test is used to establish friendship with single lpn as well as
 	 * with many lpn devices. If legacy advertiser is used friendship with
@@ -477,7 +489,7 @@ static void test_lpn_est(void)
 static void test_lpn_msg_frnd(void)
 {
 	bt_mesh_test_setup();
-
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 	bt_mesh_lpn_set(true);
 
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_ESTABLISHED,
@@ -541,11 +553,11 @@ static void test_lpn_msg_frnd(void)
 static void test_lpn_msg_mesh(void)
 {
 	bt_mesh_test_setup();
-
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 	bt_mesh_lpn_set(true);
 
-	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_ESTABLISHED,
-						       K_SECONDS(2)), "LPN not established");
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_ESTABLISHED, K_SECONDS(2)),
+		      "LPN did not establish friendship");
 	/* LPN polls on establishment. Clear the poll state */
 	bt_mesh_test_friendship_evt_clear(BT_MESH_TEST_LPN_POLLED);
 
@@ -553,14 +565,14 @@ static void test_lpn_msg_mesh(void)
 	 * Should not be affected by the LPN mode at all.
 	 */
 	ASSERT_OK_MSG(bt_mesh_test_send(other_cfg.addr, NULL, 5, 0, K_NO_WAIT),
-		      "Send to mesh failed");
+		      "Send to the third mesh node failed");
 
 	/* Receive an unsegmented message back */
 	ASSERT_OK(bt_mesh_test_recv(5, cfg->addr, NULL, K_FOREVER));
 
 	/* Send a segmented message to the mesh node. */
 	ASSERT_OK_MSG(bt_mesh_test_send(other_cfg.addr, NULL, 15, 0, K_FOREVER),
-		      "Send to other failed");
+		      "Send to the third mesh node failed");
 
 	/* Receive a segmented message back */
 	ASSERT_OK(bt_mesh_test_recv(15, cfg->addr, NULL, K_FOREVER));
@@ -576,6 +588,25 @@ static void test_lpn_msg_mesh(void)
 	bt_mesh_model_msg_init(test_model->pub->msg, TEST_MSG_OP_1);
 	ASSERT_OK(bt_mesh_model_publish(test_model));
 
+	/* Give time to complete publication */
+	k_sleep(K_SECONDS(2));
+
+	/* Terminate friendship by disabling the LPN functionality */
+	bt_mesh_lpn_set(false);
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_TERMINATED, K_SECONDS(5)),
+		      "LPN did not terminate friendship correctly");
+
+	/* With this enabled feature, LPN leaves scanner disabled after termination. */
+	if (IS_ENABLED(CONFIG_BT_MESH_LPN_ESTABLISHMENT)) {
+		bt_mesh_scan_enable();
+	}
+
+	/* Send an unsegmented message to a third mesh node. */
+	ASSERT_OK_MSG(bt_mesh_test_send(other_cfg.addr, NULL, 5, 0, K_NO_WAIT),
+		      "Send to the third mesh node failed");
+	/* Receive an unsegmented message back */
+	ASSERT_OK(bt_mesh_test_recv(5, cfg->addr, NULL, K_FOREVER));
+
 	PASS();
 }
 
@@ -585,6 +616,7 @@ static void test_lpn_msg_mesh(void)
 static void test_lpn_re_est(void)
 {
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	for (int i = 0; i < 4; i++) {
 		bt_mesh_lpn_set(true);
@@ -593,9 +625,9 @@ static void test_lpn_re_est(void)
 			      "LPN not established");
 
 		bt_mesh_lpn_set(false);
-		ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_TERMINATED,
-							       K_SECONDS(5)),
-			      "LPN never terminated friendship");
+		ASSERT_OK_MSG(
+			bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_TERMINATED, K_SECONDS(5)),
+			"LPN did not terminate friendship correctly");
 
 		k_sleep(K_SECONDS(2));
 	}
@@ -609,6 +641,7 @@ static void test_lpn_re_est(void)
 static void test_lpn_poll(void)
 {
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	bt_mesh_lpn_set(true);
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_ESTABLISHED,
@@ -637,6 +670,7 @@ static void test_lpn_overflow(void)
 	int err;
 
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	bt_mesh_lpn_set(true);
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_ESTABLISHED,
@@ -751,6 +785,7 @@ static void test_lpn_group(void)
 	int err;
 
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	err = bt_mesh_cfg_cli_mod_sub_add(0, cfg->addr, cfg->addr, GROUP_ADDR,
 				      TEST_MOD_ID, &status);
@@ -856,6 +891,7 @@ static void test_lpn_loopback(void)
 	int err;
 
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	err = bt_mesh_cfg_cli_mod_sub_add(0, cfg->addr, cfg->addr, GROUP_ADDR,
 				      TEST_MOD_ID, &status);
@@ -927,6 +963,7 @@ static void test_other_msg(void)
 	int err;
 
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	/* When this device and a friend device receive segments from LPN both start
 	 * sending data. This device sends transport ack. Friend relays LPN's segment.
@@ -967,6 +1004,13 @@ static void test_other_msg(void)
 	ASSERT_OK_MSG(bt_mesh_test_recv(1, cfg->addr, NULL, K_FOREVER),
 		      "Failed to receive from LPN");
 
+	/* Receive an unsegmented message from the LPN outside of friendship. */
+	ASSERT_OK_MSG(bt_mesh_test_recv(5, cfg->addr, NULL, K_FOREVER),
+		      "Failed to receive from LPN after friendship termination");
+	/* Send an unsegmented message to the LPN */
+	ASSERT_OK_MSG(bt_mesh_test_send(LPN_ADDR_START, NULL, 5, 0, K_NO_WAIT),
+		      "Failed to send to LPN after friendship termination");
+
 	PASS();
 }
 
@@ -978,6 +1022,7 @@ static void test_other_group(void)
 	const struct bt_mesh_va *va;
 
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	ASSERT_OK(bt_mesh_va_add(test_va_uuid, &va));
 
@@ -994,6 +1039,32 @@ static void test_other_group(void)
 	PASS();
 }
 
+/** Verify Friend Clear Confirm reception on LPN side. */
+static void test_lpn_clear_cfm(void)
+{
+	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
+
+	bt_mesh_lpn_set(true);
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_ESTABLISHED,
+						       K_SECONDS(5)),
+		      "LPN not established");
+
+	/* Terminate friendship — LPN sends Friend Clear to Friend */
+	bt_mesh_lpn_set(false);
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_TERMINATED,
+						       K_SECONDS(5)),
+		      "LPN did not terminate friendship");
+
+	/* If Friend Clear Confirm was received, clear_friendship() sets
+	 * old_friend to BT_MESH_ADDR_UNASSIGNED. If it was not received
+	 * (retry exhaustion), old_friend would be set to the friend's address.
+	 */
+	ASSERT_EQUAL(BT_MESH_ADDR_UNASSIGNED, bt_mesh.lpn.old_friend);
+
+	PASS();
+}
+
 /** LPN disable test.
  *
  * Check that toggling lpn_set() results in correct disabled state
@@ -1001,6 +1072,7 @@ static void test_other_group(void)
 static void test_lpn_disable(void)
 {
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	bt_mesh_lpn_set(true);
 	bt_mesh_lpn_set(false);
@@ -1020,6 +1092,7 @@ static void test_lpn_disable(void)
 static void test_lpn_term_cb_check(void)
 {
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	bt_mesh_lpn_set(true);
 	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_POLLED,
@@ -1045,6 +1118,7 @@ static void test_lpn_va_collision(void)
 	int err;
 
 	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
 
 	/* Subscripbe LPN on both virtual address with collision. */
 	for (int i = 0; i < ARRAY_SIZE(test_va_col_uuid); i++) {
@@ -1152,6 +1226,85 @@ static void test_lpn_va_collision(void)
 	PASS();
 }
 
+/** Friend Clear Procedure: new Friend (C) clears old Friend (B). */
+static void test_friend_clear_proc(void)
+{
+	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
+
+	/* Wait for LPN to establish with B first, then enable friend. */
+	k_sleep(K_SECONDS(5));
+
+	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
+
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
+						       K_SECONDS(10)),
+		      "Friendship not established with LPN");
+
+	/* Verify clear procedure completed: frnd->clear.frnd is set to
+	 * BT_MESH_ADDR_UNASSIGNED only when bt_mesh_friend_clear_cfm()
+	 * processes an incoming Friend Clear Confirm message.
+	 */
+	k_sleep(K_SECONDS(3));
+	ASSERT_EQUAL(BT_MESH_ADDR_UNASSIGNED, bt_mesh.frnd[0].clear.frnd);
+
+	PASS();
+}
+
+static void test_other_clear_proc(void)
+{
+	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
+	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
+
+	/* Establish friendship with LPN. */
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_ESTABLISHED,
+						       K_SECONDS(5)),
+		      "Friendship not established with LPN");
+
+	/* LPN will force-disable without sending Friend Clear.
+	 * Later, the new Friend (C) sends Friend Clear to us.
+	 * Verify friendship terminated.
+	 */
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_FRIEND_TERMINATED,
+						       K_SECONDS(15)),
+		      "Friendship not terminated by Friend Clear");
+
+	PASS();
+}
+
+static void test_lpn_clear_proc(void)
+{
+	bt_mesh_test_setup();
+	bt_mesh_test_friendship_init(CONFIG_BT_MESH_FRIEND_LPN_COUNT);
+
+	/* Step 1: Establish with Friend B (addr 0x0002). Friend C is not
+	 * available yet (sleeping for 5s).
+	 */
+	bt_mesh_lpn_set(true);
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_ESTABLISHED,
+						       K_SECONDS(5)),
+		      "LPN not established with Friend B");
+	ASSERT_EQUAL(other_cfg.addr, bt_mesh.lpn.frnd);
+
+	/* Step 2: Force-disable LPN without sending Friend Clear.
+	 * This sets old_friend = Friend B's address.
+	 */
+	bt_mesh_lpn_disable(true);
+	ASSERT_EQUAL(other_cfg.addr, bt_mesh.lpn.old_friend);
+
+	/* Step 3: Wait for Friend C to enable, then re-establish. */
+	k_sleep(K_SECONDS(5));
+
+	bt_mesh_lpn_set(true);
+	ASSERT_OK_MSG(bt_mesh_test_friendship_evt_wait(BT_MESH_TEST_LPN_ESTABLISHED,
+						       K_SECONDS(10)),
+		      "LPN not established with Friend C");
+	ASSERT_EQUAL(friend_cfg.addr, bt_mesh.lpn.frnd);
+
+	PASS();
+}
+
 #define TEST_CASE(role, name, description)                  \
 	{                                                   \
 		.test_id = "friendship_" #role "_" #name,   \
@@ -1169,6 +1322,8 @@ static const struct bst_test_instance test_connect[] = {
 	TEST_CASE(friend, group,            "Friend: send to group addrs"),
 	TEST_CASE(friend, no_est,           "Friend: do not establish friendship"),
 	TEST_CASE(friend, va_collision,     "Friend: send to virtual addrs with collision"),
+	TEST_CASE(friend, est_clear,        "Friend: establish and wait for termination"),
+	TEST_CASE(friend, clear_proc,       "Friend: verify clear procedure completes"),
 
 	TEST_CASE(lpn,    est,              "LPN: establish friendship"),
 	TEST_CASE(lpn,    msg_frnd,         "LPN: message exchange with friend"),
@@ -1181,9 +1336,12 @@ static const struct bst_test_instance test_connect[] = {
 	TEST_CASE(lpn,    disable,          "LPN: disable LPN"),
 	TEST_CASE(lpn,    term_cb_check,    "LPN: no terminate cb trigger"),
 	TEST_CASE(lpn,    va_collision,     "LPN: receive on virtual addrs with collision"),
+	TEST_CASE(lpn,    clear_cfm,        "LPN: verify Friend Clear Confirm reception"),
+	TEST_CASE(lpn,    clear_proc,       "LPN: trigger Friend Clear Procedure"),
 
 	TEST_CASE(other,  msg,              "Other mesh device: message exchange"),
 	TEST_CASE(other,  group,            "Other mesh device: send to group addrs"),
+	TEST_CASE(other,  clear_proc,       "Other: old friend in clear procedure"),
 	BSTEST_END_MARKER
 };
 

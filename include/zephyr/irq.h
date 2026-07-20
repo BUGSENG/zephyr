@@ -128,6 +128,10 @@ irq_disconnect_dynamic(unsigned int irq, unsigned int priority,
  * Although this routine is invoked at run-time, all of its arguments must be
  * computable by the compiler at build time.
  *
+ * @note
+ * All IRQs configured with the IRQ_ZERO_LATENCY flag must be declared as
+ * direct.
+ *
  * @param irq_p IRQ line number.
  * @param priority_p Interrupt priority.
  * @param isr_p Address of interrupt service routine.
@@ -170,6 +174,10 @@ irq_disconnect_dynamic(unsigned int irq, unsigned int priority,
  * and IRQ_DIRECT_FOOTER() invocations. It performs tasks necessary to
  * exit power management idle state. It takes no parameters and returns no
  * arguments. It may be omitted, but be careful!
+ *
+ * @warning
+ * This macro must not be used at all with IRQs configured with the
+ * IRQ_ZERO_LATENCY flag.
  */
 #define ISR_DIRECT_PM() ARCH_ISR_DIRECT_PM()
 
@@ -185,6 +193,10 @@ irq_disconnect_dynamic(unsigned int irq, unsigned int priority,
  * these interrupt types require different assembly language handling of
  * registers by the ISR, this will always generate code for the 'fast'
  * interrupt type.
+ *
+ * @warning
+ * Any ISRs that serve IRQs configured with the IRQ_ZERO_LATENCY flag must
+ * always return 0 in this macro.
  *
  * Example usage:
  *
@@ -215,7 +227,7 @@ irq_disconnect_dynamic(unsigned int irq, unsigned int priority,
  *
  * @note
  * This routine must also serve as a memory barrier to ensure the uniprocessor
- * implementation of `k_spinlock_t` is correct.
+ * implementation of spinlocks is correct.
  *
  * This routine can be called recursively, as long as the caller keeps track
  * of each lock-out key that is generated. Interrupts are re-enabled by
@@ -227,16 +239,12 @@ irq_disconnect_dynamic(unsigned int irq, unsigned int priority,
  * (for example, ARM) will fail silently if invoked from user mode instead
  * of generating an exception.
  *
- * @note
- * This routine can be called by ISRs or by threads. If it is called by a
- * thread, the interrupt lock is thread-specific; this means that interrupts
- * remain disabled only while the thread is running. If the thread performs an
- * operation that allows another thread to run (for example, giving a semaphore
- * or sleeping for N milliseconds), the interrupt lock no longer applies and
- * interrupts may be re-enabled while other processing occurs. When the thread
- * once again becomes the current thread, the kernel re-establishes its
- * interrupt lock; this ensures the thread won't be interrupted until it has
- * explicitly released the interrupt lock it established.
+ * This routine can be called by ISRs and threads.
+ *
+ * @warning
+ * As long as all recursive calls to irq_lock() have not been balanced with
+ * corresponding irq_unlock() calls, the caller "holds the interrupt lock".
+ * "Holding the interrupt lock" when a context switch occurs is illegal.
  *
  * @warning
  * The lock-out key should never be used to manually re-enable interrupts
@@ -263,7 +271,7 @@ unsigned int z_smp_global_lock(void);
  *
  * @note
  * This routine must also serve as a memory barrier to ensure the uniprocessor
- * implementation of `k_spinlock_t` is correct.
+ * implementation of spinlocks is correct.
  *
  * This routine can only be invoked from supervisor mode. Some architectures
  * (for example, ARM) will fail silently if invoked from user mode instead
@@ -278,137 +286,6 @@ void z_smp_global_unlock(unsigned int key);
 #define irq_unlock(key) z_smp_global_unlock(key)
 #else
 #define irq_unlock(key) arch_irq_unlock(key)
-#endif
-
-/**
- * @brief Return IRQ level
- * This routine returns the interrupt level number of the provided interrupt.
- *
- * @param irq IRQ number in its zephyr format
- *
- * @return 1 if IRQ level 1, 2 if IRQ level 2, 3 if IRQ level 3
- */
-static inline unsigned int irq_get_level(unsigned int irq)
-{
-	const uint32_t mask2 = BIT_MASK(CONFIG_2ND_LEVEL_INTERRUPT_BITS) <<
-		CONFIG_1ST_LEVEL_INTERRUPT_BITS;
-	const uint32_t mask3 = BIT_MASK(CONFIG_3RD_LEVEL_INTERRUPT_BITS) <<
-		(CONFIG_1ST_LEVEL_INTERRUPT_BITS + CONFIG_2ND_LEVEL_INTERRUPT_BITS);
-
-	if (IS_ENABLED(CONFIG_3RD_LEVEL_INTERRUPTS) && (irq & mask3) != 0) {
-		return 3;
-	}
-
-	if (IS_ENABLED(CONFIG_2ND_LEVEL_INTERRUPTS) && (irq & mask2) != 0) {
-		return 2;
-	}
-
-	return 1;
-}
-
-#if defined(CONFIG_2ND_LEVEL_INTERRUPTS)
-/**
- * @brief Return the 2nd level interrupt number
- *
- * This routine returns the second level irq number of the zephyr irq
- * number passed in
- *
- * @param irq IRQ number in its zephyr format
- *
- * @return 2nd level IRQ number
- */
-static inline unsigned int irq_from_level_2(unsigned int irq)
-{
-#if defined(CONFIG_3RD_LEVEL_INTERRUPTS)
-	return ((irq >> CONFIG_1ST_LEVEL_INTERRUPT_BITS) &
-		BIT_MASK(CONFIG_2ND_LEVEL_INTERRUPT_BITS)) - 1;
-#else
-	return (irq >> CONFIG_1ST_LEVEL_INTERRUPT_BITS) - 1;
-#endif
-}
-
-/**
- * @brief Converts irq from level 1 to level 2 format
- *
- *
- * This routine converts the input into the level 2 irq number format
- *
- * @note Values >= 0xFF are invalid
- *
- * @param irq IRQ number in its zephyr format
- *
- * @return 2nd level IRQ number
- */
-static inline unsigned int irq_to_level_2(unsigned int irq)
-{
-	return (irq + 1) << CONFIG_1ST_LEVEL_INTERRUPT_BITS;
-}
-
-/**
- * @brief Returns the parent IRQ of the level 2 raw IRQ number
- *
- *
- * The parent of a 2nd level interrupt is in the 1st byte
- *
- * @param irq IRQ number in its zephyr format
- *
- * @return 2nd level IRQ parent
- */
-static inline unsigned int irq_parent_level_2(unsigned int irq)
-{
-	return irq & BIT_MASK(CONFIG_1ST_LEVEL_INTERRUPT_BITS);
-}
-#endif
-
-#ifdef CONFIG_3RD_LEVEL_INTERRUPTS
-/**
- * @brief Return the 3rd level interrupt number
- *
- *
- * This routine returns the third level irq number of the zephyr irq
- * number passed in
- *
- * @param irq IRQ number in its zephyr format
- *
- * @return 3rd level IRQ number
- */
-static inline unsigned int irq_from_level_3(unsigned int irq)
-{
-	return (irq >> (CONFIG_1ST_LEVEL_INTERRUPT_BITS + CONFIG_2ND_LEVEL_INTERRUPT_BITS)) - 1;
-}
-
-/**
- * @brief Converts irq from level 1 to level 3 format
- *
- *
- * This routine converts the input into the level 3 irq number format
- *
- * @note Values >= 0xFF are invalid
- *
- * @param irq IRQ number in its zephyr format
- *
- * @return 3rd level IRQ number
- */
-static inline unsigned int irq_to_level_3(unsigned int irq)
-{
-	return (irq + 1) << (CONFIG_1ST_LEVEL_INTERRUPT_BITS + CONFIG_2ND_LEVEL_INTERRUPT_BITS);
-}
-
-/**
- * @brief Returns the parent IRQ of the level 3 raw IRQ number
- *
- *
- * The parent of a 3rd level interrupt is in the 2nd byte
- *
- * @param irq IRQ number in its zephyr format
- *
- * @return 3rd level IRQ parent
- */
-static inline unsigned int irq_parent_level_3(unsigned int irq)
-{
-	return (irq >> CONFIG_1ST_LEVEL_INTERRUPT_BITS) &
-		BIT_MASK(CONFIG_2ND_LEVEL_INTERRUPT_BITS);
-}
 #endif
 
 /**

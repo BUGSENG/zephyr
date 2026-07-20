@@ -22,7 +22,7 @@ struct pd_gpio_config {
 };
 
 struct pd_gpio_data {
-	k_timeout_t next_boot;
+	k_timepoint_t earliest_next_boot;
 };
 
 struct pd_visitor_context {
@@ -37,7 +37,7 @@ static int pd_on_domain_visitor(const struct device *dev, void *context)
 	struct pd_visitor_context *visitor_context = context;
 
 	/* Only run action if the device is on the specified domain */
-	if (!dev->pm || (dev->pm->domain != visitor_context->domain)) {
+	if (!dev->pm || (dev->pm_base->domain != visitor_context->domain)) {
 		return 0;
 	}
 
@@ -55,7 +55,6 @@ static int pd_gpio_pm_action(const struct device *dev,
 #endif
 	const struct pd_gpio_config *cfg = dev->config;
 	struct pd_gpio_data *data = dev->data;
-	int64_t next_boot_ticks;
 	int rc = 0;
 
 	/* Validate that blocking API's can be used */
@@ -67,7 +66,7 @@ static int pd_gpio_pm_action(const struct device *dev,
 	switch (action) {
 	case PM_DEVICE_ACTION_RESUME:
 		/* Wait until we can boot again */
-		k_sleep(data->next_boot);
+		k_sleep(sys_timepoint_timeout(data->earliest_next_boot));
 		/* Switch power on */
 		gpio_pin_set_dt(&cfg->enable, 1);
 		LOG_INF("%s is now ON", dev->name);
@@ -89,8 +88,7 @@ static int pd_gpio_pm_action(const struct device *dev,
 		gpio_pin_set_dt(&cfg->enable, 0);
 		LOG_INF("%s is now OFF", dev->name);
 		/* Store next time we can boot */
-		next_boot_ticks = k_uptime_ticks() + k_us_to_ticks_ceil32(cfg->off_on_delay_us);
-		data->next_boot = K_TIMEOUT_ABS_TICKS(next_boot_ticks);
+		data->earliest_next_boot = sys_timepoint_calc(K_USEC(cfg->off_on_delay_us));
 		break;
 	case PM_DEVICE_ACTION_TURN_ON:
 		/* Actively control the enable pin now that the device is powered */
@@ -119,23 +117,23 @@ static int pd_gpio_init(const struct device *dev)
 		return -ENODEV;
 	}
 	/* We can't know how long the domain has been off for before boot */
-	data->next_boot = K_TIMEOUT_ABS_US(cfg->off_on_delay_us);
+	data->earliest_next_boot = sys_timepoint_calc(K_USEC(cfg->off_on_delay_us));
 
 	/* Boot according to state */
 	return pm_device_driver_init(dev, pd_gpio_pm_action);
 }
 
-#define POWER_DOMAIN_DEVICE(id)						   \
-	static const struct pd_gpio_config pd_gpio_##id##_cfg = {	   \
-		.enable = GPIO_DT_SPEC_INST_GET(id, enable_gpios),	   \
-		.startup_delay_us = DT_INST_PROP(id, startup_delay_us),	   \
-		.off_on_delay_us = DT_INST_PROP(id, off_on_delay_us),	   \
-	};								   \
-	static struct pd_gpio_data pd_gpio_##id##_data;			   \
-	PM_DEVICE_DT_INST_DEFINE(id, pd_gpio_pm_action);		   \
-	DEVICE_DT_INST_DEFINE(id, pd_gpio_init, PM_DEVICE_DT_INST_GET(id), \
-			      &pd_gpio_##id##_data, &pd_gpio_##id##_cfg,   \
-			      POST_KERNEL, 75,				   \
+#define POWER_DOMAIN_DEVICE(id)							\
+	static const struct pd_gpio_config pd_gpio_##id##_cfg = {		\
+		.enable = GPIO_DT_SPEC_INST_GET(id, enable_gpios),		\
+		.startup_delay_us = DT_INST_PROP(id, startup_delay_us),		\
+		.off_on_delay_us = DT_INST_PROP(id, off_on_delay_us),		\
+	};									\
+	static struct pd_gpio_data pd_gpio_##id##_data;				\
+	PM_DEVICE_DT_INST_DEFINE(id, pd_gpio_pm_action);			\
+	DEVICE_DT_INST_DEFINE(id, pd_gpio_init, PM_DEVICE_DT_INST_GET(id),	\
+			      &pd_gpio_##id##_data, &pd_gpio_##id##_cfg,	\
+			      POST_KERNEL, CONFIG_POWER_DOMAIN_GPIO_INIT_PRIORITY,	\
 			      NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(POWER_DOMAIN_DEVICE)

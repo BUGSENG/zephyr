@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2013-2014 Wind River Systems, Inc.
  * Copyright (c) 2019 Nordic Semiconductor ASA.
+ * Copyright 2026 Arm Limited and/or its affiliates <open-source-office@arm.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,18 +14,32 @@
  * arm/arch.h.
  */
 
-#ifndef ZEPHYR_INCLUDE_ARCH_ARM_AARCH32_IRQ_H_
-#define ZEPHYR_INCLUDE_ARCH_ARM_AARCH32_IRQ_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_ARM_IRQ_H_
+#define ZEPHYR_INCLUDE_ARCH_ARM_IRQ_H_
 
 #include <zephyr/sw_isr_table.h>
 #include <stdbool.h>
+#if !defined(_ASMLANGUAGE) && defined(CONFIG_CPU_CORTEX_M)
+#include <zephyr/arch/arm/arm-m-switch.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #ifdef _ASMLANGUAGE
+#if defined(CONFIG_ARM_CUSTOM_INTERRUPT_CONTROLLER) || defined(CONFIG_MULTI_LEVEL_INTERRUPTS)
+#define arch_irq_enable                     z_soc_irq_enable
+#define arch_irq_disable                    z_soc_irq_disable
+#define arch_irq_is_enabled                 z_soc_irq_is_enabled
+#else
+#define arch_irq_enable                     arm_irq_enable
+#define arch_irq_disable                    arm_irq_disable
+#define arch_irq_is_enabled                 arm_irq_is_enabled
+#endif
+#ifndef CONFIG_USE_SWITCH
 GTEXT(z_arm_int_exit);
+#endif
 GTEXT(arch_irq_enable)
 GTEXT(arch_irq_disable)
 GTEXT(arch_irq_is_enabled)
@@ -35,20 +50,23 @@ GTEXT(z_soc_irq_eoi)
 #else
 
 #if !defined(CONFIG_ARM_CUSTOM_INTERRUPT_CONTROLLER)
+extern void arm_irq_enable(unsigned int irq);
+extern void arm_irq_disable(unsigned int irq);
+extern int arm_irq_is_enabled(unsigned int irq);
+extern void arm_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags);
+#if !defined(CONFIG_MULTI_LEVEL_INTERRUPTS)
+#define arch_irq_enable(irq)                     arm_irq_enable(irq)
+#define arch_irq_disable(irq)                    arm_irq_disable(irq)
+#define arch_irq_is_enabled(irq)                 arm_irq_is_enabled(irq)
+#define z_arm_irq_priority_set(irq, prio, flags) arm_irq_priority_set(irq, prio, flags)
+#endif
+#endif
 
-extern void arch_irq_enable(unsigned int irq);
-extern void arch_irq_disable(unsigned int irq);
-extern int arch_irq_is_enabled(unsigned int irq);
-
-/* internal routine documented in C file, needed by IRQ_CONNECT() macro */
-extern void z_arm_irq_priority_set(unsigned int irq, unsigned int prio,
-				   uint32_t flags);
-
-#else
-
+#if defined(CONFIG_ARM_CUSTOM_INTERRUPT_CONTROLLER) || defined(CONFIG_MULTI_LEVEL_INTERRUPTS)
 /*
- * When a custom interrupt controller is specified, map the architecture
- * interrupt control functions to the SoC layer interrupt control functions.
+ * When a custom interrupt controller or multi-level interrupts is specified,
+ * map the architecture interrupt control functions to the SoC layer interrupt
+ * control functions.
  */
 
 void z_soc_irq_init(void);
@@ -69,19 +87,18 @@ void z_soc_irq_eoi(unsigned int irq);
 #define z_arm_irq_priority_set(irq, prio, flags)	\
 	z_soc_irq_priority_set(irq, prio, flags)
 
-#endif /* !CONFIG_ARM_CUSTOM_INTERRUPT_CONTROLLER */
+#endif
 
+#if defined(CONFIG_CPU_CORTEX_M) && defined(CONFIG_USE_SWITCH)
+static inline void z_arm_int_exit(void)
+{
+	arm_m_exc_tail();
+}
+#else
 extern void z_arm_int_exit(void);
+#endif
 
 extern void z_arm_interrupt_init(void);
-
-/* macros convert value of its argument to a string */
-#define DO_TOSTR(s) #s
-#define TOSTR(s) DO_TOSTR(s)
-
-/* concatenate the values of the arguments into one */
-#define DO_CONCAT(x, y) x ## y
-#define CONCAT(x, y) DO_CONCAT(x, y)
 
 /* Flags for use with IRQ_CONNECT() */
 /**
@@ -89,7 +106,13 @@ extern void z_arm_interrupt_init(void);
  * is 1 it has a fixed hardware priority level (discarding what was supplied
  * in the interrupt's priority argument). If CONFIG_ZERO_LATENCY_LEVELS is
  * greater 1 it has the priority level assigned by the argument.
- * The interrupt wil run even if irq_lock() is active. Be careful!
+ * The interrupt will run even if irq_lock() is active. Be careful!
+ *
+ * This also applies when system power management keeps interrupts locked across
+ * PM resume: because such an interrupt runs above the interrupt-lock level, it
+ * is outside the locked-resume ordering. It must be PM-wake-safe, or the
+ * interrupt source must be masked or disabled while the system state does not
+ * allow the ISR to execute.
  */
 #define IRQ_ZERO_LATENCY	BIT(0)
 
@@ -123,8 +146,8 @@ extern void z_arm_interrupt_init(void);
  */
 #define ARCH_IRQ_CONNECT(irq_p, priority_p, isr_p, isr_param_p, flags_p) \
 { \
-	BUILD_ASSERT(IS_ENABLED(CONFIG_ZERO_LATENCY_IRQS) || !(flags_p & IRQ_ZERO_LATENCY), \
-			"ZLI interrupt registered but feature is disabled"); \
+	BUILD_ASSERT(!(flags_p & IRQ_ZERO_LATENCY), \
+			"ZLI interrupts must be registered using IRQ_DIRECT_CONNECT()"); \
 	_CHECK_PRIO(priority_p, flags_p) \
 	Z_ISR_DECLARE(irq_p, 0, isr_p, isr_param_p); \
 	z_arm_irq_priority_set(irq_p, priority_p, flags_p); \
@@ -135,7 +158,7 @@ extern void z_arm_interrupt_init(void);
 	BUILD_ASSERT(IS_ENABLED(CONFIG_ZERO_LATENCY_IRQS) || !(flags_p & IRQ_ZERO_LATENCY), \
 			"ZLI interrupt registered but feature is disabled"); \
 	_CHECK_PRIO(priority_p, flags_p) \
-	Z_ISR_DECLARE(irq_p, ISR_FLAG_DIRECT, isr_p, NULL); \
+	Z_ISR_DECLARE_DIRECT(irq_p, ISR_FLAG_DIRECT, isr_p); \
 	z_arm_irq_priority_set(irq_p, priority_p, flags_p); \
 }
 
@@ -148,9 +171,6 @@ extern void _arch_isr_direct_pm(void);
 
 #define ARCH_ISR_DIRECT_HEADER() arch_isr_direct_header()
 #define ARCH_ISR_DIRECT_FOOTER(swap) arch_isr_direct_footer(swap)
-
-/* arch/arm/core/exc_exit.S */
-extern void z_arm_int_exit(void);
 
 #ifdef CONFIG_TRACING_ISR
 extern void sys_trace_isr_enter(void);
@@ -174,10 +194,20 @@ static inline void arch_isr_direct_footer(int maybe_swap)
 	}
 }
 
+#define ARCH_ISR_DIAG_OFF \
+	TOOLCHAIN_DISABLE_CLANG_WARNING(TOOLCHAIN_WARNING_EXTRA) \
+	TOOLCHAIN_DISABLE_CLANG_WARNING(TOOLCHAIN_WARNING_ARM_INTERRUPT_VFP_CLOBBER) \
+	TOOLCHAIN_DISABLE_GCC_WARNING(TOOLCHAIN_WARNING_ATTRIBUTES) \
+	TOOLCHAIN_DISABLE_IAR_WARNING(TOOLCHAIN_WARNING_ATTRIBUTES)
+#define ARCH_ISR_DIAG_ON \
+	TOOLCHAIN_ENABLE_CLANG_WARNING(TOOLCHAIN_WARNING_EXTRA) \
+	TOOLCHAIN_ENABLE_CLANG_WARNING(TOOLCHAIN_WARNING_ARM_INTERRUPT_VFP_CLOBBER) \
+	TOOLCHAIN_ENABLE_GCC_WARNING(TOOLCHAIN_WARNING_ATTRIBUTES) \
+	TOOLCHAIN_ENABLE_IAR_WARNING(TOOLCHAIN_WARNING_ATTRIBUTES)
+
 #define ARCH_ISR_DIRECT_DECLARE(name) \
 	static inline int name##_body(void); \
-	_Pragma("GCC diagnostic push") \
-	_Pragma("GCC diagnostic ignored \"-Wattributes\"") \
+	ARCH_ISR_DIAG_OFF \
 	__attribute__ ((interrupt ("IRQ"))) void name(void) \
 	{ \
 		int check_reschedule; \
@@ -185,7 +215,7 @@ static inline void arch_isr_direct_footer(int maybe_swap)
 		check_reschedule = name##_body(); \
 		ISR_DIRECT_FOOTER(check_reschedule); \
 	} \
-	_Pragma("GCC diagnostic pop") \
+	ARCH_ISR_DIAG_ON \
 	static inline int name##_body(void)
 
 #if defined(CONFIG_DYNAMIC_DIRECT_INTERRUPTS)
@@ -228,12 +258,18 @@ extern void z_arm_irq_direct_dynamic_dispatch_no_reschedule(void);
  *   direct interrupts, the decisions must be made at build time.
  *   They are controlled by @param resch to this macro.
  *
+ * @warning
+ * Just like with regular direct ISRs, any ISRs that serve IRQs configured with
+ * the IRQ_ZERO_LATENCY flag must not use the ISR_DIRECT_PM() macro and must
+ * return 0 (i.e. resch must be no_reschedule).
+ *
  * @param irq_p IRQ line number.
  * @param priority_p Interrupt priority.
  * @param flags_p Architecture-specific IRQ configuration flags.
  * @param resch Set flag to 'reschedule' to request thread
  *              re-scheduling upon ISR function. Set flag
  *              'no_reschedule' to skip thread re-scheduling
+ *              Must be 'no_reschedule' for zero-latency interrupts
  *
  * Note: the function is an ARM Cortex-M only API.
  *
@@ -241,7 +277,7 @@ extern void z_arm_irq_direct_dynamic_dispatch_no_reschedule(void);
  */
 #define ARM_IRQ_DIRECT_DYNAMIC_CONNECT(irq_p, priority_p, flags_p, resch) \
 	IRQ_DIRECT_CONNECT(irq_p, priority_p, \
-		CONCAT(z_arm_irq_direct_dynamic_dispatch_, resch), flags_p)
+		_CONCAT(z_arm_irq_direct_dynamic_dispatch_, resch), flags_p)
 
 #endif /* CONFIG_DYNAMIC_DIRECT_INTERRUPTS */
 
@@ -262,4 +298,4 @@ typedef enum {
 }
 #endif
 
-#endif /* ZEPHYR_INCLUDE_ARCH_ARM_AARCH32_IRQ_H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARM_IRQ_H_ */

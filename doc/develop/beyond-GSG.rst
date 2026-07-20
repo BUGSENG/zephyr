@@ -136,13 +136,39 @@ Keeping Zephyr updated
 To update the Zephyr project source code, you need to get the latest
 changes via ``git``. Afterwards, run ``west update`` as mentioned in
 the previous paragraph.
+Additionally, check for updated or added Python dependencies.
 
-.. code-block:: console
+.. tabs::
 
-   # replace zephyrproject with the path you gave west init
-   cd zephyrproject/zephyr
-   git pull
-   west update
+   .. group-tab:: Linux/macOS
+
+      .. code-block:: console
+
+         # replace zephyrproject with the path you gave west init
+         cd zephyrproject/zephyr
+         git pull
+         west update
+         west packages pip --install
+
+   .. group-tab:: Windows
+
+      .. tabs::
+
+         .. code-tab:: bat
+
+            :: replace zephyrproject with the path you gave west init
+            cd zephyrproject\zephyr
+            git pull
+            west update
+            cmd /c scripts\utils\west-packages-pip-install.cmd
+
+         .. code-tab:: powershell
+
+            # replace zephyrproject with the path you gave west init
+            cd zephyrproject\zephyr
+            git pull
+            west update
+            python -m pip install @((west packages pip) -split ' ')
 
 Export Zephyr CMake package
 ***************************
@@ -163,8 +189,8 @@ supported by a CMake file with content like this:
 
    # Variable foo_BOARD_ALIAS=bar replaces BOARD=foo with BOARD=bar and
    # sets BOARD_ALIAS=foo in the CMake cache.
-   set(pca10028_BOARD_ALIAS nrf51dk_nrf51422)
-   set(pca10056_BOARD_ALIAS nrf52840dk_nrf52840)
+   set(pca10028_BOARD_ALIAS nrf51dk/nrf51822)
+   set(pca10056_BOARD_ALIAS nrf52840dk/nrf52840)
    set(k64f_BOARD_ALIAS frdm_k64f)
    set(sltb004a_BOARD_ALIAS efr32mg_sltb004a)
 
@@ -177,7 +203,8 @@ Build and Run an Application
 
 You can build, flash, and run Zephyr applications on real
 hardware using a supported host system. Depending on your operating system,
-you can also run it in emulation with QEMU, or as a native POSIX application.
+you can also run it in emulation with QEMU, or as a native application with
+:zephyr:board:`native_sim <native_sim>`.
 Additional information about building applications can be found in the
 :ref:`build_an_application` section.
 
@@ -187,11 +214,11 @@ Build Blinky
 Let's build the :zephyr:code-sample:`blinky` sample application.
 
 Zephyr applications are built to run on specific hardware, called a
-"board"\ [#board_misnomer]_. We'll use the Phytec :ref:`reel_board
-<reel_board>` here, but you can change the ``reel_board`` build target
-to another value if you have a different board. See :ref:`boards` or run
-``west boards`` from anywhere inside the ``zephyrproject`` directory for
-a list of supported boards.
+"board"\ [#board_misnomer]_. We'll use the Phytec
+:zephyr:board:`reel_board<reel_board>` here, but you can change the
+``reel_board`` build target to another value if you have a different
+board. See :ref:`boards` or run ``west boards`` from anywhere inside
+the ``zephyrproject`` directory for a list of supported boards.
 
 #. Go to the zephyr repository:
 
@@ -202,7 +229,7 @@ a list of supported boards.
 #. Build the blinky sample for the ``reel_board``:
 
    .. zephyr-app-commands::
-      :app: samples/basic/blinky
+      :zephyr-app: samples/basic/blinky
       :board: reel_board
       :goals: build
 
@@ -212,9 +239,9 @@ format. Other binary formats, disassembly, and map files may be present
 depending on your board.
 
 The other sample applications in the :zephyr_file:`samples` folder are
-documented in :ref:`samples-and-demos`.
+documented in :zephyr:code-sample-category:`samples`.
 
-.. note:: If you want to re-use an
+.. note:: If you want to reuse an
    existing build directory for another board or application, you need to
    add the parameter ``-p=auto`` to ``west build`` to clean out settings
    and artifacts from the previous build.
@@ -273,12 +300,19 @@ needed.
 Run the Application in QEMU
 ===========================
 
-On Linux and macOS, you can run Zephyr applications via emulation on your host
-system using `QEMU <https://www.qemu.org/>`_ when targeting either
-the x86 or ARM Cortex-M3 architectures. (QEMU is included with the Zephyr
-SDK installation.)
+You can run Zephyr applications via emulation on your host system using
+`QEMU <https://www.qemu.org/>`_ when targeting either the x86 or ARM
+Cortex-M3 architectures. QEMU is included with the Zephyr SDK.
 
-For example, you can build and run the :ref:`hello_world` sample using
+If using a manual QEMU installation, ensure it is available in the system
+``PATH`` environment variable.
+
+``QEMU_BIN_PATH`` can be used as an optional override to specify the
+location of QEMU binaries used by Twister. When provided, Twister
+validates that the specified path exists. Otherwise, Twister relies on
+SDK or other QEMU discovery mechanisms.
+
+For example, you can build and run the :zephyr:code-sample:`hello_world` sample using
 the x86 emulation board configuration (``qemu_x86``), with:
 
 .. zephyr-app-commands::
@@ -291,22 +325,21 @@ To exit QEMU, type :kbd:`Ctrl-a`, then :kbd:`x`.
 
 Use ``qemu_cortex_m3`` to target an emulated Arm Cortex-M3 sample.
 
-.. _gs_posix:
+.. _gs_native:
 
-Run a Sample Application natively (POSIX OS)
-============================================
+Run a Sample Application natively (Linux)
+=========================================
 
-You can compile some samples to run as host processes
-on a POSIX OS. This is currently only tested on Linux hosts. See
-:ref:`native_posix` for more information. On 64-bit host operating systems, you
-need to install a 32-bit C library; see :ref:`native_posix_deps` for details.
+You can compile some samples to run as host programs
+on Linux. See :zephyr:board:`native_sim` for more information. On 64-bit host operating systems, you
+need to install a 32-bit C library, or build targeting :ref:`native_sim/native/64<native_sim32_64>`.
 
-First, build Hello World for ``native_posix``.
+First, build Hello World for ``native_sim``.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
    :host-os: unix
-   :board: native_posix
+   :board: native_sim
    :goals: build
 
 Next, run the application.
@@ -330,7 +363,7 @@ valgrind.
 .. [#pip]
 
    pip is Python's package installer. Its ``install`` command first tries to
-   re-use packages and package dependencies already installed on your computer.
+   reuse packages and package dependencies already installed on your computer.
    If that is not possible, ``pip install`` downloads them from the Python
    Package Index (PyPI) on the Internet.
 

@@ -196,7 +196,7 @@ static ALWAYS_INLINE void region_init(const uint32_t index,
 				  .limit = (reg).dt_addr + (reg).dt_size,	\
 				  .attr  = _ATTR,				\
 				}
-
+#ifdef CONFIG_MEM_ATTR
 /* This internal function programs the MPU regions defined in the DT when using
  * the `zephyr,memory-attr = <( DT_MEM_ARM(...) )>` property.
  */
@@ -247,7 +247,7 @@ static int mpu_configure_regions_from_dt(uint8_t *reg_index)
 
 	return 0;
 }
-
+#endif /* CONFIG_MEM_ATTR */
 /*
  * @brief MPU default configuration
  *
@@ -303,13 +303,13 @@ FUNC_NO_STACK_PROTECTOR void z_arm64_mm_init(bool is_primary_core)
 
 	/* Update the number of programmed MPU regions. */
 	tmp_static_num = mpu_config.num_regions;
-
+#ifdef CONFIG_MEM_ATTR
 	/* DT-defined MPU regions. */
 	if (mpu_configure_regions_from_dt(&tmp_static_num) == -EINVAL) {
 		__ASSERT(0, "Failed to allocate MPU regions from DT\n");
 		return;
 	}
-
+#endif
 	arm_core_mpu_enable();
 
 	if (!is_primary_core) {
@@ -723,7 +723,7 @@ static int configure_dynamic_mpu_regions(struct k_thread *thread)
 	/*
 	 * There is no need to check if region_num is overflow the uint8_t,
 	 * because the insert_region make sure there is enough room to store a region,
-	 * otherwise the insert_region will return a negtive error number
+	 * otherwise the insert_region will return a negative error number
 	 */
 	thread->arch.region_num = (uint8_t)region_num;
 
@@ -735,7 +735,7 @@ out:
 	atomic_clear(&thread->arch.flushing);
 	return ret < 0 ? ret : 0;
 }
-#endif /* defined(CONFIG_USERSPACE) || defined(CONFIG_HW_STACK_PROTECTION) */
+#endif /* defined(CONFIG_USERSPACE) || defined(CONFIG_ARM64_STACK_PROTECTION) */
 
 #if defined(CONFIG_USERSPACE)
 int arch_mem_domain_max_partitions_get(void)
@@ -743,7 +743,7 @@ int arch_mem_domain_max_partitions_get(void)
 	int remaining_regions = get_num_regions() - static_regions_num + 1;
 
 	/*
-	 * Check remianing regions, should more than ARM64_MPU_MAX_DYNAMIC_REGIONS
+	 * Check remaining regions, should more than ARM64_MPU_MAX_DYNAMIC_REGIONS
 	 * which equals CONFIG_MAX_DOMAIN_PARTITIONS + necessary regions (stack, guard)
 	 */
 	if (remaining_regions < ARM64_MPU_MAX_DYNAMIC_REGIONS) {
@@ -760,8 +760,8 @@ static int configure_domain_partitions(struct k_mem_domain *domain)
 	struct k_thread *thread;
 	int ret;
 
-	SYS_DLIST_FOR_EACH_CONTAINER(&domain->mem_domain_q, thread,
-				     mem_domain_info.mem_domain_q_node) {
+	SYS_DLIST_FOR_EACH_CONTAINER(&domain->thread_mem_domain_list, thread,
+				     mem_domain_info.thread_mem_domain_node) {
 		ret = configure_dynamic_mpu_regions(thread);
 		if (ret != 0) {
 			return ret;

@@ -90,7 +90,7 @@ static void validate(int ctx_cnt)
 	uint64_t out_cnt = 0;
 
 	for (int i = 0; i < ctx_cnt; i++) {
-		/* First exectution skips (-1) but there is one final round of logging
+		/* First execution skips (-1) but there is one final round of logging
 		 * when ztress execution is completed (+1).
 		 */
 		in_cnt += ztress_exec_count(i) - 1 + 1;
@@ -116,7 +116,7 @@ static bool context_handler(void *user_data, uint32_t cnt, bool last, int prio)
 
 	uint32_t i = cnt | (prio << CNT_BITS);
 
-	switch (sys_rand32_get() % 4) {
+	switch (sys_rand8_get() % 4) {
 	case 0:
 		LOG_INF("%u", i);
 		break;

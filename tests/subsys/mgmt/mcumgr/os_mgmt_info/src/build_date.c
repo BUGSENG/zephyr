@@ -8,7 +8,7 @@
 
 #include <stdlib.h>
 #include <zephyr/ztest.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/mgmt/mcumgr/mgmt/mgmt.h>
 #include <zephyr/mgmt/mcumgr/transport/smp_dummy.h>
 #include <zephyr/mgmt/mcumgr/mgmt/callbacks.h>
@@ -18,7 +18,7 @@
 #include <zcbor_decode.h>
 #include <zcbor_encode.h>
 #include <mgmt/mcumgr/util/zcbor_bulk.h>
-#include <version.h>
+#include <zephyr/version.h>
 #include <smp_internal.h>
 #include "smp_test_util.h"
 
@@ -31,15 +31,10 @@ static struct net_buf *nb;
 
 /* Responses to commands */
 extern uint8_t *test_date_time;
-const uint8_t response_all_board_revision_left[] = "Zephyr unknown " STRINGIFY(BUILD_VERSION) " "
-						   KERNEL_VERSION_STRING " ";
-const uint8_t response_all_board_revision_right[] = " " CONFIG_ARCH " " PROCESSOR_NAME " "
-						   CONFIG_BOARD "@" CONFIG_BOARD_REVISION
-						   " Zephyr";
 const uint8_t response_all_left[] = "Zephyr unknown " STRINGIFY(BUILD_VERSION) " "
 				    KERNEL_VERSION_STRING " ";
-const uint8_t response_all_right[] = " " CONFIG_ARCH " " PROCESSOR_NAME " " CONFIG_BOARD " Zephyr";
-
+const uint8_t response_all_right[] = " " CONFIG_ARCH " " PROCESSOR_NAME " " CONFIG_BOARD_TARGET
+				     " Zephyr";
 const uint8_t query_build_date[] = "b";
 const uint8_t query_all[] = "a";
 
@@ -121,7 +116,7 @@ ZTEST(os_mgmt_info_build_date, test_info_build_date_1_build_date)
 
 	/* Process received data by removing header */
 	(void)net_buf_pull(nb, sizeof(struct smp_hdr));
-	zcbor_new_decode_state(zsd, 3, nb->data, nb->len, 1);
+	zcbor_new_decode_state(zsd, 3, nb->data, nb->len, 1, NULL, 0);
 
 	ok = zcbor_map_decode_bulk(zsd, output_decode, ARRAY_SIZE(output_decode), &decoded) == 0;
 
@@ -129,7 +124,7 @@ ZTEST(os_mgmt_info_build_date, test_info_build_date_1_build_date)
 	zassert_equal(decoded, 1, "Expected to receive 1 decoded zcbor element\n");
 
 	zassert_equal(strlen(test_date_time), output.len,
-		      "Expected to receive %d bytes but got %d\n",
+		      "Expected to receive %zu bytes but got %zu\n",
 		      strlen(test_date_time), output.len);
 
 	/* Check left and right sides of date which should match */
@@ -197,43 +192,24 @@ ZTEST(os_mgmt_info_build_date, test_info_build_date_2_all)
 
 	/* Process received data by removing header */
 	(void)net_buf_pull(nb, sizeof(struct smp_hdr));
-	zcbor_new_decode_state(zsd, 3, nb->data, nb->len, 1);
+	zcbor_new_decode_state(zsd, 3, nb->data, nb->len, 1, NULL, 0);
 
 	ok = zcbor_map_decode_bulk(zsd, output_decode, ARRAY_SIZE(output_decode), &decoded) == 0;
 
 	zassert_true(ok, "Expected decode to be successful\n");
 	zassert_equal(decoded, 1, "Expected to receive 1 decoded zcbor element\n");
 
-	if (sizeof(CONFIG_BOARD_REVISION) > 1) {
-		/* Check with board revision */
-		zassert_equal((strlen(test_date_time) + strlen(response_all_board_revision_left) +
-			       strlen(response_all_board_revision_right)), output.len,
-			      "Expected to receive %d bytes but got %d\n",
-			      (strlen(test_date_time) + strlen(response_all_board_revision_left) +
-			       strlen(response_all_board_revision_right)), output.len);
+	zassert_equal((strlen(test_date_time) + strlen(response_all_left) +
+		       strlen(response_all_right)), output.len,
+		      "Expected to receive %zu bytes but got %zu\n",
+		      (strlen(test_date_time) + strlen(response_all_left) +
+		       strlen(response_all_right)), output.len);
 
-		zassert_mem_equal(response_all_board_revision_left, output.value,
-				  strlen(response_all_board_revision_left),
-				  "Expected received data mismatch");
-		zassert_mem_equal(response_all_board_revision_right,
-				  &output.value[strlen(response_all_board_revision_left) +
-				  strlen(test_date_time)],
-				  strlen(response_all_board_revision_right),
-				  "Expected received data mismatch");
-	} else {
-		/* Check without board revision */
-		zassert_equal((strlen(test_date_time) + strlen(response_all_left) +
-			       strlen(response_all_right)), output.len,
-			      "Expected to receive %d bytes but got %d\n",
-			      (strlen(test_date_time) + strlen(response_all_left) +
-			       strlen(response_all_right)), output.len);
-
-		zassert_mem_equal(response_all_left, output.value, strlen(response_all_left),
-				  "Expected received data mismatch");
-		zassert_mem_equal(response_all_right, &output.value[strlen(response_all_left) +
-				  strlen(test_date_time)], strlen(response_all_right),
-				  "Expected received data mismatch");
-	}
+	zassert_mem_equal(response_all_left, output.value, strlen(response_all_left),
+			  "Expected received data mismatch");
+	zassert_mem_equal(response_all_right, &output.value[strlen(response_all_left) +
+			  strlen(test_date_time)], strlen(response_all_right),
+			  "Expected received data mismatch");
 
 	/* Extract time strings into timestamps */
 	expected_time_seconds = time_string_to_seconds(&test_date_time[TIME_CHECK_HH_START_CHAR]);

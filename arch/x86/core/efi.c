@@ -6,7 +6,7 @@
 
 #include <zephyr/spinlock.h>
 #include <zephyr/arch/x86/efi.h>
-#include <zephyr/sys/mem_manage.h>
+#include <zephyr/kernel/mm.h>
 #include "../zefi/efi.h" /* ZEFI not on include path */
 #include <zephyr/kernel.h>
 #include <kernel_arch_func.h>
@@ -33,8 +33,8 @@ void efi_init(struct efi_boot_arg *efi_arg)
 		return;
 	}
 
-	z_phys_map((uint8_t **)&efi, (uintptr_t)efi_arg,
-		   sizeof(struct efi_boot_arg), 0);
+	k_mem_map_phys_bare((uint8_t **)&efi, (uintptr_t)efi_arg,
+			    sizeof(struct efi_boot_arg), 0);
 }
 
 /* EFI thunk.  Not a lot of code, but lots of context:
@@ -44,7 +44,7 @@ void efi_init(struct efi_boot_arg *efi_arg)
  * theory we might need to restore more state too (maybe the EFI code
  * uses special segment descriptors from its own GDT, maybe it relies
  * on interrupts in its own IDT, maybe it twiddles custom MSRs or
- * plays with the IO-MMU... the posibilities are endless).  But
+ * plays with the IO-MMU... the possibilities are endless).  But
  * experimentally, only the memory state seems to be required on known
  * hardware.  This is safe because in the existing architecture Zephyr
  * has already initialized all its own memory and left the rest of the
@@ -77,7 +77,7 @@ void efi_init(struct efi_boot_arg *efi_arg)
  *
  * Finally: note that the firmware on at least one board (an Up
  * Squared APL device) will internally ENABLE INTERRUPTS before
- * returing from its OutputString method.  This is... unfortunate, and
+ * returning from its OutputString method.  This is... unfortunate, and
  * says poor things about reliability using this code as it will
  * implicitly break the spinlock we're using.  The OS will be able to
  * take an interrupt just fine, but if the resulting ISR tries to log,

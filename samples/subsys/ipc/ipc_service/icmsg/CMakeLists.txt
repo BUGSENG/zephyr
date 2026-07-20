@@ -6,15 +6,22 @@
 
 cmake_minimum_required(VERSION 3.20.0)
 
-set(REMOTE_ZEPHYR_DIR ${CMAKE_CURRENT_BINARY_DIR}/ipc_service_remote-prefix/src/ipc_service_remote-build/zephyr)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
-if("${BOARD}" STREQUAL "nrf5340dk_nrf5340_cpuapp")
-  set(BOARD_REMOTE "nrf5340dk_nrf5340_cpunet")
+if(CONFIG_BOARD_APARD32690_MAX32690_M4 OR
+   CONFIG_BOARD_EK_RA8P1_R7KA8P1KFLCAC_CM85 OR
+   CONFIG_BOARD_NRF5340BSIM_NRF5340_CPUAPP OR
+   CONFIG_BOARD_NRF5340DK_NRF5340_CPUAPP OR
+   CONFIG_BOARD_NRF54L15DK_NRF54L15_CPUAPP OR
+   CONFIG_BOARD_NRF54LM20DK_NRF54LM20A_CPUAPP OR
+   CONFIG_BOARD_NRF7120DK_NRF7120_CPUAPP OR
+   CONFIG_BOARD_NUCLEO_H755ZI_Q_STM32H755XX_M7 OR
+   CONFIG_BOARD_STM32H747I_DISCO)
+  message(STATUS "${BOARD}/${BOARD_QUALIFIERS} compile as HOST in this sample")
 else()
-  message(FATAL_ERROR "${BOARD} is not supported for this sample")
+  message(FATAL_ERROR "${BOARD}/${BOARD_QUALIFIERS} is not supported for this sample")
 endif()
 
-find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(ipc_service_host)
 
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common)
@@ -22,13 +29,3 @@ target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common)
 target_sources(app PRIVATE src/main.c)
 
 include(ExternalProject)
-
-ExternalProject_Add(
-  ipc_service_remote
-  SOURCE_DIR ${APPLICATION_SOURCE_DIR}/remote
-  INSTALL_COMMAND ""      # This particular build system has no install command
-  CMAKE_CACHE_ARGS -DBOARD:STRING=${BOARD_REMOTE}
-  BUILD_BYPRODUCTS "${REMOTE_ZEPHYR_DIR}/${KERNEL_BIN_NAME}"
-  # NB: Do we need to pass on more CMake variables?
-  BUILD_ALWAYS True
-)

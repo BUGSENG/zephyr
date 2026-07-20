@@ -14,6 +14,7 @@
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/hci_types.h>
 
 #include "ll.h"
 
@@ -28,8 +29,12 @@
 #define EVT_PROP_TXP    BIT(6)
 #define ADV_INTERVAL    0x20   /* 20 ms advertising interval */
 #define ADV_WAIT_MS     10     /* 10 ms wait loop */
-#define OWN_ADDR_TYPE   BT_ADDR_LE_RANDOM_ID
-#define PEER_ADDR_TYPE  BT_ADDR_LE_RANDOM_ID
+#if defined(CONFIG_BT_CTLR_PRIVACY)
+#define OWN_ADDR_TYPE   BT_HCI_OWN_ADDR_RPA_OR_RANDOM
+#else /* !CONFIG_BT_CTLR_PRIVACY */
+#define OWN_ADDR_TYPE   BT_HCI_OWN_ADDR_RANDOM
+#endif /* !CONFIG_BT_CTLR_PRIVACY */
+#define PEER_ADDR_TYPE  BT_HCI_OWN_ADDR_RANDOM
 #define PEER_ADDR       peer_addr
 #define ADV_CHAN_MAP    0x07
 #define FILTER_POLICY   0x00
@@ -167,6 +172,7 @@ static void test_advx_main(void)
 	struct bt_le_ext_adv_start_param ext_adv_param;
 	struct bt_le_ext_adv *adv;
 	uint8_t num_sent_expected;
+	struct bt_data sd[1];
 	uint16_t evt_prop;
 	uint8_t adv_type;
 	uint16_t handle;
@@ -184,7 +190,7 @@ static void test_advx_main(void)
 	printk("success.\n");
 
 	printk("Connectable advertising...");
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
 		return;
@@ -299,8 +305,19 @@ static void test_advx_main(void)
 	printk("success.\n");
 
 	printk("Create scannable extended advertising set...");
-	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_SCAN_NAME, &adv_callbacks,
+	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_SCAN, &adv_callbacks,
 				   &adv);
+	if (err) {
+		goto exit;
+	}
+	printk("success.\n");
+
+	/* Scannable advertiser need to have scan response data */
+	printk("Set scan response data...");
+	sd[0].type = BT_DATA_NAME_COMPLETE;
+	sd[0].data_len = sizeof(CONFIG_BT_DEVICE_NAME) - 1;
+	sd[0].data = CONFIG_BT_DEVICE_NAME;
+	err = bt_le_ext_adv_set_data(adv, NULL, 0, sd, 1);
 	if (err) {
 		goto exit;
 	}
@@ -334,7 +351,7 @@ static void test_advx_main(void)
 	printk("Create connectable extended advertising set...");
 	is_connected = false;
 	is_disconnected = false;
-	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_CONN_NAME, &adv_callbacks, &adv);
+	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_CONN, &adv_callbacks, &adv);
 	if (err) {
 		goto exit;
 	}
@@ -389,7 +406,7 @@ static void test_advx_main(void)
 	k_sleep(K_MSEC(1000));
 
 	printk("Create connectable advertising set...");
-	err = bt_le_ext_adv_create(BT_LE_ADV_CONN_NAME, &adv_callbacks, &adv);
+	err = bt_le_ext_adv_create(BT_LE_ADV_CONN_FAST_2, &adv_callbacks, &adv);
 	if (err) {
 		goto exit;
 	}
@@ -497,7 +514,7 @@ static void test_advx_main(void)
 				     * random_delay of upto 10 ms) transmit in
 				     * the range of 400 to 440 ms
 				     */
-	ext_adv_param.timeout = 50; /* Check there is atmost 5 advertising
+	ext_adv_param.timeout = 50; /* Check there is at most 5 advertising
 				     * events in a timeout of 500 ms
 				     */
 	ext_adv_param.num_events = 0;
@@ -642,7 +659,7 @@ static void test_advx_main(void)
 		}
 	};
 	const struct bt_le_adv_param adv_param = {
-		.options = BT_LE_ADV_OPT_CONNECTABLE,
+		.options = BT_LE_ADV_OPT_CONN,
 		.peer = &direct_addr,
 	};
 	err = bt_le_adv_start(&adv_param, NULL, 0, NULL, 0);
@@ -662,28 +679,32 @@ static void test_advx_main(void)
 
 	k_sleep(K_MSEC(1000));
 
-	printk("Add to resolving list...");
-	bt_addr_le_t peer_id_addr = {
-		.type = BT_ADDR_LE_RANDOM,
-		.a = {
-			.val = {0xc6, 0xc7, 0xc8, 0xc9, 0xc1, 0xcb}
+	if (IS_ENABLED(CONFIG_BT_CTLR_PRIVACY)) {
+		printk("Add to resolving list...");
+		bt_addr_le_t peer_id_addr = {
+			.type = BT_ADDR_LE_RANDOM,
+			.a = {
+				.val = {0xc6, 0xc7, 0xc8, 0xc9, 0xc1, 0xcb}
+			}
+		};
+		uint8_t pirk[16] = {0xAB, 0xBA, 0xAB, 0xBA, 0xAB, 0xBA, 0xAB, 0xBA,
+				    0xAB, 0xBA, 0xAB, 0xBA, 0xAB, 0xBA, 0xAB, 0xBA};
+		uint8_t lirk[16] = {0x12, 0x21, 0x12, 0x21, 0x12, 0x21, 0x12, 0x21,
+				    0x12, 0x21, 0x12, 0x21, 0x12, 0x21, 0x12, 0x21};
+
+		err = ll_rl_add(&peer_id_addr, pirk, lirk);
+		if (err) {
+			goto exit;
 		}
-	};
-	uint8_t pirk[16] = {0x00, };
-	uint8_t lirk[16] = {0x01, };
+		printk("success.\n");
 
-	err = ll_rl_add(&peer_id_addr, pirk, lirk);
-	if (err) {
-		goto exit;
+		printk("Enable resolving list...");
+		err = ll_rl_enable(BT_HCI_ADDR_RES_ENABLE);
+		if (err) {
+			goto exit;
+		}
+		printk("success.\n");
 	}
-	printk("success.\n");
-
-	printk("Enable resolving list...");
-	err = ll_rl_enable(BT_HCI_ADDR_RES_ENABLE);
-	if (err) {
-		goto exit;
-	}
-	printk("success.\n");
 
 	printk("Enabling extended...");
 	err = ll_adv_enable(handle, 1, 0, 0);
@@ -1077,10 +1098,7 @@ static bool is_reenable_addr;
 static void scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t adv_type,
 		    struct net_buf_simple *buf)
 {
-	char le_addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(addr, le_addr, sizeof(le_addr));
-	printk("%s: type = 0x%x, addr = %s\n", __func__, adv_type, le_addr);
+	printk("%s: type = 0x%x, addr = %s\n", __func__, adv_type, bt_addr_le_str(addr));
 
 	if (!is_reenable_addr &&
 	    !memcmp(own_addr_reenable, addr->a.val,
@@ -1109,11 +1127,8 @@ static void scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t adv_type,
 			bt_conn_unref(conn);
 		}
 	} else if (!is_scanned) {
-		char addr_str[BT_ADDR_LE_STR_LEN];
-
-		bt_addr_le_to_str(addr, addr_str, sizeof(addr_str));
 		printk("Device found: %s, type: %u, AD len: %u, RSSI %d\n",
-			addr_str, adv_type, buf->len, rssi);
+			bt_addr_le_str(addr), adv_type, buf->len, rssi);
 
 		if ((buf->len == adv_data_expected_len) &&
 		    !memcmp(buf->data, adv_data_expected,
@@ -1160,18 +1175,16 @@ static uint8_t per_adv_evt_cnt_actual;
 static void scan_recv(const struct bt_le_scan_recv_info *info,
 		      struct net_buf_simple *buf)
 {
-	char le_addr[BT_ADDR_LE_STR_LEN];
 	char name[NAME_LEN];
 
 	(void)memset(name, 0, sizeof(name));
 
 	bt_data_parse(buf, data_cb, name);
 
-	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
 	printk("[DEVICE]: %s, AD evt type %u, Tx Pwr: %i, RSSI %i %s "
 	       "C:%u S:%u D:%u SR:%u E:%u Prim: %s, Secn: %s, "
 	       "Interval: 0x%04x (%u ms), SID: %u\n",
-	       le_addr, info->adv_type, info->tx_power, info->rssi, name,
+	       bt_addr_le_str(info->addr), info->adv_type, info->tx_power, info->rssi, name,
 	       (info->adv_props & BT_GAP_ADV_PROP_CONNECTABLE) != 0,
 	       (info->adv_props & BT_GAP_ADV_PROP_SCANNABLE) != 0,
 	       (info->adv_props & BT_GAP_ADV_PROP_DIRECTED) != 0,
@@ -1232,13 +1245,9 @@ static void
 per_adv_sync_sync_cb(struct bt_le_per_adv_sync *sync,
 		     struct bt_le_per_adv_sync_synced_info *info)
 {
-	char le_addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
-
 	printk("PER_ADV_SYNC[%u]: [DEVICE]: %s synced, "
 	       "Interval 0x%04x (%u ms), PHY %s\n",
-	       bt_le_per_adv_sync_get_index(sync), le_addr,
+	       bt_le_per_adv_sync_get_index(sync), bt_addr_le_str(info->addr),
 	       info->interval, info->interval * 5 / 4, phy2str(info->phy));
 
 	is_sync = true;
@@ -1248,12 +1257,8 @@ static void
 per_adv_sync_terminated_cb(struct bt_le_per_adv_sync *sync,
 			   const struct bt_le_per_adv_sync_term_info *info)
 {
-	char le_addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
-
 	printk("PER_ADV_SYNC[%u]: [DEVICE]: %s sync terminated\n",
-	       bt_le_per_adv_sync_get_index(sync), le_addr);
+	       bt_le_per_adv_sync_get_index(sync), bt_addr_le_str(info->addr));
 
 	is_sync_lost = true;
 }
@@ -1263,13 +1268,9 @@ per_adv_sync_recv_cb(struct bt_le_per_adv_sync *sync,
 		     const struct bt_le_per_adv_sync_recv_info *info,
 		     struct net_buf_simple *buf)
 {
-	char le_addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
-
 	printk("PER_ADV_SYNC[%u]: [DEVICE]: %s, tx_power %i, "
 	       "RSSI %i, CTE %u, data length %u\n",
-	       bt_le_per_adv_sync_get_index(sync), le_addr, info->tx_power,
+	       bt_le_per_adv_sync_get_index(sync), bt_addr_le_str(info->addr), info->tx_power,
 	       info->rssi, info->cte_type, buf->len);
 
 	if (!is_sync_report) {
@@ -1288,7 +1289,7 @@ static struct bt_le_per_adv_sync_cb sync_cb = {
 static void test_scanx_main(void)
 {
 	struct bt_le_scan_param scan_param = {
-		.type       = BT_HCI_LE_SCAN_ACTIVE,
+		.type       = BT_LE_SCAN_TYPE_ACTIVE,
 		.options    = BT_LE_SCAN_OPT_NONE,
 		.interval   = 0x0004,
 		.window     = 0x0004,
@@ -1703,28 +1704,46 @@ static void test_scanx_main(void)
 	}
 	printk("done.\n");
 
-	printk("Add to resolving list...");
 	bt_addr_le_t peer_id_addr = {
 		.type = BT_ADDR_LE_RANDOM,
 		.a = {
 			.val = {0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5}
 		}
 	};
-	uint8_t pirk[16] = {0x01, };
-	uint8_t lirk[16] = {0x00, };
 
-	err = ll_rl_add(&peer_id_addr, pirk, lirk);
-	if (err) {
-		goto exit;
-	}
-	printk("success.\n");
+	if (IS_ENABLED(CONFIG_BT_CTLR_PRIVACY)) {
+		printk("Add to resolving list...");
+		bt_addr_le_t some_id_addr = {
+			.type = BT_ADDR_LE_RANDOM,
+			.a = {
+				.val = {0x78, 0x87, 0x78, 0x87, 0x78, 0x87}
+			}
+		};
+		uint8_t pirk[16] = {0x12, 0x21, 0x12, 0x21, 0x12, 0x21, 0x12, 0x21,
+				    0x12, 0x21, 0x12, 0x21, 0x12, 0x21, 0x12, 0x21};
+		uint8_t lirk[16] = {0xCD, 0xDC, 0xCD, 0xDC, 0xCD, 0xDC, 0xCD, 0xDC,
+				    0xCD, 0xDC, 0xCD, 0xDC, 0xCD, 0xDC, 0xCD, 0xDC};
 
-	printk("Enable resolving list...");
-	err = ll_rl_enable(BT_HCI_ADDR_RES_ENABLE);
-	if (err) {
-		goto exit;
+		/* some_id_addr with swapped peer IRK and local IRK */
+		err = ll_rl_add(&some_id_addr, lirk, pirk);
+		if (err) {
+			goto exit;
+		}
+
+		/* peer_id_addr with correct peer IRK and local IRK */
+		err = ll_rl_add(&peer_id_addr, pirk, lirk);
+		if (err) {
+			goto exit;
+		}
+		printk("success.\n");
+
+		printk("Enable resolving list...");
+		err = ll_rl_enable(BT_HCI_ADDR_RES_ENABLE);
+		if (err) {
+			goto exit;
+		}
+		printk("success.\n");
 	}
-	printk("success.\n");
 
 	printk("Add device to periodic advertising list...");
 	err = bt_le_per_adv_list_add(&peer_id_addr, per_sid);
@@ -1826,14 +1845,14 @@ static const struct bst_test_instance test_def[] = {
 	{
 		.test_id = "advx",
 		.test_descr = "Extended Advertising",
-		.test_post_init_f = test_advx_init,
+		.test_pre_init_f = test_advx_init,
 		.test_tick_f = test_advx_tick,
 		.test_main_f = test_advx_main
 	},
 	{
 		.test_id = "scanx",
 		.test_descr = "Extended scanning",
-		.test_post_init_f = test_advx_init,
+		.test_pre_init_f = test_advx_init,
 		.test_tick_f = test_advx_tick,
 		.test_main_f = test_scanx_main
 	},

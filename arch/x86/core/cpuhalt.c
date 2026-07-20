@@ -7,19 +7,32 @@
 #include <zephyr/tracing/tracing.h>
 #include <zephyr/arch/cpu.h>
 
-__pinned_func
+#ifndef CONFIG_ARCH_HAS_CUSTOM_CPU_IDLE
 void arch_cpu_idle(void)
 {
+#if defined(CONFIG_SYS_IDLE_HOOKS)
 	sys_trace_idle();
+#endif
 	__asm__ volatile (
 	    "sti\n\t"
 	    "hlt\n\t");
-}
 
-__pinned_func
+#if defined(CONFIG_SYS_IDLE_HOOKS)
+	/* Interrupts are enabled across the halt, so the wake-up ISR has already
+	 * closed the idle window (see the ISR entry hook). This is only a
+	 * fallback for a wake-up that ran no ISR, and is a no-op otherwise.
+	 */
+	sys_trace_idle_exit();
+#endif
+}
+#endif
+
+#ifndef CONFIG_ARCH_HAS_CUSTOM_CPU_ATOMIC_IDLE
 void arch_cpu_atomic_idle(unsigned int key)
 {
+#if defined(CONFIG_SYS_IDLE_HOOKS)
 	sys_trace_idle();
+#endif
 
 	__asm__ volatile (
 	    "sti\n\t"
@@ -42,3 +55,4 @@ void arch_cpu_atomic_idle(unsigned int key)
 		__asm__ volatile("cli");
 	}
 }
+#endif

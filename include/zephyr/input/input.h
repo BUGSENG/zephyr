@@ -4,14 +4,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_INPUT_H_
-#define ZEPHYR_INCLUDE_INPUT_H_
+/**
+ * @file
+ * @brief Main header file for Input driver API
+ * @ingroup input_interface
+ */
+
+#ifndef ZEPHYR_INCLUDE_INPUT_INPUT_H_
+#define ZEPHYR_INCLUDE_INPUT_INPUT_H_
 
 /**
- * @brief Input Interface
- * @defgroup input_interface Input Interface
+ * @brief Interfaces for input devices.
+ * @defgroup input_interface Input
+ * @since 3.4
+ * @version 0.1.0
  * @ingroup io_interfaces
  * @{
+ *
+ * @defgroup input_interface_ext Device-specific Input API extensions
+ * @brief Interfaces for input devices with extended functionality beyond the standard Input API.
+ * @{
+ * @}
  */
 
 #include <stdint.h>
@@ -50,7 +63,7 @@ struct input_event {
 /**
  * @brief Report a new input event.
  *
- * This causes all the listeners for the specified device to be triggered,
+ * This causes all the callbacks for the specified device to be executed,
  * either synchronously or through the input thread if utilized.
  *
  * @param dev Device generating the event or NULL.
@@ -62,7 +75,7 @@ struct input_event {
  * @param timeout Timeout for reporting the event, ignored if
  *                @kconfig{CONFIG_INPUT_MODE_SYNCHRONOUS} is used.
  * @retval 0 if the message has been processed.
- * @retval negative if @kconfig{CONFIG_INPUT_MODE_THREAD} is enabled and the
+ * @retval <0 negative if @kconfig{CONFIG_INPUT_MODE_THREAD} is enabled and the
  *         message failed to be enqueued.
  */
 int input_report(const struct device *dev,
@@ -116,14 +129,31 @@ static inline int input_report_abs(const struct device *dev,
 bool input_queue_empty(void);
 
 /**
- * @brief Input listener callback structure.
+ * @brief Input callback structure.
  */
-struct input_listener {
+struct input_callback {
 	/** @ref device pointer or NULL. */
 	const struct device *dev;
 	/** The callback function. */
-	void (*callback)(struct input_event *evt);
+	void (*callback)(struct input_event *evt, void *user_data);
+	/** User data pointer. */
+	void *user_data;
 };
+
+/**
+ * @brief Register a callback structure for input events with a custom name.
+ *
+ * Same as @ref INPUT_CALLBACK_DEFINE but allows specifying a custom name
+ * for the callback structure. Useful if multiple callbacks are used for the
+ * same callback function.
+ */
+#define INPUT_CALLBACK_DEFINE_NAMED(_dev, _callback, _user_data, name)         \
+	static const STRUCT_SECTION_ITERABLE(input_callback,                   \
+					     _input_callback__##name) = {      \
+		.dev = _dev,                                                   \
+		.callback = _callback,                                         \
+		.user_data = _user_data,                                       \
+	}
 
 /**
  * @brief Register a callback structure for input events.
@@ -134,13 +164,10 @@ struct input_listener {
  *
  * @param _dev @ref device pointer or NULL.
  * @param _callback The callback function.
+ * @param _user_data Pointer to user specified data.
  */
-#define INPUT_CALLBACK_DEFINE(_dev, _callback)                                 \
-	static const STRUCT_SECTION_ITERABLE(input_listener,                   \
-					     _input_listener__##_callback) = { \
-		.dev = _dev,                                                   \
-		.callback = _callback,                                         \
-	}
+#define INPUT_CALLBACK_DEFINE(_dev, _callback, _user_data)                     \
+	INPUT_CALLBACK_DEFINE_NAMED(_dev, _callback, _user_data, _callback)
 
 #ifdef __cplusplus
 }
@@ -148,4 +175,4 @@ struct input_listener {
 
 /** @} */
 
-#endif /* ZEPHYR_INCLUDE_INPUT_H_ */
+#endif /* ZEPHYR_INCLUDE_INPUT_INPUT_H_ */

@@ -7,8 +7,7 @@ Testing
    :maxdepth: 1
 
    ztest
-   twister
-   pytest
+   benchmark
    coverage
    BabbleSim<bsim>
-   ztest_deprecated
+   ci_test_plan

@@ -2,18 +2,67 @@
  * Copyright (c) 2021 Intel Corporation
  * SPDX-License-Identifier: Apache-2.0
  */
+
+#include <cpuid.h> /* Header provided by the toolchain. */
+
 #include <zephyr/init.h>
+#include <zephyr/arch/x86/cpuid.h>
 #include <zephyr/drivers/timer/system_timer.h>
 #include <zephyr/sys_clock.h>
-#include <zephyr/spinlock.h>
 #include <zephyr/drivers/interrupt_controller/loapic.h>
 #include <zephyr/irq.h>
+
+/*
+ * This driver is selected when either CONFIG_APIC_TIMER_TSC or
+ * CONFIG_APIC_TSC_DEADLINE_TIMER is selected. The later is preferred over
+ * the former when the TSC deadline comparator is available.
+ */
+BUILD_ASSERT((!IS_ENABLED(CONFIG_APIC_TIMER_TSC) &&
+	       IS_ENABLED(CONFIG_APIC_TSC_DEADLINE_TIMER)) ||
+	     (!IS_ENABLED(CONFIG_APIC_TSC_DEADLINE_TIMER) &&
+	       IS_ENABLED(CONFIG_APIC_TIMER_TSC)),
+	     "one of CONFIG_APIC_TIMER_TSC or CONFIG_APIC_TSC_DEADLINE_TIMER must be set");
+
+/*
+ * If the TSC deadline comparator is not supported then the ICR in one-shot
+ * mode is used as a fallback method to trigger the next timeout interrupt.
+ * Those config symbols must then be defined:
+ *
+ * CONFIG_APIC_TIMER_TSC_N=<n>
+ * CONFIG_APIC_TIMER_TSC_M=<m>
+ *
+ * These are set to indicate the ratio of the TSC frequency to the local
+ * APIC timer frequency. This can be found via CPUID 0x15 (n = EBX, m = EAX)
+ * on most CPUs.
+ */
+#ifdef CONFIG_APIC_TIMER_TSC
+#define APIC_TIMER_TSC_M CONFIG_APIC_TIMER_TSC_M
+#define APIC_TIMER_TSC_N CONFIG_APIC_TIMER_TSC_N
+#else
+#define APIC_TIMER_TSC_M 1
+#define APIC_TIMER_TSC_N 1
+#endif
 
 #define IA32_TSC_DEADLINE_MSR 0x6e0
 #define IA32_TSC_ADJUST_MSR   0x03b
 
-#define CYC_PER_TICK (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC \
-		      / (uint64_t) CONFIG_SYS_CLOCK_TICKS_PER_SEC)
+#define CYC_PER_TICK (uint32_t)(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC \
+				/ CONFIG_SYS_CLOCK_TICKS_PER_SEC)
+
+/* the unsigned long cast limits divisors to native CPU register width */
+#define cycle_diff_t unsigned long
+#define CYCLE_DIFF_MAX (~(cycle_diff_t)0)
+
+/*
+ * Maximum number of cycles to wait between two sys_clock_announce() reports:
+ * the elapsed cycle count must fit in a cycle_diff_t before it is divided down
+ * to ticks. Reserve 1/4 of the range as headroom for the unavoidable IRQ
+ * servicing latency so a late report still fits, then add the LSB so the value
+ * clears a run of low set bits for a nicer literal in the generated assembly.
+ */
+#define CYCLES_MAX_1	((uint64_t)CYCLE_DIFF_MAX)
+#define CYCLES_MAX_2	(CYCLES_MAX_1 / 2 + CYCLES_MAX_1 / 4)
+#define CYCLES_MAX	(CYCLES_MAX_2 + LSB_GET(CYCLES_MAX_2))
 
 struct apic_timer_lvt {
 	uint8_t vector   : 8;
@@ -23,8 +72,9 @@ struct apic_timer_lvt {
 	uint32_t unused2 : 13;
 };
 
-static struct k_spinlock lock;
-static uint64_t last_announce;
+static uint64_t last_cycle;
+static uint64_t last_tick;
+static uint32_t last_elapsed;
 static union { uint32_t val; struct apic_timer_lvt lvt; } lvt_reg;
 
 static ALWAYS_INLINE uint64_t rdtsc(void)
@@ -35,21 +85,6 @@ static ALWAYS_INLINE uint64_t rdtsc(void)
 	return lo + (((uint64_t)hi) << 32);
 }
 
-static void isr(const void *arg)
-{
-	ARG_UNUSED(arg);
-	k_spinlock_key_t key = k_spin_lock(&lock);
-	uint32_t ticks = (rdtsc() - last_announce) / CYC_PER_TICK;
-
-	last_announce += ticks * CYC_PER_TICK;
-	k_spin_unlock(&lock, key);
-	sys_clock_announce(ticks);
-
-	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
-		sys_clock_set_timeout(1, false);
-	}
-}
-
 static inline void wrmsr(int32_t msr, uint64_t val)
 {
 	uint32_t hi = (uint32_t) (val >> 32);
@@ -58,18 +93,62 @@ static inline void wrmsr(int32_t msr, uint64_t val)
 	__asm__ volatile("wrmsr" :: "d"(hi), "a"(lo), "c"(msr));
 }
 
-void sys_clock_set_timeout(int32_t ticks, bool idle)
+static void set_trigger(uint64_t deadline)
+{
+	if (IS_ENABLED(CONFIG_APIC_TSC_DEADLINE_TIMER)) {
+		wrmsr(IA32_TSC_DEADLINE_MSR, deadline);
+	} else {
+		/* use the timer ICR to trigger next interrupt */
+		uint64_t curr_cycle = rdtsc();
+		uint64_t delta_cycles = deadline - MIN(deadline, curr_cycle);
+		uint64_t icr = (delta_cycles * APIC_TIMER_TSC_M) / APIC_TIMER_TSC_N;
+
+		/* cap icr to 32 bits, and not zero */
+		icr = CLAMP(icr, 1, UINT32_MAX);
+		x86_write_loapic(LOAPIC_TIMER_ICR, icr);
+	}
+}
+
+static void isr(const void *arg)
+{
+	ARG_UNUSED(arg);
+
+	k_spinlock_key_t key = sys_clock_lock();
+	uint64_t curr_cycle = rdtsc();
+	uint64_t delta_cycles = curr_cycle - last_cycle;
+	uint32_t delta_ticks = (cycle_diff_t)delta_cycles / CYC_PER_TICK;
+
+	last_cycle += (cycle_diff_t)delta_ticks * CYC_PER_TICK;
+	last_tick += delta_ticks;
+	last_elapsed = 0;
+
+	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
+		uint64_t next_cycle = last_cycle + CYC_PER_TICK;
+
+		set_trigger(next_cycle);
+	}
+
+	sys_clock_announce_locked(delta_ticks, key);
+}
+
+void sys_clock_set_timeout(uint32_t ticks, bool idle)
 {
 	ARG_UNUSED(idle);
 
-	uint64_t now = rdtsc();
-	k_spinlock_key_t key = k_spin_lock(&lock);
-	uint64_t expires = now + MAX(ticks - 1, 0) * CYC_PER_TICK;
+	__ASSERT(sys_clock_is_locked(), "system clock lock not held");
 
-	expires = last_announce + (((expires - last_announce + CYC_PER_TICK - 1)
-				    / CYC_PER_TICK) * CYC_PER_TICK);
+	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
+		return;
+	}
 
-	/* The second condition is to catch the wraparound.
+	uint64_t next_cycle;
+
+	next_cycle = (last_tick + last_elapsed + ticks) * CYC_PER_TICK;
+	if ((next_cycle - last_cycle) > CYCLES_MAX) {
+		next_cycle = last_cycle + CYCLES_MAX;
+	}
+
+	/*
 	 * Interpreted strictly, the IA SDM description of the
 	 * TSC_DEADLINE MSR implies that it will trigger an immediate
 	 * interrupt if we try to set an expiration across the 64 bit
@@ -77,21 +156,26 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 	 * real hardware it requires more than a century of uptime,
 	 * but this is cheap and safe.
 	 */
-	if (ticks == K_TICKS_FOREVER || expires < last_announce) {
-		expires = UINT64_MAX;
+	if (next_cycle < last_cycle) {
+		next_cycle = UINT64_MAX;
 	}
-
-	wrmsr(IA32_TSC_DEADLINE_MSR, expires);
-	k_spin_unlock(&lock, key);
+	set_trigger(next_cycle);
 }
 
 uint32_t sys_clock_elapsed(void)
 {
-	k_spinlock_key_t key = k_spin_lock(&lock);
-	uint32_t ret = (rdtsc() - last_announce) / CYC_PER_TICK;
+	__ASSERT(sys_clock_is_locked(), "system clock lock not held");
 
-	k_spin_unlock(&lock, key);
-	return ret;
+	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
+		return 0;
+	}
+
+	uint64_t curr_cycle = rdtsc();
+	uint64_t delta_cycles = curr_cycle - last_cycle;
+	uint32_t delta_ticks = (cycle_diff_t)delta_cycles / CYC_PER_TICK;
+
+	last_elapsed = delta_ticks;
+	return delta_ticks;
 }
 
 uint32_t sys_clock_cycle_get_32(void)
@@ -149,40 +233,49 @@ void smp_timer_init(void)
 	irq_enable(timer_irq());
 }
 
-static inline void cpuid(uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
-{
-	__asm__ volatile("cpuid"
-			 : "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
-			 : "a"(*eax), "c"(*ecx));
-}
-
 static int sys_clock_driver_init(void)
 {
 #ifdef CONFIG_ASSERT
 	uint32_t eax, ebx, ecx, edx;
 
-	eax = 1; ecx = 0;
-	cpuid(&eax, &ebx, &ecx, &edx);
-	__ASSERT((ecx & BIT(24)) != 0, "No TSC Deadline support");
+	if (IS_ENABLED(CONFIG_APIC_TSC_DEADLINE_TIMER)) {
+		ecx = 0; /* prevent compiler warning */
+		__get_cpuid(CPUID_BASIC_INFO_1, &eax, &ebx, &ecx, &edx);
+		__ASSERT((ecx & BIT(24)) != 0, "No TSC Deadline support");
+	}
 
-	eax = 0x80000007; ecx = 0;
-	cpuid(&eax, &ebx, &ecx, &edx);
+	edx = 0; /* prevent compiler warning */
+	__get_cpuid(0x80000007, &eax, &ebx, &ecx, &edx);
 	__ASSERT((edx & BIT(8)) != 0, "No Invariant TSC support");
 
-	eax = 7; ecx = 0;
-	cpuid(&eax, &ebx, &ecx, &edx);
-	__ASSERT((ebx & BIT(1)) != 0, "No TSC_ADJUST MSR support");
+	if (IS_ENABLED(CONFIG_SMP)) {
+		ebx = 0; /* prevent compiler warning */
+		__get_cpuid_count(CPUID_EXTENDED_FEATURES_LVL, 0, &eax, &ebx, &ecx, &edx);
+		__ASSERT((ebx & BIT(1)) != 0, "No TSC_ADJUST MSR support");
+	}
 #endif
 
-	clear_tsc_adjust();
+	if (IS_ENABLED(CONFIG_SMP)) {
+		clear_tsc_adjust();
+	}
 
 	/* Timer interrupt number is runtime-fetched, so can't use
 	 * static IRQ_CONNECT()
 	 */
 	irq_connect_dynamic(timer_irq(), CONFIG_APIC_TIMER_IRQ_PRIORITY, isr, 0, 0);
 
+	if (IS_ENABLED(CONFIG_APIC_TIMER_TSC)) {
+		uint32_t timer_conf;
+
+		timer_conf = x86_read_loapic(LOAPIC_TIMER_CONFIG);
+		timer_conf &= ~0x0f; /* clear divider bits */
+		timer_conf |=  0x0b; /* divide by 1 */
+		x86_write_loapic(LOAPIC_TIMER_CONFIG, timer_conf);
+	}
+
 	lvt_reg.val = x86_read_loapic(LOAPIC_TIMER);
-	lvt_reg.lvt.mode = TSC_DEADLINE;
+	lvt_reg.lvt.mode = IS_ENABLED(CONFIG_APIC_TSC_DEADLINE_TIMER) ?
+		TSC_DEADLINE : ONE_SHOT;
 	lvt_reg.lvt.masked = 0;
 	x86_write_loapic(LOAPIC_TIMER, lvt_reg.val);
 
@@ -193,12 +286,12 @@ static int sys_clock_driver_init(void)
 	 */
 	__asm__ volatile("mfence" ::: "memory");
 
-	last_announce = rdtsc();
-	irq_enable(timer_irq());
-
+	last_tick = rdtsc() / CYC_PER_TICK;
+	last_cycle = last_tick * CYC_PER_TICK;
 	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
-		sys_clock_set_timeout(1, false);
+		set_trigger(last_cycle + CYC_PER_TICK);
 	}
+	irq_enable(timer_irq());
 
 	return 0;
 }

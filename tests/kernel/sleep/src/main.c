@@ -24,11 +24,11 @@
 #define ONE_SECOND_ALIGNED	\
 	(uint32_t)(k_ticks_to_ms_floor64(k_ms_to_ticks_ceil32(ONE_SECOND) + _TICK_ALIGN))
 
-#if defined(CONFIG_SOC_XILINX_ZYNQMP)
+#if defined(CONFIG_SOC_XILINX_ZYNQMP) || defined(CONFIG_SOC_VERSAL_RPU)
 /*
- * The Xilinx QEMU, used to emulate the Xilinx ZynqMP platform, is particularly
- * unstable in terms of timing. The tick margin of at least 5 is necessary to
- * allow this test to pass with a reasonable repeatability.
+ * The Xilinx QEMU, used to emulate the Xilinx ZynqMP and Versal platforms,
+ * is particularly unstable in terms of timing. The tick margin of at least 5
+ * is necessary to allow this test to pass with a reasonable repeatability.
  */
 #define TICK_MARGIN		5
 #else
@@ -51,29 +51,16 @@ static struct k_thread helper_thread_data;
 static bool test_failure = true;     /* Assume the test will fail */
 
 /**
- * @brief Test sleep and wakeup APIs
- *
- * @defgroup kernel_sleep_tests Sleep Tests
- *
+ * @brief Kernel thread sleep and wakeup tests
+ * @defgroup tests_kernel_sleep Sleep Tests
  * @ingroup all_tests
- *
- * This module tests the following sleep and wakeup scenarios:
- * 1. k_sleep() without cancellation
- * 2. k_sleep() cancelled via k_wakeup()
- * 3. k_sleep() cancelled via k_wakeup()
- * 4. k_sleep() cancelled via k_wakeup()
- * 5. k_sleep() - no cancellation exists
- *
  * @{
- * @}
  */
 static void test_objects_init(void)
 {
 	k_sem_init(&test_thread_sem, 0, UINT_MAX);
 	k_sem_init(&helper_thread_sem, 0, UINT_MAX);
 	k_sem_init(&task_sem, 0, UINT_MAX);
-
-	TC_PRINT("Kernel objects initialized\n");
 }
 
 static void align_to_tick_boundary(void)
@@ -100,14 +87,17 @@ static int sleep_time_valid(uint32_t start, uint32_t end, uint32_t dur)
 	return dt >= dur && dt <= (dur + TICK_MARGIN);
 }
 
-static void test_thread(int arg1, int arg2)
+static void test_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	uint32_t start_tick;
 	uint32_t end_tick;
 
 	k_sem_take(&test_thread_sem, K_FOREVER);
 
-	TC_PRINT("Testing normal expiration of k_sleep()\n");
 	align_to_tick_boundary();
 
 	start_tick = k_uptime_get_32();
@@ -121,7 +111,6 @@ static void test_thread(int arg1, int arg2)
 		return;
 	}
 
-	TC_PRINT("Testing: test thread sleep + helper thread wakeup test\n");
 	k_sem_give(&helper_thread_sem);   /* Activate helper thread */
 	align_to_tick_boundary();
 
@@ -135,7 +124,6 @@ static void test_thread(int arg1, int arg2)
 		return;
 	}
 
-	TC_PRINT("Testing: test thread sleep + isr offload wakeup test\n");
 	k_sem_give(&helper_thread_sem);   /* Activate helper thread */
 	align_to_tick_boundary();
 
@@ -149,7 +137,6 @@ static void test_thread(int arg1, int arg2)
 		return;
 	}
 
-	TC_PRINT("Testing: test thread sleep + main wakeup test thread\n");
 	k_sem_give(&task_sem);    /* Activate task */
 	align_to_tick_boundary();
 
@@ -171,8 +158,11 @@ static void irq_offload_isr(const void *arg)
 	k_wakeup((k_tid_t) arg);
 }
 
-static void helper_thread(int arg1, int arg2)
+static void helper_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
 
 	k_sem_take(&helper_thread_sem, K_FOREVER);
 	/* Wake the test thread */
@@ -183,11 +173,37 @@ static void helper_thread(int arg1, int arg2)
 }
 
 /**
- * @brief Test sleep functionality
+ * @brief Verify that k_sleep() sleeps for the requested time and that
+ *        k_wakeup() cancels a pending sleep immediately.
  *
- * @ingroup kernel_sleep_tests
+ * @details
+ * A cooperative test thread performs a sequence of one-second sleeps while a
+ * helper thread, an ISR (via irq_offload()) and the main thread each wake it
+ * early. The test validates both the timekeeping and the cancellation paths of
+ * the sleep primitives:
+ * - An uncancelled k_sleep() must block for at least the requested duration and
+ *   no more than one tick of slop.
+ * - A k_wakeup() targeting a sleeping thread must return it to the ready queue
+ *   without waiting for the timeout to expire, regardless of whether the wakeup
+ *   originates from a thread, an ISR, or the main thread.
  *
- * @see k_sleep(), k_wakeup(), k_uptime_get_32()
+ * Test steps:
+ * - Create a cooperative test thread and a higher-priority helper thread.
+ * - Let the test thread run one uncancelled k_sleep(K_SECONDS(1)) and confirm
+ *   the elapsed time matches the request within TICK_MARGIN.
+ * - Have the helper thread, an irq_offload() ISR, and the main thread each
+ *   call k_wakeup() on the test thread mid-sleep and confirm each sleep returns
+ *   within TICK_MARGIN.
+ * - Run one final uncancelled k_sleep() on the main thread and validate its
+ *   duration.
+ *
+ * Expected result:
+ * - Uncancelled sleeps elapse for the requested duration (within slop).
+ * - Every k_wakeup() cancels the sleep promptly and test_failure stays false.
+ *
+ * @see k_sleep()
+ * @see k_wakeup()
+ * @see k_uptime_get_32()
  */
 ZTEST(sleep, test_sleep)
 {
@@ -205,19 +221,15 @@ ZTEST(sleep, test_sleep)
 
 	test_thread_id = k_thread_create(&test_thread_data, test_thread_stack,
 					 THREAD_STACK,
-					 (k_thread_entry_t) test_thread,
+					 test_thread,
 					 0, 0, NULL, TEST_THREAD_PRIORITY,
 					 0, K_NO_WAIT);
 
-	TC_PRINT("Test thread started: id = %p\n", test_thread_id);
-
 	helper_thread_id = k_thread_create(&helper_thread_data,
 					   helper_thread_stack, THREAD_STACK,
-					   (k_thread_entry_t) helper_thread,
+					   helper_thread,
 					   0, 0, NULL, HELPER_THREAD_PRIORITY,
 					   0, K_NO_WAIT);
-
-	TC_PRINT("Helper thread started: id = %p\n", helper_thread_id);
 
 	/* Activate test_thread */
 	k_sem_give(&test_thread_sem);
@@ -230,7 +242,6 @@ ZTEST(sleep, test_sleep)
 
 	zassert_false(test_failure, "test failure");
 
-	TC_PRINT("Testing kernel k_sleep()\n");
 	align_to_tick_boundary();
 	start_tick = k_uptime_get_32();
 	k_sleep(K_SECONDS(1));
@@ -251,6 +262,28 @@ static void forever_thread_entry(void *p1, void *p2, void *p3)
 	k_sem_give(&test_thread_sem);
 }
 
+/**
+ * @brief Verify that k_sleep(K_FOREVER) blocks until an explicit wakeup and
+ *        returns K_TICKS_FOREVER.
+ *
+ * @details
+ * A user-mode thread calls k_sleep(K_FOREVER), which must never expire on its
+ * own. The thread only becomes runnable again after the main thread issues a
+ * k_wakeup(). On return, k_sleep() must report K_TICKS_FOREVER to indicate the
+ * sleep was cancelled rather than timed out.
+ *
+ * Test steps:
+ * - Create a user-mode thread that calls k_sleep(K_FOREVER).
+ * - Yield so the thread reaches the sleeping state.
+ * - Call k_wakeup() on the thread from the main thread.
+ * - In the woken thread, assert the return value equals K_TICKS_FOREVER.
+ *
+ * Expected result:
+ * - The thread stays asleep until woken and k_sleep() returns K_TICKS_FOREVER.
+ *
+ * @see k_sleep()
+ * @see k_wakeup()
+ */
 ZTEST(sleep, test_sleep_forever)
 {
 	test_objects_init();
@@ -279,3 +312,7 @@ static void *sleep_setup(void)
 
 ZTEST_SUITE(sleep, NULL, sleep_setup,
 		ztest_simple_1cpu_before, ztest_simple_1cpu_after, NULL);
+
+/**
+ * @}
+ */

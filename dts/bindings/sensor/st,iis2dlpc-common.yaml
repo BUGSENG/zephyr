@@ -1,6 +1,10 @@
 # Copyright (c) 2018 STMicroelectronics
 # SPDX-License-Identifier: Apache-2.0
 
+description: |
+    When setting the odr property in a .dts or .dtsi file you may include
+    iis2dlpc.h and use the macros defined there.
+
 include: sensor-device.yaml
 
 properties:
@@ -16,36 +20,44 @@ properties:
   drdy-int:
     type: int
     default: 1
-    enum:
-      - 1 # drdy is generated from INT1
-      - 2 # drdy is generated from INT2
-    description: Select DRDY pin number (1 or 2).
+    enum: [1, 2]
+    description: |
+      Select DRDY pin number (1 or 2).
 
       This number represents which of the two interrupt pins
       (INT1 or INT2) the drdy line is attached to. This property is not
       mandatory and if not present it defaults to 1 which is the
       configuration at power-up.
 
+      - 1 # drdy is generated from INT1
+      - 2 # drdy is generated from INT2
+
   range:
     type: int
     default: 2
-    description: Range in g. Default is power-up configuration.
-    enum:
+    description: |
+      Range in g. Default is power-up configuration.
+
       - 16 # 16g (1.952 mg/LSB)
       - 8  #  8g (0.976 mg/LSB)
       - 4  #  4g (0.488 mg/LSB)
       - 2  #  2g (0.244 mg/LSB)
 
+    enum: [16, 8, 4, 2]
+
   power-mode:
     type: int
     default: 0
-    description: Specify the sensor power mode. Default is power-up configuration.
-    enum:
-      - 0 # Low Power M1
-      - 1 # Low Power M2
-      - 2 # Low Power M3
-      - 3 # Low Power M4
-      - 4 # High Performance
+    description: |
+      Specify the sensor power mode. Default is power-up configuration.
+
+      - 0 # IIS2DLPC_DT_LP_M1
+      - 1 # IIS2DLPC_DT_LP_M2
+      - 2 # IIS2DLPC_DT_LP_M3
+      - 3 # IIS2DLPC_DT_LP_M4
+      - 4 # IIS2DLPC_DT_HP_MODE
+
+    enum: [0, 1, 2, 3, 4]
 
   # tap and tap-tap configuration section
   # All default values are selected to match the power-up values.
@@ -54,10 +66,13 @@ properties:
   tap-mode:
     type: int
     default: 0
-    description: Tap mode. Default is power-up configuration.
-    enum:
-      - 0 # Only Single Tap
-      - 1 # Single and Double Tap
+    description: |
+      Tap mode. Default is power-up configuration.
+
+      - 0 # IIS2DLPC_DT_SINGLE_TAP
+      - 1 # IIS2DLPC_DT_SINGLE_DOUBLE_TAP
+
+    enum: [0, 1]
 
   tap-threshold:
     type: array
@@ -83,27 +98,41 @@ properties:
     default: 0x0
     description: |
       Tap shock value. Default is power-up configuration.
-      (values range from 0x0 to 0x3)
       This register represents the maximum time of an over-threshold signal
       detection to be recognized as a tap event. Where 0 equals 4*1/ODR and
       1LSB = 8*1/ODR.
+    min: 0
+    max: 3
 
   tap-latency:
     type: int
     default: 0x0
     description: |
       Tap latency. Default is power-up configuration.
-      (values range from 0x0 to 0xF)
       When double-tap recognition is enabled, this register expresses the
       maximum time between two successive detected taps to determine a
       double-tap event. Where 0 equals 16*1/ODR and 1LSB = 32*1/ODR.
+    min: 0
+    max: 0xf
 
   tap-quiet:
     type: int
     default: 0x0
     description: |
       Expected quiet time after a tap detection. Default is power-up configuration.
-      (values range from 0x0 to 0x3)
       This register represents the time after the first detected tap in which
       there must not be any overthreshold event. Where 0 equals 2*1/ODR
       and 1LSB = 4*1/ODR.
+    min: 0
+    max: 3
+
+examples:
+  - |
+    #include <zephyr/dt-bindings/sensor/iis2dlpc.h>
+
+    iis2dlpc: iis2dlpc@0 {
+      /* ... */
+
+      tap-mode = <IIS2DLPC_DT_SINGLE_DOUBLE_TAP>;
+      power-mode = <IIS2DLPC_DT_HP_MODE>;
+    };

@@ -3,6 +3,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+/**
+ * @file
+ * @brief Header file for the logger control functions.
+ * @ingroup log_ctrl
+ */
+
 #ifndef ZEPHYR_INCLUDE_LOGGING_LOG_CTRL_H_
 #define ZEPHYR_INCLUDE_LOGGING_LOG_CTRL_H_
 
@@ -18,6 +25,7 @@ extern "C" {
 /**
  * @brief Logger
  * @defgroup logger Logger system
+ * @since 1.13
  * @ingroup logging
  * @{
  * @}
@@ -26,10 +34,19 @@ extern "C" {
 /**
  * @brief Logger control API
  * @defgroup log_ctrl Logger control API
+ * @since 1.13
  * @ingroup logger
  * @{
  */
 
+/**
+ * @brief Timestamp source callback.
+ *
+ * Returns the current timestamp value used to stamp log messages. Registered
+ * with log_set_timestamp_func().
+ *
+ * @return Current timestamp.
+ */
 typedef log_timestamp_t (*log_timestamp_get_t)(void);
 
 /** @brief Function system initialization of the logger.
@@ -44,6 +61,12 @@ void log_core_init(void);
  *
  */
 void log_init(void);
+
+/** @brief Trigger the log processing thread to process logs immediately.
+ *
+ *  @note Function  has no effect when CONFIG_LOG_MODE_IMMEDIATE is set.
+ */
+void log_thread_trigger(void);
 
 /**
  * @brief Function for providing thread which is processing logs.
@@ -82,10 +105,21 @@ __syscall void log_panic(void);
 /**
  * @brief Process one pending log message.
  *
- * @retval true There is more messages pending to be processed.
+ * @retval true There are more messages pending to be processed.
  * @retval false No messages pending.
  */
 __syscall bool log_process(void);
+
+/**
+ * @brief Process all pending log messages
+ */
+#ifdef CONFIG_LOG_MODE_DEFERRED
+void log_flush(void);
+#else
+static inline void log_flush(void)
+{
+}
+#endif
 
 /**
  * @brief Return number of buffered log messages.
@@ -156,7 +190,7 @@ uint32_t log_filter_get(struct log_backend const *const backend,
 /**
  * @brief Set filter on given source for the provided backend.
  *
- * @param backend	Backend instance. NULL for all backends.
+ * @param backend	Backend instance. NULL for all backends (and frontend).
  * @param domain_id	ID of the domain.
  * @param source_id	Source (module or instance) ID.
  * @param level		Severity level.
@@ -167,6 +201,26 @@ uint32_t log_filter_get(struct log_backend const *const backend,
 __syscall uint32_t log_filter_set(struct log_backend const *const backend,
 				  uint32_t domain_id, int16_t source_id,
 				  uint32_t level);
+
+/**
+ * @brief Get source filter for the frontend.
+ *
+ * @param source_id	Source (module or instance) ID.
+ * @param runtime	True for runtime filter or false for compiled in.
+ *
+ * @return		Severity level.
+ */
+uint32_t log_frontend_filter_get(int16_t source_id, bool runtime);
+
+/**
+ * @brief Set filter on given source for the frontend.
+ *
+ * @param source_id	Source (module or instance) ID.
+ * @param level		Severity level.
+ *
+ * @return Actual level set which may be limited by compiled level.
+ */
+__syscall uint32_t log_frontend_filter_set(int16_t source_id, uint32_t level);
 
 /**
  *
@@ -193,7 +247,7 @@ void log_backend_disable(struct log_backend const *const backend);
  *
  * @param[in] backend_name Name of the backend as defined by the LOG_BACKEND_DEFINE.
  *
- * @retval Pointer to the backend instance if found, NULL if backend is not found.
+ * @return Pointer to the backend instance if found, NULL if backend is not found.
  */
 const struct log_backend *log_backend_get_by_name(const char *backend_name);
 
@@ -201,7 +255,7 @@ const struct log_backend *log_backend_get_by_name(const char *backend_name);
  *
  * @param log_type Log format.
  *
- * @retval Pointer to the last backend that failed, NULL for success.
+ * @return Pointer to the last backend that failed, NULL for success.
  */
 const struct log_backend *log_format_set_all_active_backends(size_t log_type);
 
@@ -256,6 +310,7 @@ int log_mem_get_usage(uint32_t *buf_size, uint32_t *usage);
  */
 int log_mem_get_max_usage(uint32_t *max);
 
+/** @cond INTERNAL_HIDDEN */
 #if defined(CONFIG_LOG) && !defined(CONFIG_LOG_MODE_MINIMAL)
 #define LOG_CORE_INIT() log_core_init()
 #define LOG_PANIC() log_panic()
@@ -272,8 +327,9 @@ int log_mem_get_max_usage(uint32_t *max);
 #define LOG_PANIC() /* Empty */
 #define LOG_PROCESS() false
 #endif
+/** @endcond */
 
-#include <syscalls/log_ctrl.h>
+#include <zephyr/syscalls/log_ctrl.h>
 
 /**
  * @}

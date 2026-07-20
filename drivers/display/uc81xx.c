@@ -1,6 +1,8 @@
 /*
+ * Copyright (c) 2025 Cactus Engineering S.L
  * Copyright (c) 2022 Andreas Sandberg
  * Copyright (c) 2020 PHYTEC Messtechnik GmbH
+ * Copyright 2024 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,7 +12,7 @@
 #include <zephyr/init.h>
 #include <zephyr/drivers/display.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/mipi_dbi.h>
 #include <zephyr/sys/byteorder.h>
 
 #include "uc81xx_regs.h"
@@ -64,17 +66,21 @@ struct uc81xx_quirks {
 	uint16_t max_height;
 
 	bool auto_copy;
+	bool pon_after_softstart;
 
 	int (*set_cdi)(const struct device *dev, bool border);
+	int (*set_tres)(const struct device *dev);
+	int (*set_ptl)(const struct device *dev, uint16_t x, uint16_t y,
+		       uint16_t x_end_idx, uint16_t y_end_idx,
+		       const struct display_buffer_descriptor *desc);
 };
 
 struct uc81xx_config {
 	const struct uc81xx_quirks *quirks;
 
-	struct spi_dt_spec bus;
-	struct gpio_dt_spec dc_gpio;
+	const struct device *mipi_dev;
+	const struct mipi_dbi_config dbi_config;
 	struct gpio_dt_spec busy_gpio;
-	struct gpio_dt_spec reset_gpio;
 
 	uint16_t height;
 	uint16_t width;
@@ -106,39 +112,13 @@ static inline int uc81xx_write_cmd(const struct device *dev, uint8_t cmd,
 				   const uint8_t *data, size_t len)
 {
 	const struct uc81xx_config *config = dev->config;
-	struct spi_buf buf = {.buf = &cmd, .len = sizeof(cmd)};
-	struct spi_buf_set buf_set = {.buffers = &buf, .count = 1};
 	int err;
 
 	uc81xx_busy_wait(dev);
 
-	err = gpio_pin_set_dt(&config->dc_gpio, 1);
-	if (err < 0) {
-		return err;
-	}
-
-	err = spi_write_dt(&config->bus, &buf_set);
-	if (err < 0) {
-		goto spi_out;
-	}
-
-	if (data != NULL) {
-		buf.buf = (void *)data;
-		buf.len = len;
-
-		err = gpio_pin_set_dt(&config->dc_gpio, 0);
-		if (err < 0) {
-			goto spi_out;
-		}
-
-		err = spi_write_dt(&config->bus, &buf_set);
-		if (err < 0) {
-			goto spi_out;
-		}
-	}
-
-spi_out:
-	spi_release_dt(&config->bus);
+	err = mipi_dbi_command_write(config->mipi_dev, &config->dbi_config,
+				     cmd, data, len);
+	mipi_dbi_release(config->mipi_dev, &config->dbi_config);
 	return err;
 }
 
@@ -147,43 +127,42 @@ static inline int uc81xx_write_cmd_pattern(const struct device *dev,
 					   uint8_t pattern, size_t len)
 {
 	const struct uc81xx_config *config = dev->config;
-	struct spi_buf buf = {.buf = &cmd, .len = sizeof(cmd)};
-	struct spi_buf_set buf_set = {.buffers = &buf, .count = 1};
+	struct display_buffer_descriptor mipi_desc;
 	int err;
 	uint8_t data[64];
 
 	uc81xx_busy_wait(dev);
 
-	err = gpio_pin_set_dt(&config->dc_gpio, 1);
+	err = mipi_dbi_command_write(config->mipi_dev, &config->dbi_config,
+				     cmd, NULL, 0);
 	if (err < 0) {
 		return err;
 	}
 
-	err = spi_write_dt(&config->bus, &buf_set);
-	if (err < 0) {
-		goto spi_out;
-	}
-
-	err = gpio_pin_set_dt(&config->dc_gpio, 0);
-	if (err < 0) {
-		goto spi_out;
-	}
+	/*
+	 * MIPI display write API requires a display buffer descriptor.
+	 * Create one that describes the buffer we are writing
+	 */
+	mipi_desc.height = 1;
 
 	memset(data, pattern, sizeof(data));
 	while (len) {
-		buf.buf = data;
-		buf.len = MIN(len, sizeof(data));
+		mipi_desc.buf_size = mipi_desc.width = mipi_desc.pitch =
+			MIN(len, sizeof(data));
 
-		err = spi_write_dt(&config->bus, &buf_set);
+		err = mipi_dbi_write_display(config->mipi_dev,
+					     &config->dbi_config,
+					     data, &mipi_desc,
+					     PIXEL_FORMAT_MONO10);
 		if (err < 0) {
-			goto spi_out;
+			goto out;
 		}
 
-		len -= buf.len;
+		len -= mipi_desc.buf_size;
 	}
 
-spi_out:
-	spi_release_dt(&config->bus);
+out:
+	mipi_dbi_release(config->mipi_dev, &config->dbi_config);
 	return err;
 }
 
@@ -224,10 +203,6 @@ static int uc81xx_set_profile(const struct device *dev,
 		UC81XX_PSR_SHL |
 		UC81XX_PSR_SHD |
 		UC81XX_PSR_RST;
-	const struct uc81xx_tres tres = {
-		.hres = sys_cpu_to_be16(config->width),
-		.vres = sys_cpu_to_be16(config->height),
-	};
 
 	if (type >= UC81XX_NUM_PROFILES) {
 		return -EINVAL;
@@ -254,6 +229,22 @@ static int uc81xx_set_profile(const struct device *dev,
 			return -EIO;
 		}
 
+		if (config->quirks->pon_after_softstart) {
+			/* UC8151D requires PON command after BTST for proper
+			 * power initialization
+			 */
+			LOG_DBG("Sending PON command after softstart");
+			if (uc81xx_write_cmd(dev, UC81XX_CMD_PON, NULL, 0)) {
+				return -EIO;
+			}
+
+			/* Wait for power stabilization and BUSY_N = HIGH */
+			k_sleep(K_MSEC(UC81XX_PON_DELAY));
+			uc81xx_busy_wait(dev);
+
+			LOG_DBG("PON command completed");
+		}
+
 		/*
 		 * Enable LUT overrides if a LUT has been provided by
 		 * the user.
@@ -272,9 +263,7 @@ static int uc81xx_set_profile(const struct device *dev,
 	}
 
 	/* Set panel resolution */
-	LOG_HEXDUMP_DBG(&tres, sizeof(tres), "TRES");
-	if (uc81xx_write_cmd(dev, UC81XX_CMD_TRES,
-			     (const void *)&tres, sizeof(tres))) {
+	if (config->quirks->set_tres(dev)) {
 		return -EIO;
 	}
 
@@ -403,13 +392,6 @@ static int uc81xx_write(const struct device *dev, const uint16_t x, const uint16
 
 	uint16_t x_end_idx = x + desc->width - 1;
 	uint16_t y_end_idx = y + desc->height - 1;
-	const struct uc81xx_ptl ptl = {
-		.hrst = sys_cpu_to_be16(x),
-		.hred = sys_cpu_to_be16(x_end_idx),
-		.vrst = sys_cpu_to_be16(y),
-		.vred = sys_cpu_to_be16(y_end_idx),
-		.flags = UC81XX_PTL_FLAG_PT_SCAN,
-	};
 	size_t buf_len;
 	const uint8_t back_buffer = data->blanking_on ?
 		UC81XX_CMD_DTM1 : UC81XX_CMD_DTM2;
@@ -419,7 +401,7 @@ static int uc81xx_write(const struct device *dev, const uint16_t x, const uint16
 
 	buf_len = MIN(desc->buf_size,
 		      desc->height * desc->width / UC81XX_PIXELS_PER_BYTE);
-	__ASSERT(desc->width <= desc->pitch, "Pitch is smaller then width");
+	__ASSERT(desc->width <= desc->pitch, "Pitch is smaller than width");
 	__ASSERT(buf != NULL, "Buffer is not available");
 	__ASSERT(buf_len != 0U, "Buffer of length zero");
 	__ASSERT(!(desc->width % UC81XX_PIXELS_PER_BYTE),
@@ -448,15 +430,11 @@ static int uc81xx_write(const struct device *dev, const uint16_t x, const uint16
 		}
 	}
 
-	/* Setup Partial Window and enable Partial Mode */
-	LOG_HEXDUMP_DBG(&ptl, sizeof(ptl), "ptl");
-
 	if (uc81xx_write_cmd(dev, UC81XX_CMD_PTIN, NULL, 0)) {
 		return -EIO;
 	}
 
-	if (uc81xx_write_cmd(dev, UC81XX_CMD_PTL,
-			     (const void *)&ptl, sizeof(ptl))) {
+	if (config->quirks->set_ptl(dev, x, y, x_end_idx, y_end_idx, desc)) {
 		return -EIO;
 	}
 
@@ -487,8 +465,7 @@ static int uc81xx_write(const struct device *dev, const uint16_t x, const uint16
 		 * needed.
 		 */
 
-		if (uc81xx_write_cmd(dev, UC81XX_CMD_PTL,
-				     (const void *)&ptl, sizeof(ptl))) {
+		if (config->quirks->set_ptl(dev, x, y, x_end_idx, y_end_idx, desc)) {
 			return -EIO;
 		}
 
@@ -505,32 +482,6 @@ static int uc81xx_write(const struct device *dev, const uint16_t x, const uint16
 	return 0;
 }
 
-static int uc81xx_read(const struct device *dev, const uint16_t x, const uint16_t y,
-		       const struct display_buffer_descriptor *desc, void *buf)
-{
-	LOG_ERR("not supported");
-	return -ENOTSUP;
-}
-
-static void *uc81xx_get_framebuffer(const struct device *dev)
-{
-	LOG_ERR("not supported");
-	return NULL;
-}
-
-static int uc81xx_set_brightness(const struct device *dev,
-				 const uint8_t brightness)
-{
-	LOG_WRN("not supported");
-	return -ENOTSUP;
-}
-
-static int uc81xx_set_contrast(const struct device *dev, uint8_t contrast)
-{
-	LOG_WRN("not supported");
-	return -ENOTSUP;
-}
-
 static void uc81xx_get_capabilities(const struct device *dev,
 				    struct display_capabilities *caps)
 {
@@ -542,14 +493,6 @@ static void uc81xx_get_capabilities(const struct device *dev,
 	caps->supported_pixel_formats = PIXEL_FORMAT_MONO10;
 	caps->current_pixel_format = PIXEL_FORMAT_MONO10;
 	caps->screen_info = SCREEN_INFO_MONO_MSB_FIRST | SCREEN_INFO_EPD;
-}
-
-static int uc81xx_set_orientation(const struct device *dev,
-				  const enum display_orientation
-				  orientation)
-{
-	LOG_ERR("Unsupported");
-	return -ENOTSUP;
 }
 
 static int uc81xx_set_pixel_format(const struct device *dev,
@@ -592,9 +535,10 @@ static int uc81xx_controller_init(const struct device *dev)
 	const struct uc81xx_config *config = dev->config;
 	struct uc81xx_data *data = dev->data;
 
-	gpio_pin_set_dt(&config->reset_gpio, 1);
-	k_sleep(K_MSEC(UC81XX_RESET_DELAY));
-	gpio_pin_set_dt(&config->reset_gpio, 0);
+	if (mipi_dbi_reset(config->mipi_dev, UC81XX_RESET_DELAY) < 0) {
+		return -EIO;
+	}
+
 	k_sleep(K_MSEC(UC81XX_RESET_DELAY));
 	uc81xx_busy_wait(dev);
 
@@ -618,25 +562,10 @@ static int uc81xx_init(const struct device *dev)
 
 	LOG_DBG("");
 
-	if (!spi_is_ready_dt(&config->bus)) {
-		LOG_ERR("SPI bus %s not ready", config->bus.bus->name);
+	if (!device_is_ready(config->mipi_dev)) {
+		LOG_ERR("MIPI device not ready");
 		return -ENODEV;
 	}
-
-	if (!gpio_is_ready_dt(&config->reset_gpio)) {
-		LOG_ERR("Reset GPIO device not ready");
-		return -ENODEV;
-	}
-
-	gpio_pin_configure_dt(&config->reset_gpio, GPIO_OUTPUT_INACTIVE);
-
-	if (!gpio_is_ready_dt(&config->dc_gpio)) {
-		LOG_ERR("DC GPIO device not ready");
-		return -ENODEV;
-	}
-
-	gpio_pin_configure_dt(&config->dc_gpio, GPIO_OUTPUT_INACTIVE);
-
 
 	if (!gpio_is_ready_dt(&config->busy_gpio)) {
 		LOG_ERR("Busy GPIO device not ready");
@@ -654,7 +583,73 @@ static int uc81xx_init(const struct device *dev)
 	return uc81xx_controller_init(dev);
 }
 
-#if DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8176)
+#if DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8175)
+static int uc81xx_set_tres_8(const struct device *dev)
+{
+	const struct uc81xx_config *config = dev->config;
+	const struct uc81xx_tres8 tres = {
+		.hres = config->width,
+		.vres = config->height,
+	};
+
+	LOG_HEXDUMP_DBG(&tres, sizeof(tres), "TRES");
+
+	return uc81xx_write_cmd(dev, UC81XX_CMD_TRES, (const void *)&tres, sizeof(tres));
+}
+
+static inline int uc81xx_set_ptl_8(const struct device *dev, uint16_t x, uint16_t y,
+				   uint16_t x_end_idx, uint16_t y_end_idx,
+				   const struct display_buffer_descriptor *desc)
+{
+	const struct uc81xx_ptl8 ptl = {
+		.hrst = x,
+		.hred = x_end_idx,
+		.vrst = y,
+		.vred = y_end_idx,
+		.flags = UC81XX_PTL_FLAG_PT_SCAN,
+	};
+
+	/* Setup Partial Window and enable Partial Mode */
+	LOG_HEXDUMP_DBG(&ptl, sizeof(ptl), "ptl");
+
+	return uc81xx_write_cmd(dev, UC81XX_CMD_PTL, (const void *)&ptl, sizeof(ptl));
+}
+#endif
+
+#if DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8176) || DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8179)
+static int uc81xx_set_tres_16(const struct device *dev)
+{
+	const struct uc81xx_config *config = dev->config;
+	const struct uc81xx_tres16 tres = {
+		.hres = sys_cpu_to_be16(config->width),
+		.vres = sys_cpu_to_be16(config->height),
+	};
+
+	LOG_HEXDUMP_DBG(&tres, sizeof(tres), "TRES");
+
+	return uc81xx_write_cmd(dev, UC81XX_CMD_TRES, (const void *)&tres, sizeof(tres));
+}
+
+static inline int uc81xx_set_ptl_16(const struct device *dev, uint16_t x, uint16_t y,
+				    uint16_t x_end_idx, uint16_t y_end_idx,
+				    const struct display_buffer_descriptor *desc)
+{
+	const struct uc81xx_ptl16 ptl = {
+		.hrst = sys_cpu_to_be16(x),
+		.hred = sys_cpu_to_be16(x_end_idx),
+		.vrst = sys_cpu_to_be16(y),
+		.vred = sys_cpu_to_be16(y_end_idx),
+		.flags = UC81XX_PTL_FLAG_PT_SCAN,
+	};
+
+	/* Setup Partial Window and enable Partial Mode */
+	LOG_HEXDUMP_DBG(&ptl, sizeof(ptl), "ptl");
+
+	return uc81xx_write_cmd(dev, UC81XX_CMD_PTL, (const void *)&ptl, sizeof(ptl));
+}
+#endif
+
+#if DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8175) || DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8176)
 static int uc8176_set_cdi(const struct device *dev, bool border)
 {
 	const struct uc81xx_config *config = dev->config;
@@ -675,14 +670,111 @@ static int uc8176_set_cdi(const struct device *dev, bool border)
 	LOG_DBG("CDI: %#hhx", cdi);
 	return uc81xx_write_cmd_uint8(dev, UC81XX_CMD_CDI, cdi);
 }
+#endif
 
+#if DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8175)
+static const struct uc81xx_quirks uc8175_quirks = {
+	.max_width = 80,
+	.max_height = 160,
+
+	.auto_copy = false,
+	.pon_after_softstart = false,
+
+	.set_cdi = uc8176_set_cdi,
+	.set_tres = uc81xx_set_tres_8,
+	.set_ptl = uc81xx_set_ptl_8,
+};
+#endif
+
+#if DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8176)
 static const struct uc81xx_quirks uc8176_quirks = {
 	.max_width = 400,
 	.max_height = 300,
 
 	.auto_copy = false,
+	.pon_after_softstart = false,
 
 	.set_cdi = uc8176_set_cdi,
+	.set_tres = uc81xx_set_tres_16,
+	.set_ptl = uc81xx_set_ptl_16,
+};
+#endif
+
+#if DT_HAS_COMPAT_STATUS_OKAY(ultrachip_uc8151d)
+static int uc8151d_set_tres(const struct device *dev)
+{
+	const struct uc81xx_config *config = dev->config;
+	/* Pass pixel coordinates directly; hardware interprets as byte+bit encoding
+	 * See UC8151D datasheet page 22 (TRES command, R61h)
+	 */
+	const struct uc8151d_tres tres = {
+		.hres = config->width,
+		.vres = sys_cpu_to_be16(config->height),
+	};
+
+	LOG_HEXDUMP_DBG(&tres, sizeof(tres), "TRES");
+
+	return uc81xx_write_cmd(dev, UC81XX_CMD_TRES,
+			       (const void *)&tres, sizeof(tres));
+}
+
+static int uc8151d_set_ptl(const struct device *dev, uint16_t x, uint16_t y,
+			   uint16_t x_end_idx, uint16_t y_end_idx,
+			   const struct display_buffer_descriptor *desc)
+{
+	/* Pass pixel coordinates directly; hardware interprets as byte+bit encoding
+	 * See UC8151D datasheet page 26 (Partial Window command, R90h)
+	 */
+	const struct uc8151d_ptl ptl = {
+		.hrst = x & BIT_MASK(8),
+		.hred = x_end_idx & BIT_MASK(8),
+		.vrst = sys_cpu_to_be16(y & BIT_MASK(9)),
+		.vred = sys_cpu_to_be16(y_end_idx & BIT_MASK(9)),
+		.pt_scan = UC81XX_PTL_FLAG_PT_SCAN,
+	};
+
+	/* Setup Partial Window and enable Partial Mode */
+	LOG_HEXDUMP_DBG(&ptl, sizeof(ptl), "ptl");
+
+	return uc81xx_write_cmd(dev, UC81XX_CMD_PTL,
+			       (const void *)&ptl, sizeof(ptl));
+}
+
+static int uc8151d_set_cdi(const struct device *dev, bool border)
+{
+	const struct uc81xx_config *config = dev->config;
+	const struct uc81xx_data *data = dev->data;
+	const struct uc81xx_profile *p = config->profiles[data->profile];
+	uint8_t cdi = UC8151D_CDI_DEFAULT;  /* Start with 0xD7 */
+
+	if (!p || !p->override_cdi) {
+		/* Use default CDI value if no profile override */
+		cdi = UC8151D_CDI_DEFAULT;
+	} else {
+		/* Keep VBD and DDX bits from default, use profile CDI interval */
+		cdi = (UC8151D_CDI_DEFAULT & (UC8151D_CDI_VBD_MASK | UC8151D_CDI_DDX_MASK)) |
+		      (p->cdi & UC8151D_CDI_MASK);
+	}
+
+	if (!border) {
+		/* Set VBD to floating for no border */
+		cdi = (cdi & ~UC8151D_CDI_VBD_MASK) | UC8151D_CDI_VBD_FLOATING;
+	}
+
+	LOG_DBG("CDI: %#hhx", cdi);
+	return uc81xx_write_cmd_uint8(dev, UC81XX_CMD_CDI, cdi);
+}
+
+static const struct uc81xx_quirks uc8151d_quirks = {
+	.max_width = 160,      /* Actual max from datasheet */
+	.max_height = 296,     /* Actual max from datasheet */
+
+	.auto_copy = false,    /* Manual copy required */
+	.pon_after_softstart = true,
+
+	.set_cdi = uc8151d_set_cdi,
+	.set_tres = uc8151d_set_tres,
+	.set_ptl = uc8151d_set_ptl,
 };
 #endif
 
@@ -712,22 +804,20 @@ static const struct uc81xx_quirks uc8179_quirks = {
 	.max_height = 600,
 
 	.auto_copy = true,
+	.pon_after_softstart = false,
 
 	.set_cdi = uc8179_set_cdi,
+	.set_tres = uc81xx_set_tres_16,
+	.set_ptl = uc81xx_set_ptl_16,
 };
 #endif
 
-static struct display_driver_api uc81xx_driver_api = {
+static DEVICE_API(display, uc81xx_driver_api) = {
 	.blanking_on = uc81xx_blanking_on,
 	.blanking_off = uc81xx_blanking_off,
 	.write = uc81xx_write,
-	.read = uc81xx_read,
-	.get_framebuffer = uc81xx_get_framebuffer,
-	.set_brightness = uc81xx_set_brightness,
-	.set_contrast = uc81xx_set_contrast,
 	.get_capabilities = uc81xx_get_capabilities,
 	.set_pixel_format = uc81xx_set_pixel_format,
-	.set_orientation = uc81xx_set_orientation,
 };
 
 #define UC81XX_MAKE_ARRAY_OPT(n, p)					\
@@ -784,12 +874,14 @@ static struct display_driver_api uc81xx_driver_api = {
 									\
 	static const struct uc81xx_config uc81xx_cfg_ ## n = {		\
 		.quirks = quirks_ptr,					\
-		.bus = SPI_DT_SPEC_GET(n,				\
-			SPI_OP_MODE_MASTER | SPI_WORD_SET(8) |		\
-			SPI_LOCK_ON,					\
-			0),						\
-		.reset_gpio = GPIO_DT_SPEC_GET(n, reset_gpios),		\
-		.dc_gpio = GPIO_DT_SPEC_GET(n, dc_gpios),		\
+		.mipi_dev = DEVICE_DT_GET(DT_PARENT(n)),                \
+		.dbi_config = {                                         \
+			.mode = MIPI_DBI_MODE_SPI_4WIRE,                \
+			.config = MIPI_DBI_SPI_CONFIG_DT(n,             \
+					SPI_OP_MODE_MASTER |            \
+					SPI_LOCK_ON | SPI_WORD_SET(8),  \
+					0),                             \
+		},                                                      \
 		.busy_gpio = GPIO_DT_SPEC_GET(n, busy_gpios),		\
 									\
 		.height = DT_PROP(n, height),				\
@@ -814,8 +906,14 @@ static struct display_driver_api uc81xx_driver_api = {
 			 CONFIG_DISPLAY_INIT_PRIORITY,			\
 			 &uc81xx_driver_api);
 
+DT_FOREACH_STATUS_OKAY_VARGS(ultrachip_uc8175, UC81XX_DEFINE,
+			     &uc8175_quirks);
+
 DT_FOREACH_STATUS_OKAY_VARGS(ultrachip_uc8176, UC81XX_DEFINE,
 			     &uc8176_quirks);
+
+DT_FOREACH_STATUS_OKAY_VARGS(ultrachip_uc8151d, UC81XX_DEFINE,
+			     &uc8151d_quirks);
 
 DT_FOREACH_STATUS_OKAY_VARGS(ultrachip_uc8179, UC81XX_DEFINE,
 			     &uc8179_quirks);

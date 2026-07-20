@@ -17,7 +17,9 @@ extern "C" {
  * (List extracted from /cmake/gcc-m-cpu.cmake)
  */
 #if defined(CONFIG_ARM)
-#if defined(CONFIG_CPU_CORTEX_M0)
+#if defined(CONFIG_CPU_ARM926EJ_S)
+#define PROCESSOR_NAME "arm926ej-s"
+#elif defined(CONFIG_CPU_CORTEX_M0)
 #define PROCESSOR_NAME "cortex-m0"
 #elif defined(CONFIG_CPU_CORTEX_M0PLUS)
 #define PROCESSOR_NAME "cortex-m0plus"
@@ -37,6 +39,16 @@ extern "C" {
 #else
 #define PROCESSOR_NAME "cortex-m33+nodsp"
 #endif
+#elif defined(CONFIG_CPU_CORTEX_M52)
+#if defined(CONFIG_ARMV8_1_M_MVEF)
+#define PROCESSOR_NAME "cortex-m52"
+#elif defined(CONFIG_ARMV8_1_M_MVEI)
+#define PROCESSOR_NAME "cortex-m52+nomve.fp"
+#elif defined(CONFIG_ARMV8_M_DSP)
+#define PROCESSOR_NAME "cortex-m52+nomve"
+#else
+#define PROCESSOR_NAME "cortex-m52+nodsp"
+#endif
 #elif defined(CONFIG_CPU_CORTEX_M55)
 #if defined(CONFIG_ARMV8_1_M_MVEF)
 #define PROCESSOR_NAME "cortex-m55"
@@ -46,6 +58,16 @@ extern "C" {
 #define PROCESSOR_NAME "cortex-m55+nomve"
 #else
 #define PROCESSOR_NAME "cortex-m55+nodsp"
+#endif
+#elif defined(CONFIG_CPU_CORTEX_M85)
+#if defined(CONFIG_ARMV8_1_M_MVEF)
+#define PROCESSOR_NAME "cortex-m85"
+#elif defined(CONFIG_ARMV8_1_M_MVEI)
+#define PROCESSOR_NAME "cortex-m85+nomve.fp"
+#elif defined(CONFIG_ARMV8_M_DSP)
+#define PROCESSOR_NAME "cortex-m85+nomve"
+#else
+#define PROCESSOR_NAME "cortex-m85+nodsp"
 #endif
 #elif defined(CONFIG_CPU_CORTEX_R4)
 #if defined(CONFIG_FPU) && defined(CONFIG_CPU_HAS_VFP)
@@ -73,6 +95,16 @@ extern "C" {
 #else
 #define PROCESSOR_NAME "cortex-r7+nofp"
 #endif
+#elif defined(CONFIG_CPU_CORTEX_R8)
+#if defined(CONFIG_FPU) && defined(CONFIG_CPU_HAS_VFP)
+#if !defined(CONFIG_VFP_FEATURE_DOUBLE_PRECISION)
+#define PROCESSOR_NAME "cortex-r8+nofp.dp"
+#else
+#define PROCESSOR_NAME "cortex-r8"
+#endif
+#else
+#define PROCESSOR_NAME "cortex-r8+nofp"
+#endif
 #elif defined(CONFIG_CPU_CORTEX_R52)
 #if defined(CONFIG_FPU) && defined(CONFIG_CPU_HAS_VFP)
 #if !defined(CONFIG_VFP_FEATURE_DOUBLE_PRECISION)
@@ -83,8 +115,12 @@ extern "C" {
 #else
 #define PROCESSOR_NAME "cortex-r52"
 #endif
+#elif defined(CONFIG_CPU_CORTEX_A7)
+#define PROCESSOR_NAME "cortex-a7"
 #elif defined(CONFIG_CPU_CORTEX_A9)
 #define PROCESSOR_NAME "cortex-a9"
+#elif defined(CONFIG_CPU_CORTEX_A32)
+#define PROCESSOR_NAME "cortex-a32"
 #endif
 #elif defined(CONFIG_ARM64)
 #if defined(CONFIG_CPU_CORTEX_A53)
@@ -99,6 +135,12 @@ extern "C" {
 #define PROCESSOR_NAME "cortex-a76"
 #elif defined(CONFIG_CPU_CORTEX_A76)
 #define PROCESSOR_NAME "cortex-a76"
+#elif defined(CONFIG_CPU_CORTEX_A78)
+#define PROCESSOR_NAME "cortex-a78"
+#elif defined(CONFIG_CPU_CORTEX_A510)
+#define PROCESSOR_NAME "cortex-a510"
+#elif defined(CONFIG_CPU_CORTEX_A320)
+#define PROCESSOR_NAME "cortex-a320"
 #elif defined(CONFIG_CPU_CORTEX_R82)
 #define PROCESSOR_NAME "armv8.4-a+nolse"
 #endif
@@ -130,10 +172,38 @@ extern "C" {
 #endif
 #elif defined(CONFIG_RISCV)
 #define PROCESSOR_NAME "riscv"
+#elif defined(CONFIG_RX)
+#if defined(CONFIG_CPU_RXV1)
+#define PROCESSOR_NAME "rxv1"
+#elif defined(CONFIG_CPU_RXV2)
+#define PROCESSOR_NAME "rxv2"
+#elif defined(CONFIG_CPU_RXV3)
+#define PROCESSOR_NAME "rxv3"
+#else
+#define PROCESSOR_NAME "rx"
+#endif
 #elif defined(CONFIG_XTENSA)
 #define PROCESSOR_NAME "xtensa"
 #elif defined(CONFIG_SPARC)
 #define PROCESSOR_NAME "sparc"
+#elif defined(CONFIG_OPENRISC)
+#define PROCESSOR_NAME "openrisc"
+#endif
+
+#if defined(CONFIG_ARCH_POSIX)
+#if defined(PROCESSOR_NAME)
+#error "Processor name already selected; compile-time check should be removed."
+#endif
+
+#if defined(__x86_64__)
+#define PROCESSOR_NAME "x86_64"
+#elif defined(__i386__)
+#define PROCESSOR_NAME "x86"
+#elif defined(__aarch64__)
+#define PROCESSOR_NAME "aarch64"
+#elif defined(__arm__)
+#define PROCESSOR_NAME "arm"
+#endif
 #endif
 
 #ifndef PROCESSOR_NAME

@@ -1,26 +1,32 @@
-.. _bluetooth-periodic-advertising-sample:
+.. zephyr:code-sample:: ble_periodic_adv
+   :name: Periodic Advertising
+   :relevant-api: bt_gap bluetooth
 
-Bluetooth: Periodic Advertising
-###############################
+   Use Bluetooth LE Periodic Advertising functionality.
 
 Overview
 ********
 
-A simple application demonstrating the BLE Periodic Advertising functionality.
+A simple application demonstrating the Bluetooth LE Periodic Advertising functionality.
 
 Requirements
 ************
 
-* A board with BLE support
+* A board with Bluetooth LE support
 
 Building and Running
 ********************
 
-This sample can be found under :zephyr_file:`samples/bluetooth/periodic_adv` in
-the Zephyr tree.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
 
-Use the sample found under :zephyr_file:`samples/bluetooth/periodic_sync` in the
-Zephyr tree that will scan and establish a periodic advertising synchronization
-to this sample.
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/periodic_adv
+   :board: <board>
+   :goals: build flash
+   :compact:
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+After flashing, the device will start periodic advertising, periodically updating the
+manufacturer data counter.
+
+Use the :zephyr:code-sample:`ble_periodic_adv_sync` sample on a second board to scan
+and establish a periodic advertising synchronization to this device.

@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2017 Linaro Limited
  * Copyright (c) 2019 Intel Corporation
+ * Copyright (c) 2024 Embeint Inc
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,7 +10,10 @@
 LOG_MODULE_REGISTER(net_sntp, CONFIG_SNTP_LOG_LEVEL);
 
 #include <zephyr/net/sntp.h>
+#include <zephyr/net/net_log.h>
+#include <zephyr/sys/clock.h>
 #include "sntp_pkt.h"
+#include <limits.h>
 
 #define SNTP_LI_MAX 3
 #define SNTP_VERSION_NUMBER 3
@@ -24,45 +28,68 @@ static void sntp_pkt_dump(struct sntp_pkt *pkt)
 		return;
 	}
 
-	NET_DBG("li               %x", SNTP_GET_LI(pkt->lvm));
-	NET_DBG("vn               %x", SNTP_GET_VN(pkt->lvm));
-	NET_DBG("mode             %x", SNTP_GET_MODE(pkt->lvm));
+	NET_DBG("li               %x", pkt->li);
+	NET_DBG("vn               %x", pkt->vn);
+	NET_DBG("mode             %x", pkt->mode);
 	NET_DBG("stratum:         %x", pkt->stratum);
 	NET_DBG("poll:            %x", pkt->poll);
 	NET_DBG("precision:       %x", pkt->precision);
-	NET_DBG("root_delay:      %x", pkt->root_delay);
-	NET_DBG("root_dispersion: %x", pkt->root_dispersion);
-	NET_DBG("ref_id:          %x", pkt->ref_id);
-	NET_DBG("ref_tm_s:        %x", pkt->ref_tm_s);
-	NET_DBG("ref_tm_f:        %x", pkt->ref_tm_f);
-	NET_DBG("orig_tm_s:       %x", pkt->orig_tm_s);
-	NET_DBG("orig_tm_f:       %x", pkt->orig_tm_f);
-	NET_DBG("rx_tm_s:         %x", pkt->rx_tm_s);
-	NET_DBG("rx_tm_f:         %x", pkt->rx_tm_f);
-	NET_DBG("tx_tm_s:         %x", pkt->tx_tm_s);
-	NET_DBG("tx_tm_f:         %x", pkt->tx_tm_f);
+	NET_DBG("root_delay:      %x", net_ntohl(pkt->root_delay));
+	NET_DBG("root_dispersion: %x", net_ntohl(pkt->root_dispersion));
+	NET_DBG("ref_id:          %x", net_ntohl(pkt->ref_id));
+	NET_DBG("ref_tm_s:        %x", net_ntohl(pkt->ref_tm_s));
+	NET_DBG("ref_tm_f:        %x", net_ntohl(pkt->ref_tm_f));
+	NET_DBG("orig_tm_s:       %x", net_ntohl(pkt->orig_tm_s));
+	NET_DBG("orig_tm_f:       %x", net_ntohl(pkt->orig_tm_f));
+	NET_DBG("rx_tm_s:         %x", net_ntohl(pkt->rx_tm_s));
+	NET_DBG("rx_tm_f:         %x", net_ntohl(pkt->rx_tm_f));
+	NET_DBG("tx_tm_s:         %x", net_ntohl(pkt->tx_tm_s));
+	NET_DBG("tx_tm_f:         %x", net_ntohl(pkt->tx_tm_f));
 }
 
-static int32_t parse_response(uint8_t *data, uint16_t len, uint32_t orig_ts,
-			    struct sntp_time *time)
+static int64_t q32_32_s_to_ll_us(uint32_t t_s, uint32_t t_f)
+{
+	return (uint64_t)t_s * USEC_PER_SEC + (((uint64_t)t_f * (uint64_t)USEC_PER_SEC) >> 32);
+}
+
+#if defined(CONFIG_SNTP_UNCERTAINTY)
+static int64_t q16_16_s_to_ll_us(uint32_t t)
+{
+	return (int64_t)(t >> 16) * (int64_t)USEC_PER_SEC +
+	       (((int64_t)(t & 0xFFFF) * (int64_t)USEC_PER_SEC) >> 16);
+}
+#endif
+
+static int32_t parse_response(uint8_t *data, uint16_t len, struct sntp_time *expected_orig_ts,
+			      struct sntp_time *res)
 {
 	struct sntp_pkt *pkt = (struct sntp_pkt *)data;
+	struct timespec client_rx_ts;
+	int64_t client_tx_us;
+	int64_t client_rx_us;
+	int64_t server_rx_us;
+	int64_t server_tx_us;
+	int32_t rtt_us;
 	uint32_t ts;
+	int ret;
 
 	sntp_pkt_dump(pkt);
 
-	if (ntohl(pkt->orig_tm_s) != orig_ts) {
-		NET_DBG("Mismatch originate timestamp: %d, expect: %d",
-			ntohl(pkt->orig_tm_s), orig_ts);
-		return -EINVAL;
+	if (net_ntohl(pkt->orig_tm_s) != expected_orig_ts->seconds ||
+	    net_ntohl(pkt->orig_tm_f) != expected_orig_ts->fraction) {
+		NET_DBG("Mismatch originate timestamp: %d.%09d, expect: %llu.%09u",
+			net_ntohl(pkt->orig_tm_s), net_ntohl(pkt->orig_tm_f),
+			expected_orig_ts->seconds,
+			expected_orig_ts->fraction);
+		return -ERANGE;
 	}
 
-	if (SNTP_GET_MODE(pkt->lvm) != SNTP_MODE_SERVER) {
+	if (pkt->mode != SNTP_MODE_SERVER) {
 		/* For unicast and manycast, server should return 4.
 		 * For broadcast (which is not supported now), server should
 		 * return 5.
 		 */
-		NET_DBG("Unexpected mode: %d", SNTP_GET_MODE(pkt->lvm));
+		NET_DBG("Unexpected mode: %d", pkt->mode);
 		return -EINVAL;
 	}
 
@@ -71,13 +98,58 @@ static int32_t parse_response(uint8_t *data, uint16_t len, uint32_t orig_ts,
 		return -EBUSY;
 	}
 
-	if (ntohl(pkt->tx_tm_s) == 0 && ntohl(pkt->tx_tm_f) == 0) {
+	if (net_ntohl(pkt->tx_tm_s) == 0 && net_ntohl(pkt->tx_tm_f) == 0) {
 		NET_DBG("zero transmit timestamp");
 		return -EINVAL;
 	}
 
-	time->fraction = ntohl(pkt->tx_tm_f);
-	ts = ntohl(pkt->tx_tm_s);
+	/* Compute total round trip time */
+	ret = sys_clock_gettime(SYS_CLOCK_REALTIME, &client_rx_ts);
+	if (ret < 0) {
+		return ret;
+	}
+	client_rx_us = (USEC_PER_SEC * (int64_t)(client_rx_ts.tv_sec + OFFSET_1970_JAN_1)) +
+		       (client_rx_ts.tv_nsec / NSEC_PER_USEC);
+	client_tx_us = q32_32_s_to_ll_us(expected_orig_ts->seconds, expected_orig_ts->fraction);
+	rtt_us = client_rx_us - client_tx_us;
+
+	server_rx_us = q32_32_s_to_ll_us(net_ntohl(pkt->rx_tm_s), net_ntohl(pkt->rx_tm_f));
+	server_tx_us = q32_32_s_to_ll_us(net_ntohl(pkt->tx_tm_s), net_ntohl(pkt->tx_tm_f));
+
+	/* Compute single sided path delay (assumes symmetrical packet delay) */
+	res->rsp_delay_us = (rtt_us - (server_tx_us - server_rx_us)) / 2;
+
+#if defined(CONFIG_SNTP_UNCERTAINTY)
+
+	if (server_rx_us > server_tx_us || client_tx_us > client_rx_us) {
+		NET_DBG("Invalid timestamps from SNTP server");
+		return -EINVAL;
+	}
+
+	int64_t d_us = (client_rx_us - client_tx_us) - (server_tx_us - server_rx_us);
+	int64_t clk_offset_us = ((server_rx_us - client_tx_us) + (server_tx_us - client_rx_us)) / 2;
+	int64_t root_dispersion_us = q16_16_s_to_ll_us(net_ntohl(pkt->root_dispersion));
+	int64_t root_delay_us = q16_16_s_to_ll_us(net_ntohl(pkt->root_delay));
+	uint32_t precision_us;
+
+	if (pkt->precision <= 0) {
+		precision_us = (uint32_t)(USEC_PER_SEC + USEC_PER_SEC / 2) >> -pkt->precision;
+	} else if (pkt->precision <= 10) {
+		precision_us = (uint32_t)(USEC_PER_SEC + USEC_PER_SEC / 2) << pkt->precision;
+	} else {
+		NET_DBG("SNTP packet precision out of range: %d", pkt->precision);
+		return -EINVAL;
+	}
+
+	res->uptime_us = client_rx_us;
+	res->seconds = (res->uptime_us + clk_offset_us) / USEC_PER_SEC;
+	res->fraction = (res->uptime_us + clk_offset_us) % USEC_PER_SEC;
+	res->uncertainty_us = (d_us + root_delay_us + precision_us) / 2 + root_dispersion_us;
+#else
+	res->fraction = net_ntohl(pkt->tx_tm_f);
+	res->seconds = net_ntohl(pkt->tx_tm_s);
+#endif
+	ts = net_ntohl(pkt->tx_tm_s);
 
 	/* Check if most significant bit is set */
 	if (ts & 0x80000000) {
@@ -85,7 +157,7 @@ static int32_t parse_response(uint8_t *data, uint16_t len, uint32_t orig_ts,
 		 * on 1 January 1900.
 		 */
 		if (ts >= OFFSET_1970_JAN_1) {
-			time->seconds = ts - OFFSET_1970_JAN_1;
+			res->seconds -= OFFSET_1970_JAN_1;
 		} else {
 			return -EINVAL;
 		}
@@ -93,54 +165,13 @@ static int32_t parse_response(uint8_t *data, uint16_t len, uint32_t orig_ts,
 		/* UTC time is reckoned from 6h 28m 16s UTC
 		 * on 7 February 2036.
 		 */
-		time->seconds = ts + 0x100000000ULL - OFFSET_1970_JAN_1;
+		res->seconds += 0x100000000ULL - OFFSET_1970_JAN_1;
 	}
 
 	return 0;
 }
 
-static int sntp_recv_response(struct sntp_ctx *sntp, uint32_t timeout,
-			      struct sntp_time *time)
-{
-	struct sntp_pkt buf = { 0 };
-	int status;
-	int rcvd;
-
-	status = zsock_poll(sntp->sock.fds, sntp->sock.nfds, timeout);
-	if (status < 0) {
-		NET_ERR("Error in poll:%d", errno);
-		return -errno;
-	}
-
-	if (status == 0) {
-		return -ETIMEDOUT;
-	}
-
-	rcvd = zsock_recv(sntp->sock.fd, (uint8_t *)&buf, sizeof(buf), 0);
-	if (rcvd < 0) {
-		return -errno;
-	}
-
-	if (rcvd != sizeof(struct sntp_pkt)) {
-		return -EMSGSIZE;
-	}
-
-	status = parse_response((uint8_t *)&buf, sizeof(buf),
-				sntp->expected_orig_ts,
-				time);
-	return status;
-}
-
-static uint32_t get_uptime_in_sec(void)
-{
-	uint64_t time;
-
-	time = k_uptime_get_32();
-
-	return time / MSEC_PER_SEC;
-}
-
-int sntp_init(struct sntp_ctx *ctx, struct sockaddr *addr, socklen_t addr_len)
+int sntp_init(struct sntp_ctx *ctx, const struct net_sockaddr *addr, net_socklen_t addr_len)
 {
 	int ret;
 
@@ -150,7 +181,7 @@ int sntp_init(struct sntp_ctx *ctx, struct sockaddr *addr, socklen_t addr_len)
 
 	memset(ctx, 0, sizeof(struct sntp_ctx));
 
-	ctx->sock.fd = zsock_socket(addr->sa_family, SOCK_DGRAM, IPPROTO_UDP);
+	ctx->sock.fd = zsock_socket(addr->sa_family, NET_SOCK_DGRAM, NET_IPPROTO_UDP);
 	if (ctx->sock.fd < 0) {
 		NET_ERR("Failed to create UDP socket %d", errno);
 		return -errno;
@@ -170,29 +201,77 @@ int sntp_init(struct sntp_ctx *ctx, struct sockaddr *addr, socklen_t addr_len)
 	return 0;
 }
 
-int sntp_query(struct sntp_ctx *ctx, uint32_t timeout, struct sntp_time *time)
+static int sntp_query_send(struct sntp_ctx *ctx)
 {
 	struct sntp_pkt tx_pkt = { 0 };
-	int ret = 0;
+	struct timespec ts;
+	int ret;
 
-	if (!ctx || !time) {
-		return -EFAULT;
+	ret = sys_clock_gettime(SYS_CLOCK_REALTIME, &ts);
+	if (ret < 0) {
+		return ret;
 	}
 
 	/* prepare request pkt */
-	SNTP_SET_LI(tx_pkt.lvm, 0);
-	SNTP_SET_VN(tx_pkt.lvm, SNTP_VERSION_NUMBER);
-	SNTP_SET_MODE(tx_pkt.lvm, SNTP_MODE_CLIENT);
-	ctx->expected_orig_ts = get_uptime_in_sec() + OFFSET_1970_JAN_1;
-	tx_pkt.tx_tm_s = htonl(ctx->expected_orig_ts);
+	tx_pkt.li = 0;
+	tx_pkt.vn = SNTP_VERSION_NUMBER;
+	tx_pkt.mode = SNTP_MODE_CLIENT;
+	ctx->expected_orig_ts.seconds = (uint32_t)(ts.tv_sec + OFFSET_1970_JAN_1);
+	ctx->expected_orig_ts.fraction =
+		(uint32_t)((uint64_t)ts.tv_nsec * UINT32_MAX / NSEC_PER_SEC);
+	tx_pkt.tx_tm_s = net_htonl(ctx->expected_orig_ts.seconds);
+	tx_pkt.tx_tm_f = net_htonl(ctx->expected_orig_ts.fraction);
 
-	ret = zsock_send(ctx->sock.fd, (uint8_t *)&tx_pkt, sizeof(tx_pkt), 0);
+	return zsock_send(ctx->sock.fd, (uint8_t *)&tx_pkt, sizeof(tx_pkt), 0);
+}
+
+int sntp_query(struct sntp_ctx *ctx, uint32_t timeout, struct sntp_time *ts)
+{
+	int ret = 0;
+
+	if (!ctx || !ts) {
+		return -EFAULT;
+	}
+
+	ret = sntp_query_send(ctx);
 	if (ret < 0) {
 		NET_ERR("Failed to send over UDP socket %d", ret);
 		return ret;
 	}
 
-	return sntp_recv_response(ctx, timeout, time);
+	return sntp_recv_response(ctx, timeout, ts);
+}
+
+int sntp_recv_response(struct sntp_ctx *ctx, uint32_t timeout,
+			      struct sntp_time *ts)
+{
+	struct sntp_pkt buf = { 0 };
+	int status;
+	int rcvd;
+
+	status = zsock_poll(ctx->sock.fds, ctx->sock.nfds, timeout);
+	if (status < 0) {
+		NET_ERR("Error in poll:%d", errno);
+		return -errno;
+	}
+
+	if (status == 0) {
+		return -ETIMEDOUT;
+	}
+
+	rcvd = zsock_recv(ctx->sock.fd, (uint8_t *)&buf, sizeof(buf), 0);
+	if (rcvd < 0) {
+		return -errno;
+	}
+
+	if (rcvd != sizeof(struct sntp_pkt)) {
+		return -EMSGSIZE;
+	}
+
+	status = parse_response((uint8_t *)&buf, sizeof(buf),
+				&ctx->expected_orig_ts,
+				ts);
+	return status;
 }
 
 void sntp_close(struct sntp_ctx *ctx)
@@ -201,3 +280,71 @@ void sntp_close(struct sntp_ctx *ctx)
 		(void)zsock_close(ctx->sock.fd);
 	}
 }
+
+#ifdef CONFIG_NET_SOCKETS_SERVICE
+
+int sntp_init_async(struct sntp_ctx *ctx, const struct net_sockaddr *addr, net_socklen_t addr_len,
+		    const struct net_socket_service_desc *service)
+{
+	int ret;
+
+	/* Validate service pointer */
+	if (service == NULL) {
+		return -EFAULT;
+	}
+	/* Standard init */
+	ret = sntp_init(ctx, addr, addr_len);
+	if (ret < 0) {
+		return ret;
+	}
+	/* Attach socket to socket service */
+	ret = net_socket_service_register(service, ctx->sock.fds, ctx->sock.nfds, ctx);
+	if (ret < 0) {
+		NET_ERR("Failed to register socket %d", ret);
+		/* Cleanup init on register failure*/
+		sntp_close(ctx);
+	}
+	return ret;
+}
+
+int sntp_send_async(struct sntp_ctx *ctx)
+{
+	int ret = 0;
+
+	if (!ctx) {
+		return -EFAULT;
+	}
+
+	ret = sntp_query_send(ctx);
+	if (ret < 0) {
+		NET_ERR("Failed to send over UDP socket %d", ret);
+		return ret;
+	}
+	return 0;
+}
+
+int sntp_read_async(struct net_socket_service_event *event, struct sntp_time *ts)
+{
+	struct sntp_ctx *ctx = event->user_data;
+	struct sntp_pkt buf = {0};
+	int rcvd;
+
+	rcvd = zsock_recv(ctx->sock.fd, (uint8_t *)&buf, sizeof(buf), 0);
+	if (rcvd < 0) {
+		return -errno;
+	}
+
+	if (rcvd != sizeof(struct sntp_pkt)) {
+		return -EMSGSIZE;
+	}
+
+	return parse_response((uint8_t *)&buf, sizeof(buf), &ctx->expected_orig_ts, ts);
+}
+
+void sntp_close_async(const struct net_socket_service_desc *service)
+{
+	/* Detach socket from socket service with automatic close */
+	net_socket_service_close(service);
+}
+
+#endif /* CONFIG_NET_SOCKETS_SERVICE */

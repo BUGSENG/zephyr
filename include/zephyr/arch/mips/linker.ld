@@ -22,9 +22,12 @@
 #define _EXCEPTION_SECTION_NAME     exceptions
 #define _RESET_SECTION_NAME         reset
 
+#define RAM_BASE DT_CHOSEN_SRAM_ADDR
+#define RAM_SIZE DT_CHOSEN_SRAM_SIZE
+
 MEMORY
 {
-    RAM (rwx) : ORIGIN = CONFIG_SRAM_BASE_ADDRESS, LENGTH = KB(CONFIG_SRAM_SIZE)
+    RAM (rwx) : ORIGIN = RAM_BASE, LENGTH = RAM_SIZE
     /* Used by and documented in include/linker/intlist.ld */
     IDT_LIST  (wx)      : ORIGIN = 0xFFFFF7FF, LENGTH = 2K
 }
@@ -37,14 +40,15 @@ REGION_ALIAS("REGION_BSS", RAM);
 
 ENTRY(CONFIG_KERNEL_ENTRY)
 
-PROVIDE (__memory_base = CONFIG_SRAM_BASE_ADDRESS);
-PROVIDE (__memory_size = CONFIG_SRAM_SIZE * 1024);
-PROVIDE (__stack = CONFIG_SRAM_BASE_ADDRESS + (CONFIG_SRAM_SIZE - 1) * 1024);
+PROVIDE (__memory_base = RAM_BASE);
+PROVIDE (__memory_size = RAM_SIZE);
+PROVIDE (__stack = RAM_BASE + (RAM_SIZE - 1024));
 
 SECTIONS
 {
 
 #include <zephyr/linker/rel-sections.ld>
+#include <zephyr/linker/llext-sections.ld>
 
     SECTION_PROLOGUE(_VECTOR_SECTION_NAME,,)
     {
@@ -75,6 +79,10 @@ SECTIONS
 
     __rodata_region_start = .;
 #include <zephyr/linker/common-rom.ld>
+/* Located in generated directory. This file is populated by calling
+ * zephyr_linker_sources(ROM_SECTIONS ...). Useful for grouping iterable RO structs.
+ */
+#include <snippets-rom-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 
     SECTION_PROLOGUE(_RODATA_SECTION_NAME,,)

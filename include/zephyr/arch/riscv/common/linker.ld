@@ -11,7 +11,6 @@
  * Generic Linker script for the riscv platform
  */
 
-#include <soc.h>
 #include <zephyr/devicetree.h>
 
 #include <zephyr/linker/sections.h>
@@ -30,31 +29,66 @@
 #define _EXCEPTION_SECTION_NAME     exceptions
 #define _RESET_SECTION_NAME         reset
 
+#if defined(CONFIG_ROM_END_OFFSET)
+#define ROM_END_OFFSET CONFIG_ROM_END_OFFSET
+#else
+#define ROM_END_OFFSET 0
+#endif
+
+#if defined(CONFIG_FLASH_USES_MAPPED_PARTITION) && defined(CONFIG_XIP)
+#define ROM_BASE (DT_REG_ADDR(DT_CHOSEN(zephyr_code_partition)))
+#define ROM_SIZE (DT_REG_SIZE(DT_CHOSEN(zephyr_code_partition)) - ROM_END_OFFSET)
+#else /* defined(CONFIG_FLASH_USES_MAPPED_PARTITION) && defined(CONFIG_XIP) */
+#if defined(CONFIG_FLASH_LOAD_OFFSET)
+#define FLASH_LOAD_OFFSET CONFIG_FLASH_LOAD_OFFSET
+#else
+#define FLASH_LOAD_OFFSET 0
+#endif
+
 #ifdef CONFIG_XIP
+
+#if CONFIG_FLASH_LOAD_SIZE > 0
+#define ROM_SIZE (CONFIG_FLASH_LOAD_SIZE - ROM_END_OFFSET)
+#endif
+
 #if DT_NODE_HAS_COMPAT_STATUS(DT_CHOSEN(zephyr_flash), soc_nv_flash, okay)
-#ifdef CONFIG_FLASH_LOAD_OFFSET
-#define ROM_BASE (DT_REG_ADDR(DT_CHOSEN(zephyr_flash)) + \
-				CONFIG_FLASH_LOAD_OFFSET)
-#else /* !CONFIG_FLASH_LOAD_OFFSET */
-#define ROM_BASE DT_REG_ADDR(DT_CHOSEN(zephyr_flash))
-#endif /* CONFIG_FLASH_LOAD_OFFSET */
-#define ROM_SIZE DT_REG_SIZE(DT_CHOSEN(zephyr_flash))
+#define ROM_BASE (DT_REG_ADDR(DT_CHOSEN(zephyr_flash)) + FLASH_LOAD_OFFSET)
+#ifndef ROM_SIZE
+#define ROM_SIZE (DT_REG_SIZE(DT_CHOSEN(zephyr_flash)) - ROM_END_OFFSET)
+#endif
+
 #elif DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_flash), jedec_spi_nor)
 /* For jedec,spi-nor we expect the spi controller to memory map the flash
- * and for that mapping to be the second register property of the spi
- * controller.
+ * and for that mapping to be on the register with the name flash_mmap and if a register with that
+ * name doesn't exists, we expect it to be in the second register property of the spi controller.
  */
 #define SPI_CTRL DT_PARENT(DT_CHOSEN(zephyr_flash))
-#define ROM_BASE DT_REG_ADDR_BY_IDX(SPI_CTRL, 1)
-#define ROM_SIZE DT_REG_SIZE_BY_IDX(SPI_CTRL, 1)
+#define FLASH_MMAP_NAME flash_mmap
+#define ROM_BASE                                                                                   \
+	(DT_REG_ADDR_BY_NAME_OR(SPI_CTRL, FLASH_MMAP_NAME, DT_REG_ADDR_BY_IDX(SPI_CTRL, 1)) +      \
+	 FLASH_LOAD_OFFSET)
+#ifndef ROM_SIZE
+#define ROM_SIZE                                                                                   \
+	(DT_REG_SIZE_BY_NAME_OR(SPI_CTRL, FLASH_MMAP_NAME, DT_REG_SIZE_BY_IDX(SPI_CTRL, 1)) -      \
+	 ROM_END_OFFSET)
 #endif
-#else /* CONFIG_XIP */
-#define ROM_BASE CONFIG_SRAM_BASE_ADDRESS
-#define ROM_SIZE KB(CONFIG_SRAM_SIZE)
-#endif /* CONFIG_XIP */
 
-#define RAM_BASE CONFIG_SRAM_BASE_ADDRESS
-#define RAM_SIZE KB(CONFIG_SRAM_SIZE)
+#else /* Use Kconfig to cover the remaining cases */
+#define ROM_BASE (CONFIG_FLASH_BASE_ADDRESS + FLASH_LOAD_OFFSET)
+#ifndef ROM_SIZE
+#define ROM_SIZE (CONFIG_FLASH_SIZE * 1024 - FLASH_LOAD_OFFSET - ROM_END_OFFSET)
+#endif
+
+#endif /* DT_NODE_HAS_COMPAT_STATUS */
+
+#else /* CONFIG_XIP */
+#define ROM_BASE DT_CHOSEN_SRAM_ADDR
+#define ROM_SIZE (DT_CHOSEN_SRAM_SIZE - ROM_END_OFFSET)
+#endif /* CONFIG_XIP */
+#endif /* defined(CONFIG_FLASH_USES_MAPPED_PARTITION) && defined(CONFIG_XIP) */
+
+#define RAM_BASE DT_CHOSEN_SRAM_ADDR
+#define RAM_SIZE DT_CHOSEN_SRAM_SIZE
 
 #ifdef CONFIG_RISCV_PMP
 	#define MPU_MIN_SIZE CONFIG_PMP_GRANULARITY
@@ -72,6 +106,8 @@
 	#define MPU_ALIGN(region_size) . = ALIGN(4)
 #endif
 
+#include <zephyr/linker/linker-devnull.h>
+
 MEMORY
 {
 #ifdef CONFIG_XIP
@@ -79,10 +115,14 @@ MEMORY
 #endif
     RAM (rwx) : ORIGIN = RAM_BASE, LENGTH = RAM_SIZE
 
+#if defined(CONFIG_LINKER_DEVNULL_MEMORY)
+    DEVNULL_ROM (rx) : ORIGIN = DEVNULL_ADDR, LENGTH = DEVNULL_SIZE
+#endif
+
     LINKER_DT_REGIONS()
 
     /* Used by and documented in include/linker/intlist.ld */
-    IDT_LIST  (wx)      : ORIGIN = 0xFFFFF7FF, LENGTH = 2K
+    IDT_LIST  (wx)      : ORIGIN = 0xFFFFF000, LENGTH = 4K
 }
 
 ENTRY(CONFIG_KERNEL_ENTRY)
@@ -91,6 +131,7 @@ SECTIONS
     {
 
 #include <zephyr/linker/rel-sections.ld>
+#include <zephyr/linker/llext-sections.ld>
 
     /*
      * The .plt and .iplt are here according to
@@ -151,6 +192,10 @@ SECTIONS
 
 	__rodata_region_start = .;
 #include <zephyr/linker/common-rom.ld>
+/* Located in generated directory. This file is populated by calling
+ * zephyr_linker_sources(ROM_SECTIONS ...). Useful for grouping iterable RO structs.
+ */
+#include <snippets-rom-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 
     SECTION_PROLOGUE(_RODATA_SECTION_NAME,,)
@@ -188,7 +233,7 @@ SECTIONS
 		/*
 		 * QEMU doesn't vet each instruction fetch individually.
 		 * Instead, it grabs a whole page and perform dynamic
-		 * transation on it in a batch. It therefore validates
+		 * translation on it in a batch. It therefore validates
 		 * PMP permissions using page-sized and -aligned chunks.
 		 */
 		. = ALIGN(0x1000);
@@ -220,62 +265,31 @@ SECTIONS
 	_app_smem_rom_start = LOADADDR(_APP_SMEM_SECTION_NAME);
 #endif /* CONFIG_USERSPACE */
 
-    SECTION_DATA_PROLOGUE(_BSS_SECTION_NAME,(NOLOAD),)
-	{
-		MPU_MIN_SIZE_ALIGN
-		/*
-		 * For performance, BSS section is assumed to be 4 byte aligned and
-		 * a multiple of 4 bytes
-		 */
-		 . = ALIGN(4);
-		 __bss_start = .;
-		__kernel_ram_start = .;
-		 *(.sbss)
-		 *(".sbss.*")
-		 *(.bss)
-		 *(".bss.*")
-		 COMMON_SYMBOLS
-
-#ifdef CONFIG_CODE_DATA_RELOCATION
-#include <linker_sram_bss_relocate.ld>
-#endif
-
-		 /*
-		  * As memory is cleared in words only, it is simpler to ensure the BSS
-		  * section ends on a 4 byte boundary. This wastes a maximum of 3 bytes.
-		  */
-		  __bss_end = ALIGN(4);
-	}  GROUP_DATA_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
-
-#include <zephyr/linker/common-noinit.ld>
-
     SECTION_DATA_PROLOGUE(_DATA_SECTION_NAME,,)
 	{
 		 . = ALIGN(4);
 		/* _image_ram_start = .; */
+		 __kernel_ram_start = .;
 		 __data_region_start = .;
 		 __data_start = .;
 
 		 *(.data)
 		 *(".data.*")
-
-#ifdef CONFIG_RISCV_GP
-		/*
-		 * RISC-V architecture has 12-bit signed immediate offsets in the
+		 *(.sdata .sdata.* .gnu.linkonce.s.*)
+#if defined(CONFIG_RISCV_GP)
+		/* RISC-V architecture has 12-bit signed immediate offsets in the
 		 * instructions. If we can put the most commonly accessed globals
 		 * in a special 4K span of memory addressed by the GP register, then
 		 * we can access those values in a single instruction, saving both
 		 * codespace and runtime.
 		 *
 		 * Since these immediate offsets are signed, place gp 0x800 past the
-		 * beginning of .sdata so that we can use both positive and negative
+		 * end of .sdata so that we can use both positive and negative
 		 * offsets.
 		 */
 		 . = ALIGN(8);
 		 PROVIDE (__global_pointer$ = . + 0x800);
 #endif
-
-		 *(.sdata .sdata.* .gnu.linkonce.s.*)
 
 /* Located in generated directory. This file is populated by the
  * zephyr_linker_sources() Cmake function.
@@ -305,6 +319,34 @@ SECTIONS
 
     __data_region_end = .;
 
+    SECTION_DATA_PROLOGUE(_BSS_SECTION_NAME,(NOLOAD),)
+	{
+		MPU_MIN_SIZE_ALIGN
+		/*
+		 * For performance, BSS section is assumed to be 4 byte aligned and
+		 * a multiple of 4 bytes
+		 */
+		 . = ALIGN(4);
+		 __bss_start = .;
+		 *(.sbss)
+		 *(".sbss.*")
+		 *(.bss)
+		 *(".bss.*")
+		 COMMON_SYMBOLS
+
+#ifdef CONFIG_CODE_DATA_RELOCATION
+#include <linker_sram_bss_relocate.ld>
+#endif
+
+		 /*
+		  * As memory is cleared in words only, it is simpler to ensure the BSS
+		  * section ends on a 4 byte boundary. This wastes a maximum of 3 bytes.
+		  */
+		  __bss_end = ALIGN(4);
+	}  GROUP_DATA_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
+
+#include <zephyr/linker/common-noinit.ld>
+
 	__kernel_ram_end = .;
 	__kernel_ram_size = __kernel_ram_end - __kernel_ram_start;
 
@@ -316,6 +358,11 @@ GROUP_START(ITCM)
 		__itcm_start = .;
 		*(.itcm)
 		*(".itcm.*")
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function. */
+#include <snippets-itcm-section.ld>
+
 		__itcm_end = .;
 	} GROUP_LINK_IN(ITCM AT> ROMABLE_REGION)
 
@@ -350,6 +397,11 @@ GROUP_START(DTCM)
 		__dtcm_data_start = .;
 		*(.dtcm_data)
 		*(".dtcm_data.*")
+
+/* Located in generated directory. This file is populated by the
+ * zephyr_linker_sources() Cmake function. */
+#include <snippets-dtcm-section.ld>
+
 		__dtcm_data_end = .;
 	} GROUP_LINK_IN(DTCM AT> ROMABLE_REGION)
 
@@ -381,6 +433,15 @@ GROUP_END(DTCM)
 	KEEP(*(.gnu.attributes))
 	}
 
+/* Output section descriptions are needed for these sections to suppress
+ * warnings when "--orphan-handling=warn" is set for lld.
+ */
+#if defined(CONFIG_LLVM_USE_LLD)
+    SECTION_PROLOGUE(.symtab, 0,) { *(.symtab) }
+    SECTION_PROLOGUE(.strtab, 0,) { *(.strtab) }
+    SECTION_PROLOGUE(.shstrtab, 0,) { *(.shstrtab) }
+#endif
+
     /* Sections generated from 'zephyr,memory-region' nodes */
     LINKER_DT_SECTIONS()
 
@@ -392,15 +453,13 @@ GROUP_END(DTCM)
 /* Must be last in romable region */
 SECTION_PROLOGUE(.last_section,,)
 {
-#ifdef CONFIG_LINKER_LAST_SECTION_ID
-  /* Fill last section with a word to ensure location counter and actual rom
-   * region data usage match. */
-  LONG(CONFIG_LINKER_LAST_SECTION_ID_PATTERN)
+  /* .last_section contains a fixed word to ensure location counter and actual
+   * rom region data usage match when CONFIG_LINKER_LAST_SECTION_ID=y. */
+  KEEP(*(.last_section))
   /* __rom_region_size is used when configuring the PMP entry of the ROM region.
    * Addresses (pmpaddr) in PMP registers need to be aligned to 4. Align
    * __rom_region_size to 4 to meet that requirement. */
   MPU_MIN_SIZE_ALIGN
-#endif
 } GROUP_LINK_IN(ROMABLE_REGION)
 
 /* To provide the image size as a const expression,

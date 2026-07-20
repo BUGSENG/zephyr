@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2018 Nordic Semiconductor ASA
  * Copyright (c) 2016 Intel Corporation
+ * Copyright (C) 2025 Bang & Olufsen A/S, Denmark
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,7 +13,7 @@
 #include <zephyr/device.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/pm/device_runtime.h>
-#include <zephyr/sys/arch_interface.h>
+#include <zephyr/arch/arch_interface.h>
 
 static const char *get_device_name(const struct device *dev,
 				   char *buf,
@@ -55,15 +56,18 @@ static int cmd_device_list(const struct shell *sh,
 	const struct device *devlist_end = devlist + devcnt;
 	const struct device *dev;
 
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
-
 	shell_fprintf(sh, SHELL_NORMAL, "devices:\n");
 
 	for (dev = devlist; dev < devlist_end; dev++) {
-		char buf[20];
+		char buf[Z_DEVICE_MAX_NAME_LEN];
 		const char *name = get_device_name(dev, buf, sizeof(buf));
 		const char *state = "READY";
+		int usage;
+
+		if (argc == 2
+		    && strstr(name, argv[1]) == NULL) {
+			continue;
+		}
 
 		shell_fprintf(sh, SHELL_NORMAL, "- %s", name);
 		if (!device_is_ready(dev)) {
@@ -79,7 +83,13 @@ static int cmd_device_list(const struct shell *sh,
 #endif /* CONFIG_PM_DEVICE */
 		}
 
-		shell_fprintf(sh, SHELL_NORMAL, " (%s)\n", state);
+		usage = pm_device_runtime_usage(dev);
+		if (usage >= 0) {
+			shell_fprintf(sh, SHELL_NORMAL, " (%s, usage=%d)\n", state, usage);
+		} else {
+			shell_fprintf(sh, SHELL_NORMAL, " (%s)\n", state);
+		}
+
 #ifdef CONFIG_DEVICE_DEPS
 		if (!k_is_user_context()) {
 			struct cmd_device_list_visitor_context ctx = {
@@ -91,10 +101,119 @@ static int cmd_device_list(const struct shell *sh,
 			(void)device_required_foreach(dev, cmd_device_list_visitor, &ctx);
 		}
 #endif /* CONFIG_DEVICE_DEPS */
+
+#ifdef CONFIG_DEVICE_DT_METADATA
+		const struct device_dt_nodelabels *nl = device_get_dt_nodelabels(dev);
+
+		if (nl != NULL && nl->num_nodelabels > 0) {
+			shell_fprintf(sh, SHELL_NORMAL, "  DT node labels:");
+			for (size_t j = 0; j < nl->num_nodelabels; j++) {
+				const char *nodelabel = nl->nodelabels[j];
+
+				shell_fprintf(sh, SHELL_NORMAL, " %s", nodelabel);
+			}
+			shell_fprintf(sh, SHELL_NORMAL, "\n");
+		}
+#endif /* CONFIG_DEVICE_DT_METADATAa */
 	}
 
 	return 0;
 }
+
+static void device_name_lookup(size_t idx,
+			       struct shell_static_entry *entry)
+{
+	const struct device *dev = shell_device_lookup_all(idx, NULL);
+
+	entry->syntax = dev != NULL ? dev->name : NULL;
+	entry->handler = NULL;
+	entry->help = "device";
+	entry->subcmd = NULL;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dsub_device_name_lookup, device_name_lookup);
+
+
+#ifdef CONFIG_DEVICE_SHELL_INIT_CMD
+#ifdef CONFIG_DEVICE_DEPS
+static int cmd_device_check_deps(const struct device *dev,
+				 void *context)
+{
+	const struct cmd_device_list_visitor_context *ctx = context;
+
+	if (!device_is_ready(dev)) {
+		shell_error(ctx->sh, "Device %s is required, but not ready",
+			    get_device_name(dev, ctx->buf, ctx->buf_size));
+		return -EINVAL;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_DEVICE_DEPS */
+
+static int cmd_device_init(const struct shell *sh, size_t argc, char **argv)
+{
+	const struct device *dev;
+	int ret;
+
+	dev = shell_device_get_binding_all(argv[1]);
+	if (dev == NULL) {
+		shell_error(sh, "Device unknown (%s)", argv[1]);
+		return -ENODEV;
+	}
+
+	if (device_is_ready(dev)) {
+		shell_info(sh, "Device %s is already initialized", argv[1]);
+		return 0;
+	}
+
+#ifdef CONFIG_DEVICE_DEPS
+	if (!k_is_user_context()) {
+		char buf[Z_DEVICE_MAX_NAME_LEN];
+
+		struct cmd_device_list_visitor_context ctx = {
+			.sh = sh,
+			.buf = buf,
+			.buf_size = sizeof(buf),
+		};
+
+		ret = device_required_foreach(dev, cmd_device_check_deps, &ctx);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+#endif /* CONFIG_DEVICE_DEPS */
+
+	ret = device_init(dev);
+	if (ret != 0) {
+		shell_error(sh, "Device %s initialization failed with err=%d",
+			    argv[1], ret);
+	} else {
+		shell_info(sh, "Device %s initialized successfully", argv[1]);
+	}
+
+	return ret;
+}
+
+static void device_name_get_non_ready(size_t idx,
+				      struct shell_static_entry *entry)
+{
+	const struct device *dev = shell_device_lookup_non_ready(idx, NULL);
+
+	entry->syntax = dev != NULL ? dev->name : NULL;
+	entry->handler = NULL;
+	entry->help = "device";
+	entry->subcmd = NULL;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dsub_device_name_non_ready, device_name_get_non_ready);
+
+#define DEVICE_INIT_CMD SHELL_CMD_ARG(init, &dsub_device_name_non_ready, \
+				      "Manually initialize a device",	\
+				      cmd_device_init, 2, 0),
+#else
+#define DEVICE_INIT_CMD
+#endif /* CONFIG_DEVICE_SHELL_INIT_CMD */
 
 #ifdef CONFIG_PM_DEVICE_RUNTIME
 static int cmd_device_pm_toggle(const struct shell *sh,
@@ -136,9 +255,13 @@ static int cmd_device_pm_toggle(const struct shell *sh,
 #endif /* CONFIG_PM_DEVICE_RUNTIME  */
 
 
+#define LIST_CMD_HELP SHELL_HELP("List configured devices, with an optional filter", \
+				 "[<device filter>]")
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_device,
-	SHELL_CMD(list, NULL, "List configured devices", cmd_device_list),
+	SHELL_CMD_ARG(list, &dsub_device_name_lookup,
+		      LIST_CMD_HELP, cmd_device_list, 1, 1),
+	DEVICE_INIT_CMD
 	PM_SHELL_CMD
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );

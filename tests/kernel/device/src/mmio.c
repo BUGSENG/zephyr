@@ -60,7 +60,7 @@ DEVICE_DEFINE(foo0, "foo0", foo_single_init, NULL,
  */
 ZTEST(device, test_mmio_single)
 {
-	struct z_device_mmio_rom *rom;
+	const struct z_device_mmio_rom *rom;
 	const struct device *dev = device_get_binding("foo0");
 	mm_reg_t regs;
 
@@ -267,6 +267,8 @@ ZTEST(device, test_mmio_device_map)
 	device_map(&regs, 0xF0000000, 0x1000, K_MEM_CACHE_NONE);
 
 	zassert_not_equal(regs, 0, "bad regs");
+
+	device_unmap(regs, 0x1000);
 #else
 	ztest_test_skip();
 #endif

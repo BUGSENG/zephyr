@@ -54,6 +54,17 @@ struct native_tty_bottom_cfg {
  */
 
 /**
+ * @brief Check for available input on tty file descriptor
+ *
+ * @param fd
+ *
+ * @retval 1 if data is available
+ * @retval 0 if data is not available
+ * @retval <0 on error
+ */
+int native_tty_poll_bottom(int fd);
+
+/**
  * @brief Opens tty port on the given pathname
  *
  * Returned file descriptor can be then passed to native_tty_configure_bottom to configure it.
@@ -74,6 +85,16 @@ int native_tty_open_tty_bottom(const char *pathname);
  * @retval -1	otherwise.
  */
 int native_tty_configure_bottom(int fd, struct native_tty_bottom_cfg *cfg);
+
+/**
+ * @brief Read bottom tty configuration
+ *
+ * @param fd
+ * @param cfg
+ *
+ * @return 0 on success, negative value on error
+ */
+int native_tty_read_bottom_cfg(int fd, struct native_tty_bottom_cfg *cfg);
 
 #ifdef __cplusplus
 }

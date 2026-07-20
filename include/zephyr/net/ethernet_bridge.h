@@ -8,6 +8,8 @@
 
 /*
  * Copyright (c) 2021 BayLibre SAS
+ * Copyright (c) 2024 Nordic Semiconductor
+ * SPDX-FileCopyrightText: Copyright 2025 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,6 +19,7 @@
 
 #include <zephyr/sys/slist.h>
 #include <zephyr/sys/iterable_sections.h>
+#include <zephyr/net/ethernet.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,123 +28,75 @@ extern "C" {
 /**
  * @brief Ethernet Bridging API
  * @defgroup eth_bridge Ethernet Bridging API
+ * @since 2.7
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
 
 /** @cond INTERNAL_HIDDEN */
 
-struct eth_bridge {
-	struct k_mutex lock;
-	sys_slist_t interfaces;
-	sys_slist_t listeners;
-	bool initialized;
-};
-
-#define ETH_BRIDGE_INITIALIZER(obj) \
-	{ \
-		.lock		= { }, \
-		.interfaces	= SYS_SLIST_STATIC_INIT(&obj.interfaces), \
-		.listeners	= SYS_SLIST_STATIC_INIT(&obj.listeners), \
-	}
-
-/** @endcond */
-
-/**
- * @brief Statically define and initialize a bridge instance.
- *
- * @param name Name of the bridge object
- */
-#define ETH_BRIDGE_INIT(name) \
-	STRUCT_SECTION_ITERABLE(eth_bridge, name) = \
-		ETH_BRIDGE_INITIALIZER(name)
+#if defined(CONFIG_NET_ETHERNET_BRIDGE)
+#define NET_ETHERNET_BRIDGE_ETH_INTERFACE_COUNT CONFIG_NET_ETHERNET_BRIDGE_ETH_INTERFACE_COUNT
+#else
+#define NET_ETHERNET_BRIDGE_ETH_INTERFACE_COUNT 1
+#endif
 
 struct eth_bridge_iface_context {
-	sys_snode_t node;
-	struct eth_bridge *instance;
-	bool allow_tx;
+	/* Lock to protect access to interface array below */
+	struct k_mutex lock;
+
+	/* The actual bridge virtual interface  */
+	struct net_if *iface;
+
+	/* What Ethernet interfaces are bridged together */
+	struct net_if *eth_iface[NET_ETHERNET_BRIDGE_ETH_INTERFACE_COUNT];
+
+	/* How many interfaces are bridged atm */
+	size_t count;
+
+	/* Bridge instance id */
+	int id;
+
+	/* Has user configured the bridge */
+	bool is_setup : 1;
+
+	/* Is the interface enabled or not */
+	bool status : 1;
 };
 
-struct eth_bridge_listener {
-	sys_snode_t node;
-	struct k_fifo pkt_queue;
-};
+/** @endcond */
 
 /**
  * @brief Add an Ethernet network interface to a bridge
  *
  * This adds a network interface to a bridge. The interface is then put
- * into promiscuous mode, all packets received by this interface are sent
- * to the bridge, and any other packets sent to the bridge (with some
- * exceptions) are transmitted via this interface.
+ * into promiscuous mode. After more than one Ethernet interfaces are
+ * added to the bridge interface, the bridge interface is setup.
+ * After the setup is done, the bridge interface can be brought up so
+ * that it can start bridging L2 traffic.
  *
- * For transmission from the bridge to occur via this interface, it is
- * necessary to enable TX mode with eth_bridge_iface_tx(). TX mode is
- * initially disabled.
- *
- * Once an interface is added to a bridge, all its incoming traffic is
- * diverted to the bridge. However, packets sent out with net_if_queue_tx()
- * via this interface are not subjected to the bridge.
- *
- * @param br A pointer to an initialized bridge object
+ * @param br A pointer to a bridge interface
  * @param iface Interface to add
  *
  * @return 0 if OK, negative error code otherwise.
  */
-int eth_bridge_iface_add(struct eth_bridge *br, struct net_if *iface);
+int eth_bridge_iface_add(struct net_if *br, struct net_if *iface);
 
 /**
- * @brief Remove an Ethernet network interface from a bridge
+ * @brief Remove an Ethernet network interface from a bridge.
  *
- * @param br A pointer to an initialized bridge object
+ * If the bridge interface setup has only one Ethernet interface left
+ * after this function call, the bridge is disabled as it cannot bridge
+ * the L2 traffic any more. The bridge interface is left in UP state
+ * if this case.
+ *
+ * @param br A pointer to a bridge interface
  * @param iface Interface to remove
  *
  * @return 0 if OK, negative error code otherwise.
  */
-int eth_bridge_iface_remove(struct eth_bridge *br, struct net_if *iface);
-
-/**
- * @brief Enable/disable transmission mode for a bridged interface
- *
- * When TX mode is off, the interface may receive packets and send them to
- * the bridge but no packets coming from the bridge will be sent through this
- * interface. When TX mode is on, both incoming and outgoing packets are
- * allowed.
- *
- * @param iface Interface to configure
- * @param allow true to activate TX mode, false otherwise
- *
- * @return 0 if OK, negative error code otherwise.
- */
-int eth_bridge_iface_allow_tx(struct net_if *iface, bool allow);
-
-/**
- * @brief Add (register) a listener to the bridge
- *
- * This lets a software listener register a pointer to a provided FIFO for
- * receiving packets sent to the bridge. The listener is responsible for
- * emptying the FIFO with k_fifo_get() which will return a struct net_pkt
- * pointer, and releasing the packet with net_pkt_unref() when done with it.
- *
- * The listener wishing not to receive any more packets should simply
- * unregister itself with eth_bridge_listener_remove().
- *
- * @param br A pointer to an initialized bridge object
- * @param l A pointer to an initialized listener instance.
- *
- * @return 0 if OK, negative error code otherwise.
- */
-int eth_bridge_listener_add(struct eth_bridge *br, struct eth_bridge_listener *l);
-
-/**
- * @brief Remove (unregister) a listener from the bridge
- *
- * @param br A pointer to an initialized bridge object
- * @param l A pointer to the listener instance to be removed.
- *
- * @return 0 if OK, negative error code otherwise.
- */
-int eth_bridge_listener_remove(struct eth_bridge *br, struct eth_bridge_listener *l);
+int eth_bridge_iface_remove(struct net_if *br, struct net_if *iface);
 
 /**
  * @brief Get bridge index according to pointer
@@ -150,28 +105,28 @@ int eth_bridge_listener_remove(struct eth_bridge *br, struct eth_bridge_listener
  *
  * @return Bridge index
  */
-int eth_bridge_get_index(struct eth_bridge *br);
+int eth_bridge_get_index(struct net_if *br);
 
 /**
  * @brief Get bridge instance according to index
  *
  * @param index Bridge instance index
  *
- * @return Pointer to bridge instance or NULL if not found.
+ * @return Pointer to bridge interface or NULL if not found.
  */
-struct eth_bridge *eth_bridge_get_by_index(int index);
+struct net_if *eth_bridge_get_by_index(int index);
 
 /**
  * @typedef eth_bridge_cb_t
  * @brief Callback used while iterating over bridge instances
  *
- * @param br Pointer to bridge instance
+ * @param br Pointer to bridge context instance
  * @param user_data User supplied data
  */
-typedef void (*eth_bridge_cb_t)(struct eth_bridge *br, void *user_data);
+typedef void (*eth_bridge_cb_t)(struct eth_bridge_iface_context *br, void *user_data);
 
 /**
- * @brief Go through all the bridge instances in order to get
+ * @brief Go through all the bridge context instances in order to get
  *        information about them. This is mainly useful in
  *        net-shell to print data about currently active bridges.
  *
@@ -179,6 +134,58 @@ typedef void (*eth_bridge_cb_t)(struct eth_bridge *br, void *user_data);
  * @param user_data User supplied data
  */
 void net_eth_bridge_foreach(eth_bridge_cb_t cb, void *user_data);
+
+/**
+ * @brief Check if the iface is bridged.
+ *
+ * @param ctx Pointer to ethernet_context
+ *
+ * @return true if bridged, or false.
+ */
+static inline bool net_eth_iface_is_bridged(struct ethernet_context *ctx)
+{
+#if defined(CONFIG_NET_ETHERNET_BRIDGE)
+	struct eth_bridge_iface_context *br_ctx;
+
+	if (ctx->bridge == NULL) {
+		return false;
+	}
+
+	br_ctx = net_if_get_device(ctx->bridge)->data;
+	if (br_ctx->is_setup) {
+		return true;
+	}
+#endif
+	return false;
+}
+
+/**
+ * @brief Get bridge iface.
+ *
+ * @param ctx Pointer to ethernet_context
+ *
+ * @return Pointer to bridge iface, or NULL.
+ */
+static inline struct net_if *net_eth_get_bridge(struct ethernet_context *ctx)
+{
+#if defined(CONFIG_NET_ETHERNET_BRIDGE)
+	return ctx->bridge;
+#else
+	return NULL;
+#endif
+}
+
+/**
+ * @brief Process pkt received on bridged interface.
+ *
+ * @param iface Pointer to bridged iface
+ * @param pkt Pointer to pkt
+ * @param dst_iface Pointer to pointer to destination iface
+ *
+ * @return net_verdict.
+ */
+enum net_verdict eth_bridge_input_process(struct net_if *iface, struct net_pkt *pkt,
+					  struct net_if **dst_iface);
 
 /**
  * @}

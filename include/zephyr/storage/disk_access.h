@@ -39,7 +39,13 @@ extern "C" {
  * @brief perform any initialization
  *
  * This call is made by the consumer before doing any IO calls so that the
- * disk or the backing device can do any initialization.
+ * disk or the backing device can do any initialization. Although still
+ * supported for legacy compatibility, users should instead call
+ * @ref disk_access_ioctl with the IOCTL @ref DISK_IOCTL_CTRL_INIT.
+ *
+ * Disk initialization is reference counted, so only the first successful call
+ * to initialize a uninitialized (or previously de-initialized) disk will
+ * actually initialize the disk
  *
  * @param[in] pdrv          Disk name
  *
@@ -63,7 +69,7 @@ int disk_access_status(const char *pdrv);
  *
  * Function to read data from disk to a memory buffer.
  *
- * Note: if he disk is of NVMe type, user will need to ensure data_buf
+ * Note: if the disk is of NVMe type, user will need to ensure data_buf
  *       pointer is 4-bytes aligned.
  *
  * @param[in] pdrv          Disk name
@@ -81,7 +87,7 @@ int disk_access_read(const char *pdrv, uint8_t *data_buf,
  *
  * Function write data from memory buffer to disk.
  *
- * Note: if he disk is of NVMe type, user will need to ensure data_buf
+ * Note: if the disk is of NVMe type, user will need to ensure data_buf
  *       pointer is 4-bytes aligned.
  *
  * @param[in] pdrv          Disk name
@@ -93,6 +99,26 @@ int disk_access_read(const char *pdrv, uint8_t *data_buf,
  */
 int disk_access_write(const char *pdrv, const uint8_t *data_buf,
 		      uint32_t start_sector, uint32_t num_sector);
+
+enum disk_access_erase_type {
+	/** Erase the physical bytes on the disk to their natural erase value (0x00 or 0xFF) */
+	DISK_ACCESS_ERASE_PHYSICAL = 0,
+};
+
+/**
+ * @brief erase data from disk
+ *
+ * The result of this operation depends on the type of erase, as specified by @a erase_type.
+ *
+ * @param[in] pdrv          Disk name
+ * @param[in] start_sector  Start disk sector to erase
+ * @param[in] num_sector    Number of disk sectors to erase
+ * @param[in] erase_type    Type of erase to perform
+ *
+ * @return 0 on success, negative errno code on fail
+ */
+int disk_access_erase(const char *pdrv, uint32_t start_sector, uint32_t num_sector,
+		      enum disk_access_erase_type erase_type);
 
 /**
  * @brief Get/Configure disk parameters

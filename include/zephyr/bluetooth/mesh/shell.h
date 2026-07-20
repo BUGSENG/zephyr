@@ -3,6 +3,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+/**
+ * @file
+ * @brief Header file for the Bluetooth Mesh shell commands.
+ * @ingroup bt_mesh
+ */
+
 #ifndef ZEPHYR_INCLUDE_BLUETOOTH_MESH_SHELL_H_
 #define ZEPHYR_INCLUDE_BLUETOOTH_MESH_SHELL_H_
 
@@ -37,6 +44,9 @@ struct bt_mesh_shell_target {
 
 /** @brief External reference to health server */
 extern struct bt_mesh_health_srv bt_mesh_shell_health_srv;
+
+/** @brief External reference to health server metadata */
+extern const struct bt_mesh_models_metadata_entry health_srv_meta[];
 
 /** @brief External reference to health client */
 extern struct bt_mesh_health_cli bt_mesh_shell_health_cli;

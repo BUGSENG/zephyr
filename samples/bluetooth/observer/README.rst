@@ -1,7 +1,8 @@
-.. _bluetooth-observer-sample:
+.. zephyr:code-sample:: bluetooth_observer
+   :name: Observer
+   :relevant-api: bt_gap bluetooth
 
-Bluetooth: Observer
-###################
+   Scan for Bluetooth devices nearby and print their information.
 
 Overview
 ********
@@ -12,7 +13,7 @@ If any found, prints the address of the device, the RSSI value, the Advertising
 type, and the Advertising data length to the console.
 
 If the used Bluetooth Low Energy Controller supports Extended Scanning, you may
-enable `CONFIG_BT_EXT_ADV` in the project configuration file. Refer to the
+enable :kconfig:option:`CONFIG_BT_EXT_ADV` in the project configuration file. Refer to the
 project configuration file for further details.
 
 Requirements
@@ -23,7 +24,46 @@ Requirements
 Building and Running
 ********************
 
-This sample can be found under :zephyr_file:`samples/bluetooth/observer` in the
-Zephyr tree.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
 
-See :ref:`Bluetooth samples section <bluetooth-samples>` for details.
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/observer
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+The sample will print information about nearby Bluetooth LE devices to the console,
+including their address, RSSI value, advertising type, and advertising data length.
+
+Building with Extended Scanning support (Zephyr Controller)
+===========================================================
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/observer
+   :board: nrf52840dk/nrf52840
+   :goals: build flash
+   :gen-args: -DCONF_FILE=prj_extended.conf -DEXTRA_CONF_FILE=overlay-bt_ll_sw_split.conf
+   :compact:
+
+Building with Extended Scanning support for BBC Micro Bit
+=========================================================
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/observer
+   :board: bbc_microbit
+   :goals: build flash
+   :gen-args: -DCONF_FILE=prj_extended.conf -DEXTRA_CONF_FILE=overlay_bbc_microbit-bt_ll_sw_split.conf
+   :compact:
+
+Thread Analysis for BBC Micro Bit board
+========================================
+
+Due to resource constraints on the BBC Micro Bit board, thread analysis can be enabled to profile
+RAM usage and identify the thread stack sizes required to successfully build and run the sample.
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/observer
+   :board: bbc_microbit
+   :goals: build flash
+   :gen-args: -DCONF_FILE=prj_extended.conf "-DEXTRA_CONF_FILE=debug.conf;overlay_bbc_microbit-bt_ll_sw_split.conf"
+   :compact:

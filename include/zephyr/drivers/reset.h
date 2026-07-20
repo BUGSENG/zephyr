@@ -6,15 +6,18 @@
 
 /**
  * @file
- * @brief Public Reset Controller driver APIs
+ * @ingroup reset_controller_interface
+ * @brief Main header file for reset controller driver API.
  */
 
 #ifndef ZEPHYR_INCLUDE_DRIVERS_RESET_H_
 #define ZEPHYR_INCLUDE_DRIVERS_RESET_H_
 
 /**
- * @brief Reset Controller Interface
- * @defgroup reset_controller_interface Reset Controller Interface
+ * @brief Interfaces for reset controllers.
+ * @defgroup reset_controller_interface Reset Controller
+ * @since 3.1
+ * @version 0.2.0
  * @ingroup io_interfaces
  * @{
  */
@@ -73,6 +76,27 @@ struct reset_dt_spec {
 	}
 
 /**
+ * @brief Like RESET_DT_SPEC_GET_BY_IDX(), with a fallback to a default value
+ *
+ * If the devicetree node identifier 'node_id' refers to a node with a
+ * 'resets' property, this expands to
+ * <tt>RESET_DT_SPEC_GET_BY_IDX(node_id, idx)</tt>. The @p
+ * default_value parameter is not expanded in this case.
+ *
+ * Otherwise, this expands to @p default_value.
+ *
+ * @param node_id devicetree node identifier
+ * @param idx logical index into the 'resets' property
+ * @param default_value fallback value to expand to
+ * @return static initializer for a struct reset_dt_spec for the property,
+ *         or default_value if the node or property do not exist
+ */
+#define RESET_DT_SPEC_GET_BY_IDX_OR(node_id, idx, default_value)	\
+	COND_CODE_1(DT_NODE_HAS_PROP(node_id, resets),			\
+		    (RESET_DT_SPEC_GET_BY_IDX(node_id, idx)),		\
+		    (default_value))
+
+/**
  * @brief Equivalent to RESET_DT_SPEC_GET_BY_IDX(node_id, 0).
  *
  * @param node_id devicetree node identifier
@@ -83,10 +107,22 @@ struct reset_dt_spec {
 	RESET_DT_SPEC_GET_BY_IDX(node_id, 0)
 
 /**
- * @brief Static initializer for a @p reset_dt_spec from a DT_DRV_COMPAT
+ * @brief Equivalent to
+ *	  RESET_DT_SPEC_GET_BY_IDX_OR(node_id, 0, default_value).
+ *
+ * @param node_id devicetree node identifier
+ * @param default_value fallback value to expand to
+ * @return static initializer for a struct reset_dt_spec for the property,
+ *         or default_value if the node or property do not exist
+ */
+#define RESET_DT_SPEC_GET_OR(node_id, default_value)			\
+	RESET_DT_SPEC_GET_BY_IDX_OR(node_id, 0, default_value)
+
+/**
+ * @brief Static initializer for a @p reset_dt_spec from a @c DT_DRV_COMPAT
  * instance's Reset Controller property at an index.
  *
- * @param inst DT_DRV_COMPAT instance number
+ * @param inst @c DT_DRV_COMPAT instance number
  * @param idx logical index into "resets"
  * @return static initializer for a struct reset_dt_spec for the property
  * @see RESET_DT_SPEC_GET_BY_IDX()
@@ -95,16 +131,47 @@ struct reset_dt_spec {
 	RESET_DT_SPEC_GET_BY_IDX(DT_DRV_INST(inst), idx)
 
 /**
+ * @brief Static initializer for a @p reset_dt_spec from a @c DT_DRV_COMPAT
+ *	  instance's 'resets' property at an index, with fallback
+ *
+ * @param inst @c DT_DRV_COMPAT instance number
+ * @param idx logical index into the 'resets' property
+ * @param default_value fallback value to expand to
+ * @return static initializer for a struct reset_dt_spec for the property,
+ *         or default_value if the node or property do not exist
+ */
+#define RESET_DT_SPEC_INST_GET_BY_IDX_OR(inst, idx, default_value)	\
+	COND_CODE_1(DT_PROP_HAS_IDX(DT_DRV_INST(inst), resets, idx),	\
+		    (RESET_DT_SPEC_GET_BY_IDX(DT_DRV_INST(inst), idx)),	\
+		    (default_value))
+
+/**
  * @brief Equivalent to RESET_DT_SPEC_INST_GET_BY_IDX(inst, 0).
  *
- * @param inst DT_DRV_COMPAT instance number
+ * @param inst @c DT_DRV_COMPAT instance number
  * @return static initializer for a struct reset_dt_spec for the property
  * @see RESET_DT_SPEC_INST_GET_BY_IDX()
  */
 #define RESET_DT_SPEC_INST_GET(inst) \
 	RESET_DT_SPEC_INST_GET_BY_IDX(inst, 0)
 
-/** @cond INTERNAL_HIDDEN */
+/**
+ * @brief Equivalent to
+ *	  RESET_DT_SPEC_INST_GET_BY_IDX_OR(node_id, 0, default_value).
+ *
+ * @param inst @c DT_DRV_COMPAT instance number
+ * @param default_value fallback value to expand to
+ * @return static initializer for a struct reset_dt_spec for the property,
+ *         or default_value if the node or property do not exist
+ */
+#define RESET_DT_SPEC_INST_GET_OR(inst, default_value)			\
+	RESET_DT_SPEC_INST_GET_BY_IDX_OR(inst, 0, default_value)
+
+/**
+ * @def_driverbackendgroup{Reset Controller,reset_controller_interface}
+ * @ingroup reset_controller_interface
+ * @{
+ */
 
 /**
  * API template to get the reset status of the device.
@@ -135,16 +202,20 @@ typedef int (*reset_api_line_deassert)(const struct device *dev, uint32_t id);
 typedef int (*reset_api_line_toggle)(const struct device *dev, uint32_t id);
 
 /**
- * @brief Reset Controller driver API
+ * @driver_ops{Reset Controller}
  */
 __subsystem struct reset_driver_api {
+	/** @driver_ops_optional @copybrief reset_api_status */
 	reset_api_status status;
+	/** @driver_ops_optional @copybrief reset_api_line_assert */
 	reset_api_line_assert line_assert;
+	/** @driver_ops_optional @copybrief reset_api_line_deassert */
 	reset_api_line_deassert line_deassert;
+	/** @driver_ops_optional @copybrief reset_api_line_toggle */
 	reset_api_line_toggle line_toggle;
 };
 
-/** @endcond */
+/** @} */
 
 /**
  * @brief Get the reset status
@@ -155,15 +226,14 @@ __subsystem struct reset_driver_api {
  * @param id Reset line.
  * @param status Where to write the reset status.
  *
- * @retval 0 On success.
- * @retval -ENOSYS If the functionality is not implemented by the driver.
- * @retval -errno Other negative errno in case of failure.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOSYS Functionality is not implemented by the driver.
  */
 __syscall int reset_status(const struct device *dev, uint32_t id, uint8_t *status);
 
 static inline int z_impl_reset_status(const struct device *dev, uint32_t id, uint8_t *status)
 {
-	const struct reset_driver_api *api = (const struct reset_driver_api *)dev->api;
+	const struct reset_driver_api *api = DEVICE_API_GET(reset, dev);
 
 	if (api->status == NULL) {
 		return -ENOSYS;
@@ -198,15 +268,14 @@ static inline int reset_status_dt(const struct reset_dt_spec *spec, uint8_t *sta
  * @param dev Reset controller device.
  * @param id Reset line.
  *
- * @retval 0 On success.
- * @retval -ENOSYS If the functionality is not implemented by the driver.
- * @retval -errno Other negative errno in case of failure.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOSYS Functionality is not implemented by the driver.
  */
 __syscall int reset_line_assert(const struct device *dev, uint32_t id);
 
 static inline int z_impl_reset_line_assert(const struct device *dev, uint32_t id)
 {
-	const struct reset_driver_api *api = (const struct reset_driver_api *)dev->api;
+	const struct reset_driver_api *api = DEVICE_API_GET(reset, dev);
 
 	if (api->line_assert == NULL) {
 		return -ENOSYS;
@@ -240,15 +309,14 @@ static inline int reset_line_assert_dt(const struct reset_dt_spec *spec)
  * @param dev Reset controller device.
  * @param id Reset line.
  *
- * @retval 0 On success.
- * @retval -ENOSYS If the functionality is not implemented by the driver.
- * @retval -errno Other negative errno in case of failure.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOSYS Functionality is not implemented by the driver.
  */
 __syscall int reset_line_deassert(const struct device *dev, uint32_t id);
 
 static inline int z_impl_reset_line_deassert(const struct device *dev, uint32_t id)
 {
-	const struct reset_driver_api *api = (const struct reset_driver_api *)dev->api;
+	const struct reset_driver_api *api = DEVICE_API_GET(reset, dev);
 
 	if (api->line_deassert == NULL) {
 		return -ENOSYS;
@@ -281,15 +349,14 @@ static inline int reset_line_deassert_dt(const struct reset_dt_spec *spec)
  * @param dev Reset controller device.
  * @param id Reset line.
  *
- * @retval 0 On success.
- * @retval -ENOSYS If the functionality is not implemented by the driver.
- * @retval -errno Other negative errno in case of failure.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -ENOSYS Functionality is not implemented by the driver.
  */
 __syscall int reset_line_toggle(const struct device *dev, uint32_t id);
 
 static inline int z_impl_reset_line_toggle(const struct device *dev, uint32_t id)
 {
-	const struct reset_driver_api *api = (const struct reset_driver_api *)dev->api;
+	const struct reset_driver_api *api = DEVICE_API_GET(reset, dev);
 
 	if (api->line_toggle == NULL) {
 		return -ENOSYS;
@@ -322,6 +389,6 @@ static inline int reset_line_toggle_dt(const struct reset_dt_spec *spec)
 }
 #endif
 
-#include <syscalls/reset.h>
+#include <zephyr/syscalls/reset.h>
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_RESET_H_ */

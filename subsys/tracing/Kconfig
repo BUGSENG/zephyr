@@ -5,12 +5,21 @@
 
 DT_CHOSEN_Z_CONSOLE := zephyr,console
 
+config SYS_IDLE_HOOKS
+	bool
+	help
+	  Hidden symbol selected by subsystems that need the architecture idle
+	  path to call the sys_trace_idle()/sys_trace_idle_exit() notification
+	  hooks (for example TRACING and CPU_LOAD). When no subsystem selects
+	  it, the arch idle path omits the hook calls entirely.
+
 config TRACING
 	bool "Tracing Support"
 	imply THREAD_NAME
 	imply THREAD_STACK_INFO
 	imply THREAD_MONITOR
 	select INSTRUMENT_THREAD_SWITCHING
+	select SYS_IDLE_HOOKS
 	help
 	  Enable system tracing. This requires a backend such as SEGGER
 	  Systemview to be enabled as well.
@@ -23,7 +32,45 @@ config TRACING_CORE
 	  Automatically selected by formats that require the core
 	  tracing infrastructure.
 
-choice
+if TRACING_CORE
+
+choice TRACING_INIT_LEVEL
+	prompt "Tracing initialization level"
+	default TRACING_INIT_LEVEL_APPLICATION
+	help
+	  SYS_INIT level at which the tracing backend is initialized. A lower
+	  level starts tracing earlier and captures more of the boot sequence,
+	  but runs before subsystems initialized at later levels.
+
+config TRACING_INIT_LEVEL_PRE_KERNEL_2
+	bool "PRE_KERNEL_2"
+	depends on TRACING_SYNC
+	help
+	  Earliest supported level. Sync tracing only: async tracing creates its
+	  drainer thread in tracing_init(), which needs the kernel. The system
+	  timer also initializes at PRE_KERNEL_2 (sys_clock_driver_init at
+	  SYSTEM_CLOCK_INIT_PRIORITY), so TRACING_INIT_PRIORITY must be set higher
+	  than that - otherwise tracing runs before the cycle counter is live and
+	  event timestamps are invalid.
+
+config TRACING_INIT_LEVEL_POST_KERNEL
+	bool "POST_KERNEL"
+
+config TRACING_INIT_LEVEL_APPLICATION
+	bool "APPLICATION"
+
+endchoice
+
+config TRACING_INIT_PRIORITY
+	int "Tracing initialization priority"
+	default 0
+	help
+	  Initialization priority of the tracing backend within
+	  TRACING_INIT_LEVEL.
+
+endif # TRACING_CORE
+
+choice TRACING_FORMAT_CHOICE
 	prompt "Tracing Format"
 	default TRACING_NONE
 
@@ -41,8 +88,6 @@ config PERCEPIO_TRACERECORDER
 
 config SEGGER_SYSTEMVIEW
 	bool "Segger SystemView support"
-	select CONSOLE
-	select RTT_CONSOLE
 	select USE_SEGGER_RTT
 	select THREAD_MONITOR
 	select SEGGER_RTT_CUSTOM_LOCKING
@@ -65,18 +110,41 @@ config TRACING_USER
 	help
 	  Use user-defined functions for tracing task switching and irqs
 
+config TRACING_CUSTOM
+	bool "Include custom tracing header [EXPERIMENTAL]"
+	select EXPERIMENTAL
+	help
+	  When enabled, a custom application provided header, named
+	  "zephyr_custom_tracing.h", is included at the end of tracing.h. This enables
+	  extension of the sys_port_trace* APIs at the macro level. Please use cautiously!
+	  The internal TRACE APIs may change in future releases.
+
 endchoice
 
+config TRACING_FORMAT_HEADER
+	string
+	help
+	  Name of a tracing format header to include from
+	  <zephyr/tracing/tracing.h>, pulled in with a computed #include. This
+	  lets an out-of-tree module supply its own tracing format without
+	  editing the core tree: the module's Kconfig sets this string (for
+	  example, default "my_format.h" if TRACING_MY_FORMAT) and adds its
+	  header directory to the include path. The header should define the
+	  sys_port_trace_* hooks it records and end with
+	  #include <zephyr/tracing/tracing_hooks.h> so any hook it does not
+	  define falls back to a no-op. It is only consulted when none of the
+	  in-tree formats above is selected.
 
 config TRACING_CTF_TIMESTAMP
 	bool "CTF internal timestamp"
 	default y
 	depends on TRACING_CTF
+	select TIMING_FUNCTIONS
 	help
 	  Timestamp prefix will be added to the beginning of CTF
 	  event internally.
 
-choice
+choice TRACING_METHOD_CHOICE
 	prompt "Tracing Method"
 	default TRACING_ASYNC
 
@@ -129,20 +197,20 @@ config TRACING_PACKET_MAX_SIZE
 	help
 	  Max size of one tracing packet.
 
-choice
+choice TRACING_BACKEND_CHOICE
 	prompt "Tracing Backend"
 	default TRACING_BACKEND_UART
 
 config TRACING_BACKEND_UART
 	bool "UART backend"
-	depends on UART_CONSOLE
+	depends on SERIAL
 
 	help
 	  Use UART to output tracing data.
 
 config TRACING_BACKEND_USB
 	bool "USB backend"
-	depends on USB_DEVICE_STACK
+	depends on USB_DEVICE_STACK_NEXT
 	depends on TRACING_ASYNC
 	help
 	  Use USB to output tracing data.
@@ -160,7 +228,31 @@ config TRACING_BACKEND_RAM
 	  Use a ram buffer to output tracing data which can
 	  be dumped to a file at runtime with a debugger.
 	  See gdb dump binary memory documentation for example.
+
+config TRACING_BACKEND_SEMIHOST
+	bool "Semihost backend"
+	depends on SEMIHOST
+	help
+	  Use semihosting to output tracing data. This is useful
+	  for debugging on a host machine, such as when using QEMU.
+
+config TRACING_BACKEND_ADSP_MEMORY_WINDOW
+	bool "Memory window in RAM"
+	depends on SOC_FAMILY_INTEL_ADSP
+	depends on TRACING_SYNC
+	help
+	  Use ADSP memory debug memory window to output tracing data
+
 endchoice
+
+config TRACING_BACKEND_NAME
+	string
+	default "tracing_backend_uart" if TRACING_BACKEND_UART
+	default "tracing_backend_usb" if TRACING_BACKEND_USB
+	default "tracing_backend_posix" if TRACING_BACKEND_POSIX
+	default "tracing_backend_ram" if TRACING_BACKEND_RAM
+	default "tracing_backend_semihost" if TRACING_BACKEND_SEMIHOST
+	default "tracing_backend_adsp_memory_window" if TRACING_BACKEND_ADSP_MEMORY_WINDOW
 
 config RAM_TRACING_BUFFER_SIZE
 	int "Ram Tracing buffer size"
@@ -169,13 +261,6 @@ config RAM_TRACING_BUFFER_SIZE
 	help
 	  Size of the RAM trace buffer. Trace will be discarded if the
 	  length is exceeded.
-
-config TRACING_USB_MPS
-	int "USB backend max packet size"
-	default 64
-	depends on TRACING_BACKEND_USB
-	help
-	  USB tracing backend max packet size(endpoint MPS).
 
 config TRACING_HANDLE_HOST_CMD
 	bool "Host command handle"
@@ -196,6 +281,13 @@ config TRACING_OBJECT_TRACKING
 	bool "Object tracking"
 	help
 	  Keep lists to track kernel objects.
+
+config TRACING_SHELL
+	bool "Tracing shell commands"
+	depends on TRACING_CORE && SHELL
+	help
+	  Enable the "tracing" shell command for runtime enable/disable of
+	  tracing output, dropped-packet statistics, and backend flush.
 
 menu "Tracing Configuration"
 
@@ -319,6 +411,39 @@ config TRACING_PM
 	default y
 	help
 	  Enable tracing Power Management.
+
+config TRACING_NETWORKING
+	bool "Tracing Network Objects"
+	default y if NETWORKING
+	help
+	  Enable tracing network objects.
+
+config TRACING_NET_SOCKETS
+	bool "Tracing Network Sockets"
+	depends on TRACING_NETWORKING
+	default y if NET_SOCKETS
+	help
+	  Enable tracing network sockets.
+
+config TRACING_NET_CORE
+	bool "Tracing Network Core IP stack"
+	depends on TRACING_NETWORKING
+	default y if NET_IP
+	help
+	  Enable tracing core network IP stack, like packet reception
+	  and sending.
+
+config TRACING_GPIO
+	bool "Tracing GPIO"
+	default n
+	help
+	  Enable tracing GPIO.
+
+config TRACING_IDLE
+	bool "Tracing Idle"
+	default y
+	help
+	  Enable tracing Idle state.
 
 endmenu  # Tracing Configuration
 

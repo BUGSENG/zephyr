@@ -18,13 +18,14 @@ LOG_MODULE_REGISTER(i2c_xilinx_axi, CONFIG_I2C_LOG_LEVEL);
 #include "i2c_xilinx_axi.h"
 
 struct i2c_xilinx_axi_config {
-	mem_addr_t base;
+	DEVICE_MMIO_ROM;
 	void (*irq_config_func)(const struct device *dev);
 	/* Whether device has working dynamic read (broken prior to core rev. 2.1) */
 	bool dyn_read_working;
 };
 
 struct i2c_xilinx_axi_data {
+	DEVICE_MMIO_RAM;
 	struct k_event irq_event;
 	/* Serializes between ISR and other calls */
 	struct k_spinlock lock;
@@ -39,19 +40,38 @@ struct i2c_xilinx_axi_data {
 #endif
 };
 
+static void i2c_xilinx_axi_reinit(const struct device *dev)
+{
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
+
+	LOG_DBG("Controller reinit");
+	sys_write32(SOFTR_KEY, base + REG_SOFTR);
+	sys_write32(CR_TX_FIFO_RST, base + REG_CR);
+	sys_write32(CR_EN, base + REG_CR);
+	sys_write32(GIE_ENABLE, base + REG_GIE);
+}
+
 #if defined(CONFIG_I2C_TARGET)
 
 #define I2C_XILINX_AXI_TARGET_INTERRUPTS                                                           \
 	(ISR_ADDR_TARGET | ISR_NOT_ADDR_TARGET | ISR_RX_FIFO_FULL | ISR_TX_FIFO_EMPTY |            \
 	 ISR_TX_ERR_TARGET_COMP)
 
+static void i2c_xilinx_axi_target_setup(const struct device *dev, struct i2c_target_config *cfg)
+{
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
+
+	i2c_xilinx_axi_reinit(dev);
+
+	sys_write32(ISR_ADDR_TARGET, base + REG_IER);
+	sys_write32(cfg->address << 1, base + REG_ADR);
+	sys_write32(0, base + REG_RX_FIFO_PIRQ);
+}
+
 static int i2c_xilinx_axi_target_register(const struct device *dev, struct i2c_target_config *cfg)
 {
-	const struct i2c_xilinx_axi_config *config = dev->config;
 	struct i2c_xilinx_axi_data *data = dev->data;
 	k_spinlock_key_t key;
-	uint32_t int_enable;
-	uint32_t int_status;
 	int ret;
 
 	if (cfg->flags & I2C_TARGET_FLAGS_ADDR_10_BITS) {
@@ -68,20 +88,7 @@ static int i2c_xilinx_axi_target_register(const struct device *dev, struct i2c_t
 	}
 
 	data->target_cfg = cfg;
-
-	int_status = sys_read32(config->base + REG_ISR);
-	if (int_status & I2C_XILINX_AXI_TARGET_INTERRUPTS) {
-		sys_write32(int_status & I2C_XILINX_AXI_TARGET_INTERRUPTS, config->base + REG_ISR);
-	}
-
-	sys_write32(CR_EN, config->base + REG_CR);
-	int_enable = sys_read32(config->base + REG_IER);
-	int_enable |= ISR_ADDR_TARGET;
-	sys_write32(int_enable, config->base + REG_IER);
-
-	sys_write32(cfg->address << 1, config->base + REG_ADR);
-	sys_write32(0, config->base + REG_RX_FIFO_PIRQ);
-
+	i2c_xilinx_axi_target_setup(dev, cfg);
 	ret = 0;
 
 out_unlock:
@@ -93,8 +100,8 @@ out_unlock:
 
 static int i2c_xilinx_axi_target_unregister(const struct device *dev, struct i2c_target_config *cfg)
 {
-	const struct i2c_xilinx_axi_config *config = dev->config;
 	struct i2c_xilinx_axi_data *data = dev->data;
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
 	k_spinlock_key_t key;
 	uint32_t int_enable;
 	int ret;
@@ -113,13 +120,12 @@ static int i2c_xilinx_axi_target_unregister(const struct device *dev, struct i2c
 	}
 
 	data->target_cfg = NULL;
-	sys_write32(0, config->base + REG_ADR);
+	sys_write32(0, base + REG_ADR);
 
-	sys_write32(CR_EN, config->base + REG_CR);
-	int_enable = sys_read32(config->base + REG_IER);
+	sys_write32(CR_EN, base + REG_CR);
+	int_enable = sys_read32(base + REG_IER);
 	int_enable &= ~I2C_XILINX_AXI_TARGET_INTERRUPTS;
-	sys_write32(int_enable, config->base + REG_IER);
-
+	sys_write32(int_enable, base + REG_IER);
 	ret = 0;
 
 out_unlock:
@@ -129,17 +135,20 @@ out_unlock:
 	return ret;
 }
 
-static void i2c_xilinx_axi_target_isr(const struct i2c_xilinx_axi_config *config,
-				      struct i2c_xilinx_axi_data *data, uint32_t int_status,
+static void i2c_xilinx_axi_target_isr(const struct device *dev, uint32_t *int_status,
 				      uint32_t *ints_to_clear, uint32_t *int_enable)
 {
-	if (int_status & ISR_ADDR_TARGET) {
+	struct i2c_xilinx_axi_data *data = dev->data;
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
+
+	if (*int_status & ISR_ADDR_TARGET) {
 		LOG_DBG("Addressed as target");
+		*int_status &= ~ISR_ADDR_TARGET;
 		*int_enable &= ~ISR_ADDR_TARGET;
 		*int_enable |= ISR_NOT_ADDR_TARGET;
 		*ints_to_clear |= ISR_NOT_ADDR_TARGET;
 
-		if (sys_read32(config->base + REG_SR) & SR_SRW) {
+		if (sys_read32(base + REG_SR) & SR_SRW) {
 			uint8_t read_byte;
 
 			data->target_reading = true;
@@ -151,132 +160,121 @@ static void i2c_xilinx_axi_target_isr(const struct i2c_xilinx_axi_config *config
 				data->target_read_aborted = true;
 				read_byte = 0xFF;
 			}
-			sys_write32(read_byte, config->base + REG_TX_FIFO);
+			sys_write32(read_byte, base + REG_TX_FIFO);
 		} else {
 			data->target_writing = true;
 			*int_enable |= ISR_RX_FIFO_FULL;
 			if ((*data->target_cfg->callbacks->write_requested)(data->target_cfg)) {
-				uint32_t cr = sys_read32(config->base + REG_CR);
+				uint32_t cr = sys_read32(base + REG_CR);
 
 				LOG_DBG("target write_requested rejected");
 				cr |= CR_TXAK;
-				sys_write32(cr, config->base + REG_CR);
+				sys_write32(cr, base + REG_CR);
 			}
 		}
-	} else if (int_status & ISR_NOT_ADDR_TARGET) {
+	} else if (*int_status & ISR_NOT_ADDR_TARGET) {
 		LOG_DBG("Not addressed as target");
 		(*data->target_cfg->callbacks->stop)(data->target_cfg);
 		data->target_reading = false;
 		data->target_read_aborted = false;
 		data->target_writing = false;
 
-		sys_write32(CR_EN, config->base + REG_CR);
+		sys_write32(CR_EN, base + REG_CR);
+		*int_status &= ~ISR_NOT_ADDR_TARGET;
 		*int_enable &= ~I2C_XILINX_AXI_TARGET_INTERRUPTS;
 		*int_enable |= ISR_ADDR_TARGET;
 		*ints_to_clear |= ISR_ADDR_TARGET;
-	} else if (int_status & ISR_RX_FIFO_FULL) {
-		const uint8_t written_byte =
-			sys_read32(config->base + REG_RX_FIFO) & RX_FIFO_DATA_MASK;
+	} else if (data->target_writing && (*int_status & ISR_RX_FIFO_FULL)) {
+		*int_status &= ~ISR_RX_FIFO_FULL;
+		const uint8_t written_byte = sys_read32(base + REG_RX_FIFO) & RX_FIFO_DATA_MASK;
 
 		if ((*data->target_cfg->callbacks->write_received)(data->target_cfg,
 								   written_byte)) {
-			uint32_t cr = sys_read32(config->base + REG_CR);
+			uint32_t cr = sys_read32(base + REG_CR);
 
 			LOG_DBG("target write_received rejected");
 			cr |= CR_TXAK;
-			sys_write32(cr, config->base + REG_CR);
+			sys_write32(cr, base + REG_CR);
 		}
-	} else if (int_status & ISR_TX_ERR_TARGET_COMP) {
-		if (data->target_reading) {
-			/* Controller has NAKed the last byte read, so no more to send.
-			 * Ignore TX FIFO empty so we don't write an extra byte.
-			 */
-			LOG_DBG("target read completed");
-			*int_enable &= ~ISR_TX_FIFO_EMPTY;
-			*ints_to_clear |= ISR_TX_FIFO_EMPTY;
-		} else {
-			LOG_WRN("Unexpected TX complete");
-		}
-	} else if (int_status & ISR_TX_FIFO_EMPTY) {
-		if (data->target_reading) {
-			uint8_t read_byte = 0xFF;
+	} else if (data->target_reading && (*int_status & ISR_TX_ERR_TARGET_COMP)) {
+		/* Controller has NAKed the last byte read, so no more to send.
+		 * Ignore TX FIFO empty so we don't write an extra byte.
+		 */
+		LOG_DBG("target read completed");
+		*int_status &= ~ISR_TX_ERR_TARGET_COMP;
+		*int_enable &= ~ISR_TX_FIFO_EMPTY;
+		*ints_to_clear |= ISR_TX_FIFO_EMPTY;
+	} else if (data->target_reading && (*int_status & ISR_TX_FIFO_EMPTY)) {
+		*int_status &= ~ISR_TX_FIFO_EMPTY;
+		uint8_t read_byte = 0xFF;
 
-			if (!data->target_read_aborted &&
-			    (*data->target_cfg->callbacks->read_processed)(data->target_cfg,
-									   &read_byte)) {
-				LOG_DBG("target read_processed rejected");
-				data->target_read_aborted = true;
-			}
-			sys_write32(read_byte, config->base + REG_TX_FIFO);
-		} else {
-			LOG_WRN("Unexpected TX empty");
+		if (!data->target_read_aborted &&
+		    (*data->target_cfg->callbacks->read_processed)(data->target_cfg, &read_byte)) {
+			LOG_DBG("target read_processed rejected");
+			data->target_read_aborted = true;
 		}
+		sys_write32(read_byte, base + REG_TX_FIFO);
 	}
 }
 #endif
 
 static void i2c_xilinx_axi_isr(const struct device *dev)
 {
-	const struct i2c_xilinx_axi_config *config = dev->config;
 	struct i2c_xilinx_axi_data *data = dev->data;
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
 	const k_spinlock_key_t key = k_spin_lock(&data->lock);
-	uint32_t int_enable = sys_read32(config->base + REG_IER);
-	const uint32_t int_status = sys_read32(config->base + REG_ISR) & int_enable;
+	uint32_t int_enable = sys_read32(base + REG_IER);
+	uint32_t int_status = sys_read32(base + REG_ISR) & int_enable;
 	uint32_t ints_to_clear = int_status;
-	uint32_t ints_to_mask = int_status;
 
-	LOG_DBG("ISR called for 0x%08" PRIxPTR ", status 0x%02x", config->base, int_status);
+	LOG_DBG("ISR called for 0x%08" PRIxPTR ", status 0x%02x", base, int_status);
 
 	if (int_status & ISR_ARB_LOST) {
 		/* Must clear MSMS before clearing interrupt */
-		uint32_t cr = sys_read32(config->base + REG_CR);
+		uint32_t cr = sys_read32(base + REG_CR);
 
 		cr &= ~CR_MSMS;
-		sys_write32(cr, config->base + REG_CR);
+		sys_write32(cr, base + REG_CR);
 	}
 
 #if defined(CONFIG_I2C_TARGET)
 	if (data->target_cfg && (int_status & I2C_XILINX_AXI_TARGET_INTERRUPTS)) {
-		ints_to_mask &= ~(int_status & I2C_XILINX_AXI_TARGET_INTERRUPTS);
-		i2c_xilinx_axi_target_isr(config, data, int_status, &ints_to_clear, &int_enable);
+		/* This clears events from int_status which are already handled */
+		i2c_xilinx_axi_target_isr(dev, &int_status, &ints_to_clear, &int_enable);
 	}
 #endif
 
-	sys_write32(int_enable & ~ints_to_mask, config->base + REG_IER);
+	/* Mask any interrupts which have not already been handled separately */
+	sys_write32(int_enable & ~int_status, base + REG_IER);
 	/* Be careful, writing 1 to a bit that is not currently set in ISR will SET it! */
-	sys_write32(ints_to_clear & sys_read32(config->base + REG_ISR), config->base + REG_ISR);
+	sys_write32(ints_to_clear & sys_read32(base + REG_ISR), base + REG_ISR);
 
 	k_spin_unlock(&data->lock, key);
-	k_event_post(&data->irq_event, int_status);
-}
-
-static void i2c_xilinx_axi_reinit(const struct i2c_xilinx_axi_config *config)
-{
-	LOG_DBG("Controller reinit");
-	sys_write32(SOFTR_KEY, config->base + REG_SOFTR);
-	sys_write32(CR_TX_FIFO_RST, config->base + REG_CR);
-	sys_write32(CR_EN, config->base + REG_CR);
-	sys_write32(GIE_ENABLE, config->base + REG_GIE);
+	if (int_status) {
+		k_event_post(&data->irq_event, int_status);
+	}
 }
 
 static int i2c_xilinx_axi_configure(const struct device *dev, uint32_t dev_config)
 {
-	const struct i2c_xilinx_axi_config *config = dev->config;
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
 
-	LOG_INF("Configuring %s at 0x%08" PRIxPTR, dev->name, config->base);
-	i2c_xilinx_axi_reinit(config);
+	LOG_INF("Configuring %s at 0x%08" PRIxPTR, dev->name, base);
+	i2c_xilinx_axi_reinit(dev);
 	return 0;
 }
 
-static uint32_t i2c_xilinx_axi_wait_interrupt(const struct i2c_xilinx_axi_config *config,
-					      struct i2c_xilinx_axi_data *data, uint32_t int_mask)
+static uint32_t i2c_xilinx_axi_wait_interrupt(const struct device *dev, uint32_t int_mask)
 {
+	struct i2c_xilinx_axi_data *data = dev->data;
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
+
 	const k_spinlock_key_t key = k_spin_lock(&data->lock);
-	const uint32_t int_enable = sys_read32(config->base + REG_IER) | int_mask;
+	const uint32_t int_enable = sys_read32(base + REG_IER) | int_mask;
 	uint32_t events;
 
 	LOG_DBG("Set IER to 0x%02x", int_enable);
-	sys_write32(int_enable, config->base + REG_IER);
+	sys_write32(int_enable, base + REG_IER);
 	k_event_clear(&data->irq_event, int_mask);
 	k_spin_unlock(&data->lock, key);
 
@@ -285,37 +283,44 @@ static uint32_t i2c_xilinx_axi_wait_interrupt(const struct i2c_xilinx_axi_config
 	LOG_DBG("Got ISR events 0x%02x", events);
 	if (!events) {
 		LOG_ERR("Timeout waiting for ISR events 0x%02x, SR 0x%02x, ISR 0x%02x", int_mask,
-			sys_read32(config->base + REG_SR), sys_read32(config->base + REG_ISR));
+			sys_read32(base + REG_SR), sys_read32(base + REG_ISR));
 	}
 	return events;
 }
 
-static void i2c_xilinx_axi_clear_interrupt(const struct i2c_xilinx_axi_config *config,
-					   struct i2c_xilinx_axi_data *data, uint32_t int_mask)
+static void i2c_xilinx_axi_clear_interrupt_no_lock(const struct device *dev, uint32_t int_mask)
 {
-	const k_spinlock_key_t key = k_spin_lock(&data->lock);
-	const uint32_t int_status = sys_read32(config->base + REG_ISR);
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
+	const uint32_t int_status = sys_read32(base + REG_ISR);
 
 	if (int_status & int_mask) {
-		sys_write32(int_status & int_mask, config->base + REG_ISR);
+		sys_write32(int_status & int_mask, base + REG_ISR);
 	}
+}
+
+static void i2c_xilinx_axi_clear_interrupt(const struct device *dev, uint32_t int_mask)
+{
+	struct i2c_xilinx_axi_data *data = dev->data;
+	const k_spinlock_key_t key = k_spin_lock(&data->lock);
+
+	i2c_xilinx_axi_clear_interrupt_no_lock(dev, int_mask);
+
 	k_spin_unlock(&data->lock, key);
 }
 
-static int i2c_xilinx_axi_wait_rx_full(const struct i2c_xilinx_axi_config *config,
-				       struct i2c_xilinx_axi_data *data, uint32_t read_bytes)
+static int i2c_xilinx_axi_wait_rx_full(const struct device *dev, uint32_t read_bytes)
 {
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
 	uint32_t events;
 
-	i2c_xilinx_axi_clear_interrupt(config, data, ISR_RX_FIFO_FULL);
-	if (!(sys_read32(config->base + REG_SR) & SR_RX_FIFO_EMPTY) &&
-	    (sys_read32(config->base + REG_RX_FIFO_OCY) & RX_FIFO_OCY_MASK) + 1 >= read_bytes) {
+	i2c_xilinx_axi_clear_interrupt(dev, ISR_RX_FIFO_FULL);
+	if (!(sys_read32(base + REG_SR) & SR_RX_FIFO_EMPTY) &&
+	    (sys_read32(base + REG_RX_FIFO_OCY) & RX_FIFO_OCY_MASK) + 1 >= read_bytes) {
 		LOG_DBG("RX already full on checking, SR 0x%02x RXOCY 0x%02x",
-			sys_read32(config->base + REG_SR),
-			sys_read32(config->base + REG_RX_FIFO_OCY));
+			sys_read32(base + REG_SR), sys_read32(base + REG_RX_FIFO_OCY));
 		return 0;
 	}
-	events = i2c_xilinx_axi_wait_interrupt(config, data, ISR_RX_FIFO_FULL | ISR_ARB_LOST);
+	events = i2c_xilinx_axi_wait_interrupt(dev, ISR_RX_FIFO_FULL | ISR_ARB_LOST);
 	if (!events) {
 		return -ETIMEDOUT;
 	}
@@ -326,10 +331,9 @@ static int i2c_xilinx_axi_wait_rx_full(const struct i2c_xilinx_axi_config *confi
 	return 0;
 }
 
-static int i2c_xilinx_axi_read_nondyn(const struct i2c_xilinx_axi_config *config,
-				      struct i2c_xilinx_axi_data *data, struct i2c_msg *msg,
-				      uint16_t addr)
+static int i2c_xilinx_axi_read_nondyn(const struct device *dev, struct i2c_msg *msg, uint16_t addr)
 {
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
 	uint8_t *read_ptr = msg->buf;
 	uint32_t bytes_left = msg->len;
 	uint32_t cr = CR_EN | CR_MSMS;
@@ -360,20 +364,20 @@ static int i2c_xilinx_axi_read_nondyn(const struct i2c_xilinx_axi_config *config
 	 * Dynamic mode doesn't have this issue as it provides the RX byte count to the
 	 * controller specifically and the TXAK and MSMS bits are handled automatically.
 	 */
-	sys_write32(0, config->base + REG_RX_FIFO_PIRQ);
+	sys_write32(0, base + REG_RX_FIFO_PIRQ);
 
 	if (msg->flags & I2C_MSG_RESTART) {
 		cr |= CR_RSTA;
 
-		sys_write32(cr, config->base + REG_CR);
-		sys_write32((addr << 1) | I2C_MSG_READ, config->base + REG_TX_FIFO);
+		sys_write32(cr, base + REG_CR);
+		sys_write32((addr << 1) | I2C_MSG_READ, base + REG_TX_FIFO);
 	} else {
-		sys_write32((addr << 1) | I2C_MSG_READ, config->base + REG_TX_FIFO);
-		sys_write32(cr, config->base + REG_CR);
+		sys_write32((addr << 1) | I2C_MSG_READ, base + REG_TX_FIFO);
+		sys_write32(cr, base + REG_CR);
 	}
 
 	while (bytes_left) {
-		int ret = i2c_xilinx_axi_wait_rx_full(config, data, 1);
+		int ret = i2c_xilinx_axi_wait_rx_full(dev, 1);
 
 		if (ret) {
 			return ret;
@@ -387,18 +391,17 @@ static int i2c_xilinx_axi_read_nondyn(const struct i2c_xilinx_axi_config *config
 			cr &= ~CR_MSMS;
 		}
 		cr &= ~CR_RSTA;
-		sys_write32(cr, config->base + REG_CR);
+		sys_write32(cr, base + REG_CR);
 
-		*read_ptr++ = sys_read32(config->base + REG_RX_FIFO) & RX_FIFO_DATA_MASK;
+		*read_ptr++ = sys_read32(base + REG_RX_FIFO) & RX_FIFO_DATA_MASK;
 		bytes_left--;
 	}
 	return 0;
 }
 
-static int i2c_xilinx_axi_read_dyn(const struct i2c_xilinx_axi_config *config,
-				   struct i2c_xilinx_axi_data *data, struct i2c_msg *msg,
-				   uint16_t addr)
+static int i2c_xilinx_axi_read_dyn(const struct device *dev, struct i2c_msg *msg, uint16_t addr)
 {
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
 	uint8_t *read_ptr = msg->buf;
 	uint32_t bytes_left = msg->len;
 	uint32_t bytes_to_read = bytes_left;
@@ -411,18 +414,18 @@ static int i2c_xilinx_axi_read_dyn(const struct i2c_xilinx_axi_config *config,
 	if (msg->flags & I2C_MSG_RESTART) {
 		cr |= CR_MSMS | CR_RSTA;
 	}
-	sys_write32(cr, config->base + REG_CR);
+	sys_write32(cr, base + REG_CR);
 
 	if (bytes_to_read > FIFO_SIZE) {
 		bytes_to_read = FIFO_SIZE;
 	}
-	sys_write32(bytes_to_read - 1, config->base + REG_RX_FIFO_PIRQ);
-	sys_write32((addr << 1) | I2C_MSG_READ | TX_FIFO_START, config->base + REG_TX_FIFO);
+	sys_write32(bytes_to_read - 1, base + REG_RX_FIFO_PIRQ);
+	sys_write32((addr << 1) | I2C_MSG_READ | TX_FIFO_START, base + REG_TX_FIFO);
 
 	if (msg->flags & I2C_MSG_STOP) {
 		len_word |= TX_FIFO_STOP;
 	}
-	sys_write32(len_word, config->base + REG_TX_FIFO);
+	sys_write32(len_word, base + REG_TX_FIFO);
 
 	while (bytes_left) {
 		int ret;
@@ -432,14 +435,14 @@ static int i2c_xilinx_axi_read_dyn(const struct i2c_xilinx_axi_config *config,
 			bytes_to_read = FIFO_SIZE;
 		}
 
-		sys_write32(bytes_to_read - 1, config->base + REG_RX_FIFO_PIRQ);
-		ret = i2c_xilinx_axi_wait_rx_full(config, data, bytes_to_read);
+		sys_write32(bytes_to_read - 1, base + REG_RX_FIFO_PIRQ);
+		ret = i2c_xilinx_axi_wait_rx_full(dev, bytes_to_read);
 		if (ret) {
 			return ret;
 		}
 
 		while (bytes_to_read) {
-			*read_ptr++ = sys_read32(config->base + REG_RX_FIFO) & RX_FIFO_DATA_MASK;
+			*read_ptr++ = sys_read32(base + REG_RX_FIFO) & RX_FIFO_DATA_MASK;
 			bytes_to_read--;
 			bytes_left--;
 		}
@@ -447,13 +450,12 @@ static int i2c_xilinx_axi_read_dyn(const struct i2c_xilinx_axi_config *config,
 	return 0;
 }
 
-static int i2c_xilinx_axi_wait_tx_done(const struct i2c_xilinx_axi_config *config,
-				       struct i2c_xilinx_axi_data *data)
+static int i2c_xilinx_axi_wait_tx_done(const struct device *dev)
 {
 	const uint32_t finish_bits = ISR_BUS_NOT_BUSY | ISR_TX_FIFO_EMPTY;
 
-	uint32_t events = i2c_xilinx_axi_wait_interrupt(
-		config, data, finish_bits | ISR_TX_ERR_TARGET_COMP | ISR_ARB_LOST);
+	uint32_t events = i2c_xilinx_axi_wait_interrupt(dev, finish_bits | ISR_TX_ERR_TARGET_COMP |
+								     ISR_ARB_LOST);
 	if (!(events & finish_bits) || (events & ~finish_bits)) {
 		if (!events) {
 			return -ETIMEDOUT;
@@ -468,25 +470,26 @@ static int i2c_xilinx_axi_wait_tx_done(const struct i2c_xilinx_axi_config *confi
 	return 0;
 }
 
-static int i2c_xilinx_axi_wait_not_busy(const struct i2c_xilinx_axi_config *config,
-					struct i2c_xilinx_axi_data *data)
+static int i2c_xilinx_axi_wait_not_busy(const struct device *dev)
 {
-	if (sys_read32(config->base + REG_SR) & SR_BB) {
-		uint32_t events = i2c_xilinx_axi_wait_interrupt(config, data, ISR_BUS_NOT_BUSY);
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
+
+	if (sys_read32(base + REG_SR) & SR_BB) {
+		uint32_t events = i2c_xilinx_axi_wait_interrupt(dev, ISR_BUS_NOT_BUSY);
 
 		if (events != ISR_BUS_NOT_BUSY) {
 			LOG_ERR("Bus stuck busy");
-			i2c_xilinx_axi_reinit(config);
+			i2c_xilinx_axi_reinit(dev);
 			return -EBUSY;
 		}
 	}
 	return 0;
 }
 
-static int i2c_xilinx_axi_write(const struct i2c_xilinx_axi_config *config,
-				struct i2c_xilinx_axi_data *data, const struct i2c_msg *msg,
-				uint16_t addr)
+static int i2c_xilinx_axi_write(const struct device *dev, const struct i2c_msg *msg, uint16_t addr)
 {
+	struct i2c_xilinx_axi_data *data = dev->data;
+	mm_reg_t base = DEVICE_MMIO_GET(dev);
 	const uint8_t *write_ptr = msg->buf;
 	uint32_t bytes_left = msg->len;
 	uint32_t cr = CR_EN | CR_TX;
@@ -496,10 +499,10 @@ static int i2c_xilinx_axi_write(const struct i2c_xilinx_axi_config *config,
 		cr |= CR_MSMS | CR_RSTA;
 	}
 
-	i2c_xilinx_axi_clear_interrupt(config, data, ISR_TX_ERR_TARGET_COMP | ISR_ARB_LOST);
+	i2c_xilinx_axi_clear_interrupt(dev, ISR_TX_ERR_TARGET_COMP | ISR_ARB_LOST);
 
-	sys_write32(cr, config->base + REG_CR);
-	sys_write32((addr << 1) | TX_FIFO_START, config->base + REG_TX_FIFO);
+	sys_write32(cr, base + REG_CR);
+	sys_write32((addr << 1) | TX_FIFO_START, base + REG_TX_FIFO);
 
 	/* TX FIFO empty detection is somewhat fragile because the status register
 	 * TX_FIFO_EMPTY bit can be set prior to the transaction actually being
@@ -524,14 +527,14 @@ static int i2c_xilinx_axi_write(const struct i2c_xilinx_axi_config *config,
 			if (bytes_left == 1 && (msg->flags & I2C_MSG_STOP)) {
 				write_word |= TX_FIFO_STOP;
 			}
-			sys_write32(write_word, config->base + REG_TX_FIFO);
+			sys_write32(write_word, base + REG_TX_FIFO);
 			bytes_to_send--;
 			bytes_left--;
 		}
-		i2c_xilinx_axi_clear_interrupt(config, data, ISR_TX_FIFO_EMPTY | ISR_BUS_NOT_BUSY);
+		i2c_xilinx_axi_clear_interrupt_no_lock(dev, ISR_TX_FIFO_EMPTY | ISR_BUS_NOT_BUSY);
 		k_spin_unlock(&data->lock, key);
 
-		ret = i2c_xilinx_axi_wait_tx_done(config, data);
+		ret = i2c_xilinx_axi_wait_tx_done(dev);
 		if (ret) {
 			return ret;
 		}
@@ -549,45 +552,54 @@ static int i2c_xilinx_axi_transfer(const struct device *dev, struct i2c_msg *msg
 
 	k_mutex_lock(&data->mutex, K_FOREVER);
 
-	/**
-	 * Reinitializing before each transfer shouldn't technically be needed, but
-	 * seems to improve general reliability. The Linux driver also does this.
-	 */
-	i2c_xilinx_axi_reinit(config);
-
-	ret = i2c_xilinx_axi_wait_not_busy(config, data);
+	ret = i2c_xilinx_axi_wait_not_busy(dev);
 	if (ret) {
 		goto out_unlock;
 	}
 
-	if (!num_msgs) {
-		goto out_unlock;
-	}
+	/**
+	 * Reinitializing before each transfer shouldn't technically be needed, but
+	 * seems to improve general reliability. The Linux driver also does this.
+	 */
+	i2c_xilinx_axi_reinit(dev);
 
 	do {
 		if (msgs->flags & I2C_MSG_ADDR_10_BITS) {
 			/* Optionally supported in core, but not implemented in driver yet */
 			ret = -EOPNOTSUPP;
-			goto out_unlock;
+			goto out_check_target;
 		}
 		if (msgs->flags & I2C_MSG_READ) {
 			if (config->dyn_read_working && msgs->len <= MAX_DYNAMIC_READ_LEN) {
-				ret = i2c_xilinx_axi_read_dyn(config, data, msgs, addr);
+				ret = i2c_xilinx_axi_read_dyn(dev, msgs, addr);
 			} else {
-				ret = i2c_xilinx_axi_read_nondyn(config, data, msgs, addr);
+				ret = i2c_xilinx_axi_read_nondyn(dev, msgs, addr);
 			}
 		} else {
-			ret = i2c_xilinx_axi_write(config, data, msgs, addr);
+			ret = i2c_xilinx_axi_write(dev, msgs, addr);
 		}
 		if (!ret && (msgs->flags & I2C_MSG_STOP)) {
-			ret = i2c_xilinx_axi_wait_not_busy(config, data);
+			ret = i2c_xilinx_axi_wait_not_busy(dev);
 		}
 		if (ret) {
-			goto out_unlock;
+			goto out_check_target;
 		}
 		msgs++;
 		num_msgs--;
 	} while (num_msgs);
+
+out_check_target:
+#if defined(CONFIG_I2C_TARGET)
+	/* If a target is registered, then ensure the controller gets put back
+	 * into a suitable state to handle target transfers.
+	 */
+	k_spinlock_key_t key = k_spin_lock(&data->lock);
+
+	if (data->target_cfg) {
+		i2c_xilinx_axi_target_setup(dev, data->target_cfg);
+	}
+	k_spin_unlock(&data->lock, key);
+#endif
 
 out_unlock:
 	k_mutex_unlock(&data->mutex);
@@ -596,6 +608,7 @@ out_unlock:
 
 static int i2c_xilinx_axi_init(const struct device *dev)
 {
+	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
 	const struct i2c_xilinx_axi_config *config = dev->config;
 	struct i2c_xilinx_axi_data *data = dev->data;
 	int error;
@@ -614,12 +627,15 @@ static int i2c_xilinx_axi_init(const struct device *dev)
 	return 0;
 }
 
-static const struct i2c_driver_api i2c_xilinx_axi_driver_api = {
+static DEVICE_API(i2c, i2c_xilinx_axi_driver_api) = {
 	.configure = i2c_xilinx_axi_configure,
 	.transfer = i2c_xilinx_axi_transfer,
 #if defined(CONFIG_I2C_TARGET)
 	.target_register = i2c_xilinx_axi_target_register,
 	.target_unregister = i2c_xilinx_axi_target_unregister,
+#endif
+#ifdef CONFIG_I2C_RTIO
+	.iodev_submit = i2c_iodev_submit_fallback,
 #endif
 };
 
@@ -627,9 +643,9 @@ static const struct i2c_driver_api i2c_xilinx_axi_driver_api = {
 	static void i2c_xilinx_axi_config_func_##compat##_##n(const struct device *dev);           \
                                                                                                    \
 	static const struct i2c_xilinx_axi_config i2c_xilinx_axi_config_##compat##_##n = {         \
-		.base = DT_INST_REG_ADDR(n),                                                       \
+		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(n)),                                              \
 		.irq_config_func = i2c_xilinx_axi_config_func_##compat##_##n,                      \
-		.dyn_read_working = DT_NODE_HAS_COMPAT(DT_DRV_INST(n), xlnx_xps_iic_2_1)};         \
+		.dyn_read_working = DT_INST_NODE_HAS_COMPAT(n, xlnx_xps_iic_2_1)};                 \
                                                                                                    \
 	static struct i2c_xilinx_axi_data i2c_xilinx_axi_data_##compat##_##n;                      \
                                                                                                    \

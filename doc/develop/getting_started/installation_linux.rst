@@ -78,17 +78,16 @@ need one.
 
          sudo apt-get install --no-install-recommends git cmake ninja-build gperf \
            ccache dfu-util device-tree-compiler wget \
-           python3-dev python3-pip python3-setuptools python3-tk python3-wheel xz-utils file libpython3.8-dev \
+           python3-dev python3-pip python3-setuptools python3-tk python3-wheel xz-utils file \
            make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
 
    .. group-tab:: Fedora
 
       .. code-block:: console
 
-         sudo dnf group install "Development Tools" "C Development Tools and Libraries"
-         sudo dnf install git cmake ninja-build gperf ccache dfu-util dtc wget \
-           python3-pip python3-tkinter xz file glibc-devel.i686 libstdc++-devel.i686 python38 \
-           SDL2-devel
+         sudo dnf group install development-tools c-development
+         sudo dnf install cmake ninja-build gperf dfu-util dtc wget which \
+           python3-pip python3-tkinter xz file python3-devel SDL2-devel
 
    .. group-tab:: Clear Linux
 
@@ -120,7 +119,7 @@ need one.
       .. code-block:: console
 
          sudo pacman -S git cmake ninja gperf ccache dfu-util dtc wget \
-             python-pip python-setuptools python-wheel tk xz file make
+             python-pip python-setuptools python-wheel tk xz file make which
 
 CMake
 =====
@@ -215,83 +214,7 @@ as custom QEMU and OpenOCD.
 Use of the Zephyr SDK is highly recommended and may even be required under
 certain conditions (for example, running tests in QEMU for some architectures).
 
-The Zephyr SDK supports the following target architectures:
-
-* ARC (32-bit and 64-bit; ARCv1, ARCv2, ARCv3)
-* ARM (32-bit and 64-bit; ARMv6, ARMv7, ARMv8; A/R/M Profiles)
-* MIPS (32-bit and 64-bit)
-* Nios II
-* RISC-V (32-bit and 64-bit; RV32I, RV32E, RV64I)
-* x86 (32-bit and 64-bit)
-* Xtensa
-
-Follow these steps to install the Zephyr SDK:
-
-#. Download and verify the `Zephyr SDK bundle
-   <https://github.com/zephyrproject-rtos/sdk-ng/releases/tag/v0.16.3>`_:
-
-   .. code-block:: bash
-
-      wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.16.3/zephyr-sdk-0.16.3_linux-x86_64.tar.xz
-      wget -O - https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.16.3/sha256.sum | shasum --check --ignore-missing
-
-   You can change ``0.16.3`` to another version if needed; the `Zephyr SDK
-   Releases`_ page contains all available SDK releases.
-
-   If your host architecture is 64-bit ARM (for example, Raspberry Pi), replace
-   ``x86_64`` with ``aarch64`` in order to download the 64-bit ARM Linux SDK.
-
-#. Extract the Zephyr SDK bundle archive:
-
-   .. code-block:: bash
-
-      cd <sdk download directory>
-      tar xvf zephyr-sdk-0.16.3_linux-x86_64.tar.xz
-
-#. Run the Zephyr SDK bundle setup script:
-
-   .. code-block:: bash
-
-      cd zephyr-sdk-0.16.3
-      ./setup.sh
-
-   If this fails, make sure Zephyr's dependencies were installed as described
-   in `Install Requirements and Dependencies`_.
-
-If you want to uninstall the SDK, remove the directory where you installed it.
-If you relocate the SDK directory, you need to re-run the setup script.
-
-.. note::
-   It is recommended to extract the Zephyr SDK bundle at one of the following locations:
-
-   * ``$HOME``
-   * ``$HOME/.local``
-   * ``$HOME/.local/opt``
-   * ``$HOME/bin``
-   * ``/opt``
-   * ``/usr/local``
-
-   The Zephyr SDK bundle archive contains the ``zephyr-sdk-0.16.3`` directory and, when
-   extracted under ``$HOME``, the resulting installation path will be
-   ``$HOME/zephyr-sdk-0.16.3``.
-
-   If you install the Zephyr SDK outside any of these locations, you must
-   register the Zephyr SDK in the CMake package registry by running the setup
-   script, or set :envvar:`ZEPHYR_SDK_INSTALL_DIR` to point to the Zephyr SDK
-   installation directory.
-
-   You can also use :envvar:`ZEPHYR_SDK_INSTALL_DIR` for pointing to a
-   directory containing multiple Zephyr SDKs, allowing for automatic toolchain
-   selection. For example, ``ZEPHYR_SDK_INSTALL_DIR=/company/tools``, where
-   the ``company/tools`` folder contains the following subfolders:
-
-   * ``/company/tools/zephyr-sdk-0.13.2``
-   * ``/company/tools/zephyr-sdk-a.b.c``
-   * ``/company/tools/zephyr-sdk-x.y.z``
-
-   This allows the Zephyr build system to choose the correct version of the
-   SDK, while allowing multiple Zephyr SDKs to be grouped together at a
-   specific path.
+To install the SDK, follow the Linux steps from the :ref:`Zephyr SDK installation guide <linux_zephyr_sdk>`.
 
 .. _sdkless_builds:
 
@@ -303,7 +226,7 @@ toolchains for all Zephyr target architectures, and does not require any extra
 flags when building applications or running tests. In addition to
 cross-compilers, the Zephyr SDK also provides prebuilt host tools. It is,
 however, possible to build without the SDK's toolchain by using another
-toolchain as as described in the :ref:`toolchains` section.
+toolchain as described in the :ref:`toolchains` section.
 
 As already noted above, the SDK also includes prebuilt host tools.  To use the
 SDK's prebuilt host tools with a toolchain from another source, you must set the

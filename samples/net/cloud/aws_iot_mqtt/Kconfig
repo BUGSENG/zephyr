@@ -14,6 +14,12 @@ config AWS_ENDPOINT
 	  Endpoint (hostname) of the AWS MQTT broker.
 	  Note that the endpoint is different when using AWS Device Advisor.
 
+config AWS_MQTT_PORT
+	int "MQTT Port"
+	default 8883
+	help
+	  Set port of AWS MQTT broker.
+
 config AWS_THING_NAME
 	string "AWS Thing name"
 	default "myThingName"
@@ -62,8 +68,8 @@ config AWS_QOS
 	help
 	  Quality of Service to use for publishing and subscribing to topics.
 	  Notes:
-	  	- Use QoS 0 when passing DQP test suite
-	  	- QoS 2 is not supported by AWS MQTT broker
+	    - Use QoS 0 when passing DQP test suite
+	    - QoS 2 is not supported by AWS MQTT broker
 
 
 config AWS_EXPONENTIAL_BACKOFF
@@ -75,4 +81,5 @@ config AWS_EXPONENTIAL_BACKOFF
 
 endmenu
 
+source "samples/net/common/Kconfig"
 source "Kconfig.zephyr"

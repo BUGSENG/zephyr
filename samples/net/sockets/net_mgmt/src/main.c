@@ -10,6 +10,7 @@ LOG_MODULE_REGISTER(net_mgmt_sock_sample, LOG_LEVEL_DBG);
 #include <zephyr/kernel.h>
 #include <errno.h>
 #include <stdio.h>
+#include <zephyr/posix/sys/socket.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/socket_net_mgmt.h>
 #include <zephyr/net/net_if.h>
@@ -23,8 +24,12 @@ LOG_MODULE_REGISTER(net_mgmt_sock_sample, LOG_LEVEL_DBG);
 #endif
 
 /* A test thread that spits out events that we can catch and show to user */
-static void trigger_events(void)
+static void trigger_events(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	int operation = 0;
 	struct net_if_addr *ifaddr_v6;
 	struct net_if *iface;
@@ -82,8 +87,12 @@ static char *get_ip_addr(char *ipaddr, size_t len, sa_family_t family,
 	return buf;
 }
 
-static void listener(void)
+static void listener(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	struct sockaddr_nm sockaddr;
 	struct sockaddr_nm event_addr;
 	socklen_t event_addr_len;
@@ -163,10 +172,10 @@ int main(void)
 	k_thread_start(trigger_events_thread_id);
 
 	if (IS_ENABLED(CONFIG_USERSPACE)) {
-		k_thread_user_mode_enter((k_thread_entry_t)listener,
+		k_thread_user_mode_enter(listener,
 					 NULL, NULL, NULL);
 	} else {
-		listener();
+		listener(NULL, NULL, NULL);
 	}
 	return 0;
 }

@@ -99,8 +99,9 @@ static ALWAYS_INLINE unsigned int smsc_current_bank(struct smsc_data *sc)
 static void smsc_mmu_wait(struct smsc_data *sc)
 {
 	__ASSERT((smsc_current_bank(sc) == 2), "%s called when not in bank 2", __func__);
-	while (sys_read16(sc->smsc_reg + MMUCR) & MMUCR_BUSY)
+	while (sys_read16(sc->smsc_reg + MMUCR) & MMUCR_BUSY) {
 		;
+	}
 }
 
 static ALWAYS_INLINE uint8_t smsc_read_1(struct smsc_data *sc, int offset)
@@ -436,7 +437,7 @@ static void smsc_recv_pkt(struct eth_context *data)
 				rx_buffer[len - 1] = smsc_read_1(sc, DATA0);
 			}
 
-			pkt = net_pkt_rx_alloc_with_buffer(data->iface, len, AF_UNSPEC, 0,
+			pkt = net_pkt_rx_alloc_with_buffer(data->iface, len, NET_AF_UNSPEC, 0,
 							   K_NO_WAIT);
 			if (!pkt) {
 				LOG_ERR("Failed to obtain RX buffer");
@@ -522,7 +523,7 @@ static int smsc_send_pkt(struct smsc_data *sc, uint8_t *buf, uint16_t len)
 	smsc_write_2(sc, DATA0, len + PKT_CTRL_DATA_LEN);
 	smsc_write_multi_2(sc, DATA0, (uint16_t *)buf, len / 2);
 
-	/* Push out the control byte and and the odd byte if needed. */
+	/* Push out the control byte and the odd byte if needed. */
 	if (len & 1) {
 		smsc_write_2(sc, DATA0, (CTRL_ODD << 8) | buf[len - 1]);
 	} else {
@@ -663,25 +664,27 @@ static int smsc_init(struct smsc_data *sc)
 	return 0;
 }
 
+static const struct device *eth_get_phy(const struct device *dev, struct net_if *iface __unused)
+{
+	const struct eth_config *cfg = dev->config;
+
+	return cfg->phy_dev;
+}
+
 static void phy_link_state_changed(const struct device *phy_dev, struct phy_link_state *state,
 				   void *user_data)
 {
 	const struct device *dev = user_data;
 	struct eth_context *data = dev->data;
 
-	if (state->is_up) {
-		net_eth_carrier_on(data->iface);
-	} else {
-		net_eth_carrier_off(data->iface);
-	}
+	net_eth_carrier_set(data->iface, state->is_up);
 }
 
-static enum ethernet_hw_caps eth_smsc_get_caps(const struct device *dev)
+static enum ethernet_hw_caps eth_smsc_get_caps(const struct device *dev __unused,
+					       struct net_if *iface __unused)
 {
-	ARG_UNUSED(dev);
-
-	return (ETHERNET_LINK_10BASE_T
-		| ETHERNET_LINK_100BASE_T
+	return (ETHERNET_LINK_10BASE
+		| ETHERNET_LINK_100BASE
 #if defined(CONFIG_NET_PROMISCUOUS_MODE)
 		| ETHERNET_PROMISC_MODE
 #endif
@@ -704,6 +707,7 @@ static int eth_tx(const struct device *dev, struct net_pkt *pkt)
 }
 
 static int eth_smsc_set_config(const struct device *dev,
+			       struct net_if *iface __unused
 			       enum ethernet_config_type type,
 			       const struct ethernet_config *config)
 {
@@ -769,6 +773,7 @@ static void eth_initialize(struct net_if *iface)
 static const struct ethernet_api api_funcs = {
 	.iface_api.init   = eth_initialize,
 	.get_capabilities = eth_smsc_get_caps,
+	.get_phy          = eth_get_phy,
 	.set_config       = eth_smsc_set_config,
 	.send             = eth_tx,
 };
@@ -837,16 +842,6 @@ struct mdio_smsc_config {
 	const struct device *eth_dev;
 };
 
-static void mdio_smsc_bus_disable(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-}
-
-static void mdio_smsc_bus_enable(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-}
-
 static int mdio_smsc_read(const struct device *dev, uint8_t prtad, uint8_t devad, uint16_t *data)
 {
 	const struct mdio_smsc_config *cfg = dev->config;
@@ -871,9 +866,7 @@ static int mdio_smsc_write(const struct device *dev, uint8_t prtad, uint8_t deva
 	return 0;
 }
 
-static const struct mdio_driver_api mdio_smsc_api = {
-	.bus_disable = mdio_smsc_bus_disable,
-	.bus_enable = mdio_smsc_bus_enable,
+static DEVICE_API(mdio, mdio_smsc_api) = {
 	.read = mdio_smsc_read,
 	.write = mdio_smsc_write,
 };

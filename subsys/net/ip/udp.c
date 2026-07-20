@@ -11,6 +11,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_udp, CONFIG_NET_UDP_LOG_LEVEL);
 
+#include <zephyr/net/net_log.h>
 #include "net_private.h"
 #include "udp_internal.h"
 #include "net_stats.h"
@@ -35,11 +36,13 @@ int net_udp_create(struct net_pkt *pkt, uint16_t src_port, uint16_t dst_port)
 	return net_pkt_set_data(pkt, &udp_access);
 }
 
-int net_udp_finalize(struct net_pkt *pkt)
+int net_udp_finalize(struct net_pkt *pkt, bool force_chksum)
 {
 	NET_PKT_DATA_ACCESS_DEFINE(udp_access, struct net_udp_hdr);
 	struct net_udp_hdr *udp_hdr;
 	uint16_t length = 0;
+	enum net_if_checksum_type type = net_pkt_family(pkt) == NET_AF_INET6 ?
+		NET_IF_CHECKSUM_IPV6_UDP : NET_IF_CHECKSUM_IPV4_UDP;
 
 	udp_hdr = (struct net_udp_hdr *)net_pkt_get_data(pkt, &udp_access);
 	if (!udp_hdr) {
@@ -49,10 +52,20 @@ int net_udp_finalize(struct net_pkt *pkt)
 	length = net_pkt_get_len(pkt) - net_pkt_ip_hdr_len(pkt) -
 		 net_pkt_ip_opts_len(pkt);
 
-	udp_hdr->len = htons(length);
+	udp_hdr->len = net_htons(length);
 
-	if (net_if_need_calc_tx_checksum(net_pkt_iface(pkt))) {
-		udp_hdr->chksum = net_calc_chksum_udp(pkt);
+	if (net_if_need_calc_tx_checksum(net_pkt_iface(pkt), type) || force_chksum) {
+		int ret;
+		uint16_t chksum = 0;
+
+		udp_hdr->chksum = 0;
+		ret = net_calc_chksum_udp(pkt, &chksum);
+		if (ret < 0) {
+			return ret;
+		}
+
+		udp_hdr->chksum = chksum;
+		net_pkt_set_chksum_done(pkt, true);
 	}
 
 	return net_pkt_set_data(pkt, &udp_access);
@@ -116,7 +129,10 @@ struct net_udp_hdr *net_udp_set_hdr(struct net_pkt *pkt,
 
 	memcpy(udp_hdr, hdr, sizeof(struct net_udp_hdr));
 
-	net_pkt_set_data(pkt, &udp_access);
+	if (net_pkt_set_data(pkt, &udp_access) < 0) {
+		udp_hdr = NULL;
+		goto out;
+	}
 out:
 	net_pkt_cursor_restore(pkt, &backup);
 	net_pkt_set_overwrite(pkt, overwrite);
@@ -125,8 +141,8 @@ out:
 }
 
 int net_udp_register(uint8_t family,
-		     const struct sockaddr *remote_addr,
-		     const struct sockaddr *local_addr,
+		     const struct net_sockaddr *remote_addr,
+		     const struct net_sockaddr *local_addr,
 		     uint16_t remote_port,
 		     uint16_t local_port,
 		     struct net_context *context,
@@ -134,9 +150,9 @@ int net_udp_register(uint8_t family,
 		     void *user_data,
 		     struct net_conn_handle **handle)
 {
-	return net_conn_register(IPPROTO_UDP, family, remote_addr, local_addr,
-				 remote_port, local_port, context, cb,
-				 user_data, handle);
+	return net_conn_register(NET_IPPROTO_UDP, NET_SOCK_DGRAM, family, remote_addr,
+				 local_addr, remote_port, local_port, context,
+				 cb, user_data, handle);
 }
 
 int net_udp_unregister(struct net_conn_handle *handle)
@@ -148,6 +164,10 @@ struct net_udp_hdr *net_udp_input(struct net_pkt *pkt,
 				  struct net_pkt_data_access *udp_access)
 {
 	struct net_udp_hdr *udp_hdr;
+	uint16_t chksum = 0;
+	int ret;
+	enum net_if_checksum_type type = net_pkt_family(pkt) == NET_AF_INET6 ?
+		NET_IF_CHECKSUM_IPV6_UDP : NET_IF_CHECKSUM_IPV4_UDP;
 
 	udp_hdr = (struct net_udp_hdr *)net_pkt_get_data(pkt, udp_access);
 	if (!udp_hdr || net_pkt_set_data(pkt, udp_access)) {
@@ -155,7 +175,7 @@ struct net_udp_hdr *net_udp_input(struct net_pkt *pkt,
 		goto drop;
 	}
 
-	if (ntohs(udp_hdr->len) != (net_pkt_get_len(pkt) -
+	if (net_ntohs(udp_hdr->len) != (net_pkt_get_len(pkt) -
 				    net_pkt_ip_hdr_len(pkt) -
 				    net_pkt_ip_opts_len(pkt))) {
 		NET_DBG("DROP: Invalid hdr length");
@@ -163,17 +183,19 @@ struct net_udp_hdr *net_udp_input(struct net_pkt *pkt,
 	}
 
 	if (IS_ENABLED(CONFIG_NET_UDP_CHECKSUM) &&
-	    net_if_need_calc_rx_checksum(net_pkt_iface(pkt))) {
+	    (net_if_need_calc_rx_checksum(net_pkt_iface(pkt), type) ||
+	     net_pkt_is_ip_reassembled(pkt))) {
 		if (!udp_hdr->chksum) {
 			if (IS_ENABLED(CONFIG_NET_UDP_MISSING_CHECKSUM) &&
-			    net_pkt_family(pkt) == AF_INET) {
+			    net_pkt_family(pkt) == NET_AF_INET) {
 				goto out;
 			}
 
 			goto drop;
 		}
 
-		if (net_calc_verify_chksum_udp(pkt) != 0U) {
+		ret = net_calc_verify_chksum_udp(pkt, &chksum);
+		if (ret < 0 || chksum != 0U) {
 			NET_DBG("DROP: checksum mismatch");
 			goto drop;
 		}

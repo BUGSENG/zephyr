@@ -19,18 +19,27 @@ on:
       - 'scripts/build/**'
       - '.github/workflows/scripts_tests.yml'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   scripts-tests:
     name: Scripts tests
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10']
-        os: [ubuntu-20.04]
+        python-version: ['3.12', '3.13']
+        os: [ubuntu-24.04]
     steps:
       - name: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
@@ -42,26 +51,22 @@ jobs:
         run: |
           git config --global user.email "actions@zephyrproject.org"
           git config --global user.name "Github Actions"
+          rm -fr ".git/rebase-apply"
+          rm -fr ".git/rebase-merge"
           git rebase origin/${BASE_REF}
+          git clean -f -d
           git log --graph --oneline HEAD...${PR_HEAD}
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: scripts/requirements-actions.txt
 
-      - name: cache-pip-linux
-        if: startsWith(runner.os, 'Linux')
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}
-          restore-keys: |
-            ${{ runner.os }}-pip-${{ matrix.python-version }}
-
-      - name: install-packages
+      - name: Install Python packages
         run: |
-          pip3 install -r scripts/requirements-base.txt -r scripts/requirements-build-test.txt
+          pip install -r scripts/requirements-actions.txt --require-hashes
 
       - name: Run pytest
         env:

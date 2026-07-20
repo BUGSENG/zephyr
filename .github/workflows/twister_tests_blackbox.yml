@@ -7,85 +7,66 @@ on:
   pull_request:
     branches:
     - main
+    - collab-*
+    - v*-branch
     paths:
     - 'scripts/pylib/twister/**'
     - 'scripts/twister'
     - 'scripts/tests/twister_blackbox/**'
     - '.github/workflows/twister_tests_blackbox.yml'
 
+permissions:
+  contents: read
+
+env:
+  PYTHONIOENCODING: utf-8
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   twister-tests:
     name: Twister Black Box Tests
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10']
-        os: [ubuntu-22.04]
-    container:
-      image: ghcr.io/zephyrproject-rtos/ci:v0.26.5
-    env:
-      ZEPHYR_SDK_INSTALL_DIR: /opt/toolchains/zephyr-sdk-0.16.3
-
+        python-version: ['3.12', '3.13']
+      fail-fast: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
-    - name: Apply Container Owner Mismatch Workaround
-      run: |
-        # FIXME: The owner UID of the GITHUB_WORKSPACE directory may not
-        #        match the container user UID because of the way GitHub
-        #        Actions runner is implemented. Remove this workaround when
-        #        GitHub comes up with a fundamental fix for this problem.
-        git config --global --add safe.directory ${GITHUB_WORKSPACE}
-
     - name: Checkout
-      uses: actions/checkout@v3
-
-    - name: Environment Setup
-      run: |
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-        west init -l . || true
-        west config --global update.narrow true
-        west update --path-cache /github/cache/zephyrproject 2>&1 1> west.update.log || west update --path-cache /github/cache/zephyrproject 2>&1 1> west.update.log || ( rm -rf ../modules ../bootloader ../tools && west update --path-cache /github/cache/zephyrproject)
-        west forall -c 'git reset --hard HEAD'
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        persist-credentials: false
+        path: zephyr
+        fetch-depth: 0
 
     - name: Set Up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
       with:
         python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: scripts/requirements-actions.txt
 
-    - name: Go Into Venv
-      shell: bash
-      run: |
-        python3 -m pip install --user virtualenv
-        python3 -m venv env
-        source env/bin/activate
-        echo "$(which python)"
-
-    - name: Install Packages
-      run: |
-        python3 -m pip install -U -r scripts/requirements-base.txt -r scripts/requirements-build-test.txt -r scripts/requirements-run-test.txt
+    - name: Setup Zephyr project
+      uses: zephyrproject-rtos/action-zephyr-setup@5ec39f5cba83346d83a836dfed1524270c660e28 # v1.0.14
+      with:
+        app-path: zephyr
+        toolchains: 'arm-zephyr-eabi:riscv64-zephyr-elf:x86_64-zephyr-elf'
+        enable-ccache: false
+        west-group-filter: -tools,-bootloader,-babblesim,-hal
+        west-project-filter: -nrf_hw_models,+cmsis,+hal_xtensa,+cmsis_6
 
     - name: Run Pytest For Twister Black Box Tests
+      working-directory: zephyr
       shell: bash
       env:
         ZEPHYR_BASE: ./
         ZEPHYR_TOOLCHAIN_VARIANT: zephyr
       run: |
+        export ZEPHYR_SDK_INSTALL_DIR=${{ github.workspace }}/zephyr-sdk
+        sudo apt-get install -y lcov
         echo "Run twister tests"
         source zephyr-env.sh
-        PYTHONPATH="./scripts/tests" pytest ./scripts/tests/twister_blackbox
-
-    - name: Upload Unit Test Results
-      if: success() || failure()
-      uses: actions/upload-artifact@v2
-      with:
-        name: Black Box Test Results (Python ${{ matrix.python-version }})
-        path: |
-          twister-out*/twister.log
-          twister-out*/twister.json
-          twister-out*/testplan.log
-        retention-days: 14
-
-    - name: Clear Workspace
-      if: success() || failure()
-      run: |
-        rm -rf twister-out*/
+        PYTHONPATH="./scripts/tests" pytest ./scripts/tests/twister_blackbox/

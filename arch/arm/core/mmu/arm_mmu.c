@@ -26,7 +26,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/util.h>
-#include <zephyr/sys/mem_manage.h>
+#include <zephyr/kernel/mm.h>
 #include <zephyr/sys/barrier.h>
 
 #include <cmsis_core.h>
@@ -75,13 +75,32 @@ static const struct arm_mmu_flat_range mmu_zephyr_ranges[] = {
 	  .attrs = MT_NORMAL | MATTR_SHARED |
 		   MPERM_R | MPERM_W |
 		   MATTR_CACHE_OUTER_WB_WA | MATTR_CACHE_INNER_WB_WA},
+#if defined(CONFIG_AARCH32_ARMV8_A)
+	/* The ARMv8-A AArch32 implementation uses VBAR to hold the final vector
+	 * table address (_vector_start); map it here rather than requiring
+	 * each SoC to provide its own entry in mmu_regions.c.
+	 */
+	{ .name  = "vectors",
+	  .start = (uint32_t)_vector_start,
+	  .end   = (uint32_t)_vector_end,
+	  .attrs = MT_NORMAL | MATTR_SHARED |
+		   MPERM_R | MPERM_X |
+		   MATTR_CACHE_OUTER_WB_nWA | MATTR_CACHE_INNER_WB_nWA},
+#endif
 
 	/* Mark text segment cacheable, read only and executable */
 	{ .name  = "zephyr_code",
 	  .start = (uint32_t)__text_region_start,
 	  .end   = (uint32_t)__text_region_end,
 	  .attrs = MT_NORMAL | MATTR_SHARED |
+	  /* The code needs to have write permission in order for
+	   * software breakpoints (which modify instructions) to work
+	   */
+#if defined(CONFIG_GDBSTUB)
+		   MPERM_R | MPERM_X | MPERM_W |
+#else
 		   MPERM_R | MPERM_X |
+#endif
 		   MATTR_CACHE_OUTER_WB_nWA | MATTR_CACHE_INNER_WB_nWA |
 		   MATTR_MAY_MAP_L1_SECTION},
 
@@ -297,13 +316,15 @@ static struct arm_mmu_perms_attrs arm_mmu_convert_attr_flags(uint32_t attrs)
 		perms_attrs.cacheable = 0;
 		perms_attrs.domain    = ARM_MMU_DOMAIN_DEVICE;
 
-		if (attrs & MATTR_SHARED) {
-			perms_attrs.tex        = 0;
-			perms_attrs.bufferable = 1;
-		} else {
-			perms_attrs.tex        = 2;
-			perms_attrs.bufferable = 0;
-		}
+		/*
+		 * ARM deprecates the marking of Device memory with a
+		 * shareability attribute other than Outer Shareable
+		 * or Shareable. This means ARM strongly recommends
+		 * that Device memory is never assigned a shareability
+		 * attribute of Non-shareable or Inner Shareable.
+		 */
+		perms_attrs.tex        = 0;
+		perms_attrs.bufferable = 1;
 	} else if (attrs & MT_NORMAL) {
 		/*
 		 * TEX[2] is always 1. TEX[1:0] contain the outer cache attri-
@@ -796,10 +817,10 @@ int z_arm_mmu_init(void)
 	}
 
 	/* Clear TTBR1 */
-	__asm__ __volatile__("mcr p15, 0, %0, c2, c0, 1" : : "r"(reg_val));
+	__asm__ volatile("mcr p15, 0, %0, c2, c0, 1" : : "r"(reg_val));
 
 	/* Write TTBCR: EAE, security not yet relevant, N[2:0] = 0 */
-	__asm__ __volatile__("mcr p15, 0, %0, c2, c0, 2"
+	__asm__ volatile("mcr p15, 0, %0, c2, c0, 2"
 			     : : "r"(reg_val));
 
 	/* Write TTBR0 */
@@ -861,7 +882,7 @@ int z_arm_mmu_init(void)
  * @param phys 32-bit physical address.
  * @param size Size (in bytes) of the memory area to map.
  * @param flags Memory attributes & permissions. Comp. K_MEM_...
- *              flags in sys/mem_manage.h.
+ *              flags in kernel/mm.h.
  * @retval 0 on success, -EINVAL if an invalid parameter is detected.
  */
 static int __arch_mem_map(void *virt, uintptr_t phys, size_t size, uint32_t flags)
@@ -881,6 +902,9 @@ static int __arch_mem_map(void *virt, uintptr_t phys, size_t size, uint32_t flag
 
 	switch (flags & K_MEM_CACHE_MASK) {
 
+	case K_MEM_ARM_NORMAL_NC:
+		conv_flags |= MT_NORMAL;
+		break;
 	case K_MEM_CACHE_NONE:
 	default:
 		conv_flags |= MT_DEVICE;
@@ -939,7 +963,7 @@ static int __arch_mem_map(void *virt, uintptr_t phys, size_t size, uint32_t flag
  * @param phys 32-bit physical address.
  * @param size Size (in bytes) of the memory area to map.
  * @param flags Memory attributes & permissions. Comp. K_MEM_...
- *              flags in sys/mem_manage.h.
+ *              flags in kernel/mm.h.
  */
 void arch_mem_map(void *virt, uintptr_t phys, size_t size, uint32_t flags)
 {

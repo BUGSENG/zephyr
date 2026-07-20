@@ -1,13 +1,14 @@
-.. _bluetooth-hci-usb-sample:
+.. zephyr:code-sample:: bluetooth_hci_usb
+   :name: HCI USB
+   :relevant-api: hci_raw bluetooth usbd_api
 
-Bluetooth: HCI USB
-##################
+   Turn a Zephyr board into a USB Bluetooth dongle (compatible with all operating systems).
 
 Overview
 ********
 
 Make a USB Bluetooth dongle out of Zephyr. Requires USB device support from the
-board it runs on (e.g. :ref:`nrf52840dk_nrf52840` supports both BLE and USB).
+board it runs on (e.g. :zephyr:board:`nrf52840dk` supports both Bluetooth LE and USB).
 
 Requirements
 ************
@@ -17,7 +18,12 @@ Requirements
 
 Building and Running
 ********************
-This sample can be found under :zephyr_file:`samples/bluetooth/hci_usb` in the
-Zephyr tree.
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+Build and flash the sample as follows, replacing ``<board>`` with your target
+board (e.g. :zephyr:board:`nrf52840dk`):
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/hci_usb
+   :board: <board>
+   :goals: build flash
+   :compact:

@@ -16,41 +16,37 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(adc_shell);
 
-#define CMD_HELP_ACQ_TIME 			\
-	"Configure acquisition time."		\
-	"\nUsage: acq_time <time> <unit>"	\
-	"\nunits: us, ns, ticks\n"
+#define CMD_HELP_ACQ_TIME \
+	SHELL_HELP("Configure acquisition time", \
+		   "<time> <unit>\nunits: us, ns, ticks")
 
-#define CMD_HELP_CHANNEL			\
-	"Configure ADC channel\n"		\
+#define CMD_HELP_CHANNEL \
+	SHELL_HELP("Configure ADC channel", "<subcommand> [args]")
 
-#define CMD_HELP_CH_ID				\
-	"Configure channel id\n"		\
-	"Usage: id <channel_id>\n"
+#define CMD_HELP_CH_ID \
+	SHELL_HELP("Configure channel id", "<channel_id>")
 
-#define CMD_HELP_DIFF				\
-	"Configure differential\n"		\
-	"Usage: differential <0||1>\n"
+#define CMD_HELP_DIFF \
+	SHELL_HELP("Configure differential", "<0|1>")
 
-#define CMD_HELP_CH_NEG				\
-	"Configure channel negative input\n"	\
-	"Usage: negative <negative_input_id>\n"
+#define CMD_HELP_CH_NEG \
+	SHELL_HELP("Configure channel negative input", "<negative_input_id>")
 
-#define CMD_HELP_CH_POS				\
-	"Configure channel positive input\n"	\
-	"Usage: positive <positive_input_id>\n"
+#define CMD_HELP_CH_POS \
+	SHELL_HELP("Configure channel positive input", "<positive_input_id>")
 
-#define CMD_HELP_READ				\
-	"Read adc value\n"			\
-	"Usage: read <channel>\n"
+#define CMD_HELP_READ \
+	SHELL_HELP("Read adc value", "<channel>")
 
-#define CMD_HELP_RES				\
-	"Configure resolution\n"		\
-	"Usage: resolution <resolution>\n"
+#define CMD_HELP_RES \
+	SHELL_HELP("Configure resolution", "<resolution>")
 
-#define CMD_HELP_REF	"Configure reference\n"
-#define CMD_HELP_GAIN	"Configure gain.\n"
-#define CMD_HELP_PRINT	"Print current configuration"
+#define CMD_HELP_REF	SHELL_HELP("Configure reference", NULL)
+#define CMD_HELP_GAIN	SHELL_HELP("Configure gain", NULL)
+#define CMD_HELP_PRINT	SHELL_HELP("Print current configuration", NULL)
+
+static const char *cmd_adc_dev_get_help =
+	SHELL_HELP("Select subcommand for ADC property label", NULL);
 
 #define ADC_HDL_LIST_ENTRY(node_id)                                                                \
 	{                                                                                          \
@@ -74,27 +70,21 @@ static struct adc_hdl {
 	struct adc_channel_cfg channel_config;
 	uint8_t resolution;
 } adc_list[] = {
+	/* zephyr-keep-sorted-start */
+	DT_FOREACH_STATUS_OKAY(adi_ad4114_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(adi_ad559x_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(adi_ad7124_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(atmel_sam0_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(atmel_sam_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(atmel_sam_afec, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(espressif_esp32_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(atmel_sam_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(atmel_sam0_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(gd_gd32_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(infineon_cat1_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(infineon_xmc4xxx_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ite_it51xxx_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ite_it8xxx2_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(microchip_xec_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(nordic_nrf_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(nordic_nrf_saadc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(nxp_mcux_12b1msps_sar, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(nxp_kinetis_adc12, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(nxp_kinetis_adc16, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(nxp_vf610_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(st_stm32_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(nuvoton_npcx_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(ti_ads1112, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(ti_ads1119, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(ti_ads114s08, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(ti_cc32xx_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(raspberrypi_pico_adc, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(zephyr_adc_emul, ADC_HDL_LIST_ENTRY)
-	DT_FOREACH_STATUS_OKAY(nxp_s32_adc_sar, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(lltc_ltc2451, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(m5stack_m5pm1_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11102, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11103, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11105, ADC_HDL_LIST_ENTRY)
@@ -104,6 +94,72 @@ static struct adc_hdl {
 	DT_FOREACH_STATUS_OKAY(maxim_max11115, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11116, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11117, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(maxim_max11253, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(maxim_max11254, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(maxim_max2253x, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(microchip_mcp3204, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(microchip_mcp3208, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(microchip_mcp3221, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(microchip_xec_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nordic_nrf_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nordic_nrf_saadc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nuvoton_npcx_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nuvoton_numaker_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nxp_adc12, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nxp_gau_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nxp_kinetis_adc16, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nxp_lpc_lpadc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nxp_mcux_12b1msps_sar, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nxp_s32_adc_sar, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(nxp_vf610_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(raspberrypi_pico_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(renesas_smartbond_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(renesas_smartbond_sdadc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(silabs_gecko_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(silabs_gecko_iadc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(st_stm32_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(st_stm32f1_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(st_stm32f4_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(telink_b91_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1013, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1014, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1015, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1112, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1113, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1114, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1115, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1119, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads114s08, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1220, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7052, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7950, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7951, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7952, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7953, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7954, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7955, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7956, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7957, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7958, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7959, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7960, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7961, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_cc13xx_cc26xx_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_cc32xx_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_lmp90077, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_lmp90078, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_lmp90079, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_lmp90080, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_lmp90097, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_lmp90098, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_lmp90099, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_lmp90100, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_mspm0_adc12, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_tla2021, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_tla2022, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_tla2024, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(zephyr_adc_emul, ADC_HDL_LIST_ENTRY)
+	/* zephyr-keep-sorted-stop */
 };
 
 static struct adc_hdl *get_adc(const char *device_label)
@@ -445,11 +501,11 @@ static void cmd_adc_dev_get(size_t idx, struct shell_static_entry *entry)
 		entry->syntax  = adc_list[idx].dev->name;
 		entry->handler = NULL;
 		entry->subcmd  = &sub_adc_cmds;
-		entry->help    = "Select subcommand for ADC property label.";
+		entry->help    = cmd_adc_dev_get_help;
 	} else {
 		entry->syntax  = NULL;
 	}
 }
 SHELL_DYNAMIC_CMD_CREATE(sub_adc_dev, cmd_adc_dev_get);
 
-SHELL_CMD_REGISTER(adc, &sub_adc_dev, "ADC commands", NULL);
+SHELL_CMD_REGISTER(adc, &sub_adc_dev, SHELL_HELP("ADC commands", NULL), NULL);

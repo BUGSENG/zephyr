@@ -1,7 +1,8 @@
-.. _fdc2x1x:
+.. zephyr:code-sample:: fdc2x1x
+   :name: FDC2X1X Capacitance-to-Digital Converter
+   :relevant-api: sensor_interface
 
-FDC2X1X: Capacitance-to-Digital Converter
-#########################################
+   Get capacitance and frequency data from a FDC2X1X sensor (polling & trigger).
 
 Overview
 ********
@@ -44,13 +45,13 @@ Building and Running
 This sample outputs sensor data to the console and can be read by any serial
 console program. It should work with any platform featuring a I2C interface.
 The platform in use requires a custom devicetree overlay.
-In this example the :ref:`nrf9160dk_nrf9160` board is used. The devicetree
+In this example the :zephyr:board:`nrf9160dk` board is used. The devicetree
 overlay of this board provides example settings for evaluation, which
 you can use as a reference for other platforms.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/sensor/fdc2x1x
-   :board: nrf9160dk_nrf9160
+   :board: nrf9160dk/nrf9160
    :goals: build flash
    :compact:
 

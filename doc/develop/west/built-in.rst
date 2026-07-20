@@ -100,6 +100,8 @@ To operate on a subset of projects only, give ``PROJECT`` argument(s). Each
 path that points to the project within the workspace. If you specify
 projects explicitly, they are updated regardless of whether they are active.
 
+.. _west-update-procedure:
+
 **Project update procedure:**
 
 For each project that is updated, this command:
@@ -110,8 +112,9 @@ For each project that is updated, this command:
    it from the remote if it is not already available locally
 #. Sets the project's :ref:`manifest-rev <west-manifest-rev>` branch to the
    commit specified by the revision in the previous step
-#. Checks out ``manifest-rev`` in the local working copy as a `detached
-   HEAD <https://git-scm.com/docs/git-checkout#_detached_head>`_
+#. Checks out ``manifest-rev`` in the local working copy as a `detached HEAD
+   <https://git-scm.com/docs/git-checkout#_detached_head>`_ (see
+   :ref:`west-update-detached-heads` for details about this choice)
 #. If the manifest file specifies a :ref:`submodules
    <west-manifest-submodules>` key for the project, recursively updates
    the project's submodules as described below.
@@ -245,13 +248,14 @@ West has a few more commands for managing the projects in the
 workspace, which are summarized here. Run ``west <command> -h`` for
 detailed help.
 
+- ``west compare``: compare the state of the workspace against the manifest
+- ``west diff``: run ``git diff`` in local project repositories
+- ``west forall``: run an arbitrary command in local project repositories
+- ``west grep``: search for patterns in local project repositories
 - ``west list``: print a line of information about each project in the
   manifest, according to a format string
 - ``west manifest``: manage the manifest file. See :ref:`west-manifest-cmd`.
-- ``west diff``: run ``git diff`` in local project repositories
 - ``west status``: run ``git status`` in local project repositories
-- ``west forall``: run an arbitrary command in local project repositories
-- ``west compare``: compare the state of the workspace against the manifest
 
 Other built-in commands
 ***********************

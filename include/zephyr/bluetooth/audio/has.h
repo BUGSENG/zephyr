@@ -1,5 +1,11 @@
+/**
+ * @file
+ * @brief Bluetooth Hearing Access Service (HAS) APIs.
+ */
+
 /*
  * Copyright (c) 2022 Codecoup
+ * Copyright (c) 2024 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,42 +18,66 @@
  *
  * @defgroup bt_has Hearing Access Service (HAS)
  *
+ * @since 3.1
+ * @version 0.8.0
+ *
  * @ingroup bluetooth
  * @{
  *
  * The Hearing Access Service is used to identify a hearing aid and optionally
  * to control hearing aid presets.
- *
- * [Experimental] Users should note that the APIs can change as a part of
- * ongoing development.
  */
 
-#include <sys/types.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** Preset index definitions */
-#define BT_HAS_PRESET_INDEX_NONE 0x00
-#define BT_HAS_PRESET_INDEX_FIRST 0x01
-#define BT_HAS_PRESET_INDEX_LAST 0xFF
+/**
+ * @name Preset index definitions
+ * @{
+ */
+/** No index */
+#define BT_HAS_PRESET_INDEX_NONE 0x00U
+/** First preset index */
+#define BT_HAS_PRESET_INDEX_FIRST 0x01U
+/** Last preset index */
+#define BT_HAS_PRESET_INDEX_LAST 0xFFU
+/** @} */
 
 /** Preset name minimum length */
-#define BT_HAS_PRESET_NAME_MIN 1
+#define BT_HAS_PRESET_NAME_MIN 1U
 /** Preset name maximum length */
-#define BT_HAS_PRESET_NAME_MAX 40
+#define BT_HAS_PRESET_NAME_MAX 40U
 
-/** @brief Opaque Hearing Access Service object. */
+/**
+ * @struct bt_has
+ * @brief Opaque Hearing Access Service object.
+ */
 struct bt_has;
 
 /** Hearing Aid device type */
 enum bt_has_hearing_aid_type {
+	/**
+	 * Two hearing aids that form a Coordinated Set, one for the right ear and one for the left
+	 * ear of the user. Typically used by a user with bilateral hearing loss.
+	 */
 	BT_HAS_HEARING_AID_TYPE_BINAURAL = 0x00,
+	/**
+	 * A single hearing aid for the left or the right ear. Typically used by a user with
+	 * unilateral hearing loss.
+	 */
 	BT_HAS_HEARING_AID_TYPE_MONAURAL = 0x01,
+	/**
+	 * Two hearing aids with a connection to one another that expose a single Bluetooth radio
+	 * interface.
+	 */
 	BT_HAS_HEARING_AID_TYPE_BANDED = 0x02,
 };
 
@@ -57,15 +87,16 @@ enum bt_has_properties {
 	BT_HAS_PROP_NONE = 0,
 
 	/** Preset name can be written by the client */
-	BT_HAS_PROP_WRITABLE = BIT(0),
+	BT_HAS_PROP_WRITABLE = BIT(0U),
 
 	/** Preset availability */
-	BT_HAS_PROP_AVAILABLE = BIT(1),
+	BT_HAS_PROP_AVAILABLE = BIT(1U),
 };
 
-/** Hearing Aid device capablilities */
+/** Hearing Aid device capabilities */
 enum bt_has_capabilities {
-	BT_HAS_PRESET_SUPPORT = BIT(0),
+	/** Indicate support for presets */
+	BT_HAS_PRESET_SUPPORT = BIT(0U),
 };
 
 /** @brief Structure for registering features of a Hearing Access Service instance. */
@@ -189,11 +220,12 @@ struct bt_has_client_cb {
 				    bool is_last);
 };
 
-/** @brief Registers the callbacks used by the Hearing Access Service client.
+/**
+ * @brief Registers the callbacks used by the Hearing Access Service client.
  *
- *  @param cb The callback structure.
+ * @param cb The callback structure.
  *
- *  @return 0 in case of success or negative value in case of error.
+ * @return 0 in case of success or negative value in case of error.
  */
 int bt_has_client_cb_register(const struct bt_has_client_cb *cb);
 
@@ -394,11 +426,6 @@ int bt_has_preset_available(uint8_t index);
  */
 int bt_has_preset_unavailable(uint8_t index);
 
-enum {
-	BT_HAS_PRESET_ITER_STOP = 0,
-	BT_HAS_PRESET_ITER_CONTINUE,
-};
-
 /**
  * @typedef bt_has_preset_func_t
  * @brief Preset iterator callback.
@@ -408,11 +435,11 @@ enum {
  * @param name Preset name.
  * @param user_data Data given.
  *
- * @return BT_HAS_PRESET_ITER_CONTINUE if should continue to the next preset.
- * @return BT_HAS_PRESET_ITER_STOP to stop.
+ * @retval true Continue iterating.
+ * @retval false Stop iterating.
  */
-typedef uint8_t (*bt_has_preset_func_t)(uint8_t index, enum bt_has_properties properties,
-					const char *name, void *user_data);
+typedef bool (*bt_has_preset_func_t)(uint8_t index, enum bt_has_properties properties,
+				     const char *name, void *user_data);
 
 /**
  * @brief Preset iterator.
@@ -422,8 +449,12 @@ typedef uint8_t (*bt_has_preset_func_t)(uint8_t index, enum bt_has_properties pr
  * @param index Preset index, passing @ref BT_HAS_PRESET_INDEX_NONE skips index matching.
  * @param func Callback function.
  * @param user_data Data to pass to the callback.
+ *
+ * @retval 0 Success
+ * @retval -ECANCELED Iteration was stopped by the callback function before complete.
+ * @retval -EINVAL @p func was NULL.
  */
-void bt_has_preset_foreach(uint8_t index, bt_has_preset_func_t func, void *user_data);
+int bt_has_preset_foreach(uint8_t index, bt_has_preset_func_t func, void *user_data);
 
 /**
  * @brief Set active preset.

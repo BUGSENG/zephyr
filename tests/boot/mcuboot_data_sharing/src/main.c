@@ -11,7 +11,7 @@
 #include <zephyr/settings/settings.h>
 #include <bootutil/boot_status.h>
 #include <bootutil/image.h>
-#include <mcuboot_version.h>
+#include <zephyr/mcuboot_version.h>
 
 #define FLASH_SECTOR_SIZE 1024
 #define FLASH_SECTOR_SIZE_KB 4
@@ -29,7 +29,7 @@ ZTEST(mcuboot_shared_data, test_mode)
 	memset(var, 0xff, sizeof(var));
 	rc = settings_runtime_get("blinfo/mode", var, sizeof(var));
 	zassert_equal(rc, sizeof(var), "Expected data length mismatch");
-	zassert_equal(var[0], MCUBOOT_MODE_SWAP_USING_MOVE, "Expected data mismatch");
+	zassert_equal(var[0], MCUBOOT_MODE_SWAP_USING_OFFSET, "Expected data mismatch");
 }
 
 ZTEST(mcuboot_shared_data, test_signature_type)

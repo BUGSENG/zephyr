@@ -17,7 +17,7 @@
 #include <zephyr/init.h>
 #include <zephyr/sys/crc.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/sys/base64.h>
 #include <zephyr/drivers/console/uart_mcumgr.h>
 #include <zephyr/mgmt/mcumgr/mgmt/mgmt.h>
@@ -72,7 +72,7 @@ static int mcumgr_dummy_tx_pkt(const uint8_t *data, int len,
 
 K_FIFO_DEFINE(smp_dummy_rx_fifo);
 K_WORK_DEFINE(smp_dummy_work, smp_dummy_process_rx_queue);
-K_MEM_SLAB_DEFINE(dummy_mcumgr_slab, sizeof(struct uart_mcumgr_rx_buf), 1, 1);
+K_MEM_SLAB_DEFINE_TYPE(dummy_mcumgr_slab, struct uart_mcumgr_rx_buf, 1);
 
 void smp_dummy_clear_state(void)
 {

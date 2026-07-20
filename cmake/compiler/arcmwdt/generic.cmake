@@ -6,8 +6,6 @@ find_program(CMAKE_DTS_PREPROCESSOR ${ZEPHYR_SDK_CROSS_COMPILE}gcc PATHS ${ZEPHY
 message(STATUS "Found dts preprocessor: ${CMAKE_DTS_PREPROCESSOR} (Zephyr SDK ${SDK_VERSION})")
 
 find_program(CMAKE_C_COMPILER ${CROSS_COMPILE}ccac PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_LLVM_COV ${CROSS_COMPILE}llvm-cov PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-set(CMAKE_GCOV "${CMAKE_LLVM_COV} gcov")
 
 if(CMAKE_C_COMPILER STREQUAL CMAKE_C_COMPILER-NOTFOUND)
   message(FATAL_ERROR "Zephyr was unable to find the Metaware compiler")
@@ -17,12 +15,12 @@ execute_process(
   COMMAND ${CMAKE_C_COMPILER} --version
   RESULT_VARIABLE ret
   OUTPUT_VARIABLE full_version_output
-  ERROR_QUIET
   )
 
 if(ret)
   message(FATAL_ERROR "Executing the below command failed. Are permissions set correctly?
-  '${CMAKE_C_COMPILER} --version'"
+  '${CMAKE_C_COMPILER} --version'
+  ${full_version_output}"
   )
 else()
   set(ARCMWDT_MIN_REQUIRED_VERS "2022.09")

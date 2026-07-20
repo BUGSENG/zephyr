@@ -42,7 +42,7 @@ Building and Running
 ********************
 
 This sample runs with X-NUCLEO-IKS01A2 stacked on any board with a matching
-Arduino connector. For this example, we use a :ref:`nucleo_f401re_board` board.
+Arduino connector. For this example, we use a :zephyr:board:`nucleo_f401re` board.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/shields/x_nucleo_iks01a2/sensorhub
@@ -57,9 +57,9 @@ Sample Output
 
     X-NUCLEO-IKS01A2 sensor dashboard
 
-    LSM6DSL: Accel (m.s-2): x: 0.0, y: 0.2, z: 10.0
-    LSM6DSL: Gyro (dps): x: 0.029, y: -0.030, z: 0.016
-    LSM6DSL: Magn (gauss): x: 0.363, y: -0.002, z: -0.559
+    LSM6DSL: Accel (m/s^2): x: 0.0, y: 0.2, z: 10.0
+    LSM6DSL: Gyro (rad/s): x: 0.029, y: -0.030, z: 0.016
+    LSM6DSL: Magn (G): x: 0.363, y: -0.002, z: -0.559
     9:: lsm6dsl acc trig 1668
 
     <updated endlessly every 2 seconds>

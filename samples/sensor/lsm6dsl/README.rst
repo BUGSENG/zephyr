@@ -1,10 +1,13 @@
-.. _lsm6dsl:
+.. zephyr:code-sample:: lsmd6dsl
+   :name: LSM6DSL IMU sensor
+   :relevant-api: sensor_interface
 
-LSM6DSL: IMU sensor Monitor
-###########################
+   Get accelerometer and gyroscope data from an LSM6DSL sensor (polling & trigger
+   mode).
 
 Overview
 ********
+
 This sample sets the LSM6DSL accelerometer and gyroscope to 104Hz
 and enable a trigger on data ready. It displays on the console the
 values for accelerometer and gyroscope, plus optionally the values of
@@ -15,7 +18,7 @@ Requirements
 ************
 
 This sample uses the LSM6DSL sensor controlled using the I2C or SPI interface.
-It has been tested on both :ref:`96b_argonkey` and disco_l475_iot1 board.
+It has been tested on both :zephyr:board:`96b_argonkey` and :zephyr:board:`disco_l475_iot1`.
 
 References
 **********
@@ -25,8 +28,8 @@ References
 Building and Running
 ********************
 
- This project outputs sensor data to the console. It requires an LSM6DSL
- sensor, which is present on both the :ref:`96b_argonkey` and disco_l475_iot1 board.
+ This project outputs sensor data to the console. It requires an LSM6DSL sensor, which is
+ present on both the :zephyr:board:`96b_argonkey` and :zephyr:board:`disco_l475_iot1` boards.
 
 Building on ArgonKey board
 ==========================
@@ -48,13 +51,13 @@ Building on disco_l475_iot1 board
    :goals: build
    :compact:
 
-Building on nrf52840dk_nrf52840 board with x-nucleo-iks01a2 shield
+Building on nrf52840dk/nrf52840 board with x-nucleo-iks01a2 shield
 ==================================================================
 
 .. zephyr-app-commands::
    :zephyr-app: samples/sensor/lsm6dsl
    :host-os: unix
-   :board: nrf52840dk_nrf52840
+   :board: nrf52840dk/nrf52840
    :shield: x_nucleo_iks01a2
    :goals: build
    :compact:
@@ -68,7 +71,7 @@ Sample Output
 
     accel (-3.184000 -0.697000 9.207000) m/s2
     gyro (0.065000 -0.029000 0.002000) dps
-    magn (-0.042000 0.294000 -0.408000) gauss
+    magn (-0.042000 0.294000 -0.408000) G
     - (0) (trig_cnt: 190474)
 
     <repeats endlessly every 2 seconds>

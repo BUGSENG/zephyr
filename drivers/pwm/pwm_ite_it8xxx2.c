@@ -35,12 +35,20 @@ struct pwm_it8xxx2_cfg {
 	uintptr_t reg_pwmpol;
 	/* PWM channel */
 	int channel;
+	/* Init PWM channel output high */
+	bool pwm_init_high;
 	/* PWM prescaler control register base */
 	struct pwm_it8xxx2_regs *base;
 	/* Select PWM prescaler that output to PWM channel */
 	int prs_sel;
 	/* PWM alternate configuration */
 	const struct pinctrl_dev_config *pcfg;
+};
+
+struct pwm_it8xxx2_data {
+	uint32_t ctr;
+	uint32_t cxcprs;
+	uint32_t target_freq_prev;
 };
 
 static void pwm_enable(const struct device *dev, int enabled)
@@ -92,11 +100,12 @@ static int pwm_it8xxx2_set_cycles(const struct device *dev,
 {
 	const struct pwm_it8xxx2_cfg *config = dev->config;
 	struct pwm_it8xxx2_regs *const inst = config->base;
+	struct pwm_it8xxx2_data *data = dev->data;
 	volatile uint8_t *reg_dcr = (uint8_t *)config->reg_dcr;
 	volatile uint8_t *reg_pwmpol = (uint8_t *)config->reg_pwmpol;
 	int ch = config->channel;
 	int prs_sel = config->prs_sel;
-	uint32_t actual_freq = 0xffffffff, target_freq, deviation, cxcprs, ctr;
+	uint32_t actual_freq = 0xffffffff, target_freq, deviation;
 	uint64_t pwm_clk_src;
 
 	/* Select PWM inverted polarity (ex. active-low pulse) */
@@ -162,47 +171,58 @@ static int pwm_it8xxx2_set_cycles(const struct device *dev,
 	 *          CTRx[7:0] value 00h results in a divisor 1
 	 *          CTRx[7:0] value FFh results in a divisor 256
 	 */
-	for (ctr = 0xFF; ctr >= PWM_CTRX_MIN; ctr--) {
-		cxcprs = (((uint32_t) pwm_clk_src) / (ctr + 1) / target_freq);
-		/*
-		 * Make sure cxcprs isn't zero, or we will have
-		 * divide-by-zero on calculating actual_freq.
-		 */
-		if (cxcprs != 0) {
-			actual_freq = ((uint32_t) pwm_clk_src) / (ctr + 1) / cxcprs;
-			if (abs(actual_freq - target_freq) < deviation) {
-				/* CxCPRS[15:0] = cxcprs - 1 */
-				cxcprs--;
-				break;
+	if (target_freq != data->target_freq_prev) {
+		uint32_t ctr, cxcprs;
+
+		for (ctr = 0xFF; ctr >= PWM_CTRX_MIN; ctr--) {
+			cxcprs = (((uint32_t) pwm_clk_src) / (ctr + 1) / target_freq);
+			/*
+			 * Make sure cxcprs isn't zero, or we will have
+			 * divide-by-zero on calculating actual_freq.
+			 */
+			if (cxcprs != 0) {
+				actual_freq = ((uint32_t) pwm_clk_src) / (ctr + 1) / cxcprs;
+				if (abs(actual_freq - target_freq) < deviation) {
+					/* CxCPRS[15:0] = cxcprs - 1 */
+					cxcprs--;
+					break;
+				}
 			}
 		}
-	}
 
-	if (cxcprs > UINT16_MAX) {
-		LOG_ERR("PWM prescaler CxCPRS only support 2 bytes !");
-		return -EINVAL;
+		if (cxcprs > UINT16_MAX) {
+			LOG_ERR("PWM prescaler CxCPRS only support 2 bytes !");
+			return -EINVAL;
+		}
+
+		/* Store ctr and cxcprs with successful frequency change */
+		data->ctr = ctr;
+		data->cxcprs = cxcprs;
 	}
 
 	/* Set PWM prescaler clock divide and cycle time register */
 	if (prs_sel == PWM_PRESCALER_C4) {
-		inst->C4CPRS = cxcprs & 0xFF;
-		inst->C4MCPRS = (cxcprs >> 8) & 0xFF;
-		inst->CTR1 = ctr;
+		inst->C4CPRS = data->cxcprs & 0xFF;
+		inst->C4MCPRS = (data->cxcprs >> 8) & 0xFF;
+		inst->CTR1 = data->ctr;
 	} else if (prs_sel == PWM_PRESCALER_C6) {
-		inst->C6CPRS = cxcprs & 0xFF;
-		inst->C6MCPRS = (cxcprs >> 8) & 0xFF;
-		inst->CTR2 = ctr;
+		inst->C6CPRS = data->cxcprs & 0xFF;
+		inst->C6MCPRS = (data->cxcprs >> 8) & 0xFF;
+		inst->CTR2 = data->ctr;
 	} else if (prs_sel == PWM_PRESCALER_C7) {
-		inst->C7CPRS = cxcprs & 0xFF;
-		inst->C7MCPRS = (cxcprs >> 8) & 0xFF;
-		inst->CTR3 = ctr;
+		inst->C7CPRS = data->cxcprs & 0xFF;
+		inst->C7MCPRS = (data->cxcprs >> 8) & 0xFF;
+		inst->CTR3 = data->ctr;
 	}
 
 	/* Set PWM channel duty cycle register */
-	*reg_dcr = (ctr * pulse_cycles) / period_cycles;
+	*reg_dcr = (data->ctr * pulse_cycles) / period_cycles;
 
 	/* PWM channel clock source not gating */
 	pwm_enable(dev, 1);
+
+	/* Store the frequency to be compared */
+	data->target_freq_prev = target_freq;
 
 	LOG_DBG("clock source freq %d, target freq %d",
 		(uint32_t) pwm_clk_src, target_freq);
@@ -214,7 +234,9 @@ static int pwm_it8xxx2_init(const struct device *dev)
 {
 	const struct pwm_it8xxx2_cfg *config = dev->config;
 	struct pwm_it8xxx2_regs *const inst = config->base;
+	volatile uint8_t *reg_dcr = (uint8_t *)config->reg_dcr;
 	volatile uint8_t *reg_pcssg = (uint8_t *)config->reg_pcssg;
+	volatile uint8_t *reg_pwmpol = (uint8_t *)config->reg_pwmpol;
 	int ch = config->channel;
 	int prs_sel = config->prs_sel;
 	int pcssg_shift;
@@ -244,6 +266,17 @@ static int pwm_it8xxx2_init(const struct device *dev)
 	 */
 	inst->CTR1M = 0;
 
+	/* Set PWM init output level */
+	*reg_dcr = 0;
+	if (config->pwm_init_high) {
+		*reg_pwmpol |= BIT(ch);
+	} else {
+		*reg_pwmpol &= ~BIT(ch);
+	}
+
+	/* PWM channel clock source not gating */
+	pwm_enable(dev, 1);
+
 	/* Enable PWMs clock counter */
 	inst->ZTIER |= IT8XXX2_PWM_PCCE;
 
@@ -257,7 +290,7 @@ static int pwm_it8xxx2_init(const struct device *dev)
 	return 0;
 }
 
-static const struct pwm_driver_api pwm_it8xxx2_api = {
+static DEVICE_API(pwm, pwm_it8xxx2_api) = {
 	.set_cycles = pwm_it8xxx2_set_cycles,
 	.get_cycles_per_sec = pwm_it8xxx2_get_cycles_per_sec,
 };
@@ -272,15 +305,18 @@ static const struct pwm_driver_api pwm_it8xxx2_api = {
 		.reg_pcsgr = DT_INST_REG_ADDR_BY_IDX(inst, 2),				\
 		.reg_pwmpol = DT_INST_REG_ADDR_BY_IDX(inst, 3),				\
 		.channel = DT_PROP(DT_INST(inst, ite_it8xxx2_pwm), channel),		\
+		.pwm_init_high = DT_INST_PROP(inst, pwm_init_high),			\
 		.base = (struct pwm_it8xxx2_regs *) DT_REG_ADDR(DT_NODELABEL(prs)),	\
 		.prs_sel = DT_PROP(DT_INST(inst, ite_it8xxx2_pwm), prescaler_cx),	\
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),				\
 	};										\
 											\
+	static struct pwm_it8xxx2_data pwm_it8xxx2_data_##inst;                         \
+											\
 	DEVICE_DT_INST_DEFINE(inst,							\
 			      &pwm_it8xxx2_init,					\
 			      NULL,							\
-			      NULL,							\
+			      &pwm_it8xxx2_data_##inst,					\
 			      &pwm_it8xxx2_cfg_##inst,					\
 			      PRE_KERNEL_1,						\
 			      CONFIG_PWM_INIT_PRIORITY,					\

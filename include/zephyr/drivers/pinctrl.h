@@ -5,15 +5,18 @@
 
 /**
  * @file
- * Public APIs for pin control drivers
+ * @brief Main header file for pin control driver API.
+ * @ingroup pinctrl_interface
  */
 
 #ifndef ZEPHYR_INCLUDE_DRIVERS_PINCTRL_H_
 #define ZEPHYR_INCLUDE_DRIVERS_PINCTRL_H_
 
 /**
- * @brief Pin Controller Interface
- * @defgroup pinctrl_interface Pin Controller Interface
+ * @brief Interfaces for pin controllers.
+ * @defgroup pinctrl_interface Pin Control
+ * @since 3.0
+ * @version 0.8.0
  * @ingroup io_interfaces
  * @{
  */
@@ -76,8 +79,8 @@ struct pinctrl_dev_config {
 
 /** @cond INTERNAL_HIDDEN */
 
-#ifndef CONFIG_PM_DEVICE
-/** If device power management is not enabled, "sleep" state will be ignored. */
+#if !defined(CONFIG_PINCTRL_KEEP_SLEEP_STATE)
+/** Out of power management configurations, ignore "sleep" state. */
 #define PINCTRL_SKIP_SLEEP 1
 #endif
 
@@ -155,10 +158,10 @@ struct pinctrl_dev_config {
 #define Z_PINCTRL_STATE_INIT(state_idx, node_id)			       \
 	COND_CODE_1(Z_PINCTRL_SKIP_STATE(state_idx, node_id), (),	       \
 	({								       \
-		.id = Z_PINCTRL_STATE_ID(state_idx, node_id),		       \
 		.pins = Z_PINCTRL_STATE_PINS_NAME(state_idx, node_id),	       \
 		.pin_cnt = ARRAY_SIZE(Z_PINCTRL_STATE_PINS_NAME(state_idx,     \
-								node_id))      \
+								node_id)),      \
+		.id = Z_PINCTRL_STATE_ID(state_idx, node_id)		       \
 	}))
 
 /**
@@ -412,9 +415,9 @@ static inline int pinctrl_apply_state(const struct pinctrl_dev_config *config,
  */
 #define PINCTRL_DT_STATE_INIT(prop, state)				       \
 	{								       \
-		.id = state,						       \
 		.pins = prop ## _pins,					       \
-		.pin_cnt = ARRAY_SIZE(prop ## _pins)			       \
+		.pin_cnt = ARRAY_SIZE(prop ## _pins),			       \
+		.id = state						       \
 	}
 
 /**

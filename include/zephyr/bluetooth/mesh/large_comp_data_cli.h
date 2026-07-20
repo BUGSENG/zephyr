@@ -4,8 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef BT_MESH_LARGE_COMP_DATA_CLI_H__
-#define BT_MESH_LARGE_COMP_DATA_CLI_H__
+/**
+ * @file
+ * @brief Header file for the Bluetooth Mesh Large Composition Data Client model API.
+ * @ingroup bt_mesh_large_comp_data_cli
+ */
+
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_MESH_LARGE_COMP_DATA_CLI_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_MESH_LARGE_COMP_DATA_CLI_H_
 
 #include <zephyr/bluetooth/mesh.h>
 
@@ -69,7 +75,7 @@ struct bt_mesh_large_comp_data_cli_cb {
 /** Large Composition Data Client model context */
 struct bt_mesh_large_comp_data_cli {
 	/** Model entry pointer. */
-	struct bt_mesh_model *model;
+	const struct bt_mesh_model *model;
 
 	/** Internal parameters for tracking message responses. */
 	struct bt_mesh_msg_ack_ctx ack_ctx;
@@ -150,4 +156,4 @@ extern const struct bt_mesh_model_cb _bt_mesh_large_comp_data_cli_cb;
 }
 #endif
 
-#endif /* BT_MESH_LARGE_COMP_DATA_CLI_H__ */
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_MESH_LARGE_COMP_DATA_CLI_H_ */

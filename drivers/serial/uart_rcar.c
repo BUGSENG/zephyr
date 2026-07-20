@@ -11,7 +11,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/clock_control.h>
-#include <zephyr/drivers/clock_control/renesas_cpg_mssr.h>
+#include <zephyr/drivers/clock_control/renesas_rcar_generic.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/irq.h>
 #include <zephyr/spinlock.h>
@@ -19,12 +19,13 @@
 struct uart_rcar_cfg {
 	DEVICE_MMIO_ROM; /* Must be first */
 	const struct device *clock_dev;
-	struct rcar_cpg_clk mod_clk;
-	struct rcar_cpg_clk bus_clk;
+	rcar_generic_clk_t mod_clk;
+	rcar_generic_clk_t bus_clk;
 	const struct pinctrl_dev_config *pcfg;
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	void (*irq_config_func)(const struct device *dev);
 #endif
+	bool is_hscif;
 };
 
 struct uart_rcar_data {
@@ -51,6 +52,7 @@ struct uart_rcar_data {
 #define SCLSR           0x24    /* Line Status Register */
 #define DL              0x30    /* Frequency Division Register */
 #define CKS             0x34    /* Clock Select Register */
+#define HSSRR           0x40    /* Sampling Rate Register */
 
 /* SCSMR (Serial Mode Register) */
 #define SCSMR_C_A       BIT(7)  /* Communication Mode */
@@ -104,6 +106,15 @@ struct uart_rcar_data {
 #define SCLSR_TO        BIT(2)  /* Timeout */
 #define SCLSR_ORER      BIT(0)  /* Overrun Error */
 
+/* HSSRR (Sampling Rate Register) */
+#define HSSRR_SRE            BIT(15)      /* Sampling Rate Register Enable */
+#define HSSRR_SRCYC_DEF_VAL  0x7          /* Sampling rate default value */
+
+static uint8_t uart_rcar_read_8(const struct device *dev, uint32_t offs)
+{
+	return sys_read8(DEVICE_MMIO_GET(dev) + offs);
+}
+
 static void uart_rcar_write_8(const struct device *dev,
 			      uint32_t offs, uint8_t value)
 {
@@ -126,9 +137,14 @@ static void uart_rcar_set_baudrate(const struct device *dev,
 				   uint32_t baud_rate)
 {
 	struct uart_rcar_data *data = dev->data;
+	const struct uart_rcar_cfg *cfg = dev->config;
 	uint8_t reg_val;
 
-	reg_val = ((data->clk_rate + 16 * baud_rate) / (32 * baud_rate) - 1);
+	if (cfg->is_hscif) {
+		reg_val = data->clk_rate / (2 * (HSSRR_SRCYC_DEF_VAL + 1) * baud_rate) - 1;
+	} else {
+		reg_val = ((data->clk_rate + 16 * baud_rate) / (32 * baud_rate) - 1);
+	}
 	uart_rcar_write_8(dev, SCBRR, reg_val);
 }
 
@@ -146,7 +162,7 @@ static int uart_rcar_poll_in(const struct device *dev, unsigned char *p_char)
 		goto unlock;
 	}
 
-	*p_char = uart_rcar_read_16(dev, SCFRDR);
+	*p_char = uart_rcar_read_8(dev, SCFRDR);
 
 	reg_val = uart_rcar_read_16(dev, SCFSR);
 	reg_val &= ~SCFSR_RDF;
@@ -181,6 +197,7 @@ static int uart_rcar_configure(const struct device *dev,
 			       const struct uart_config *cfg)
 {
 	struct uart_rcar_data *data = dev->data;
+	const struct uart_rcar_cfg *cfg_drv = dev->config;
 
 	uint16_t reg_val;
 	k_spinlock_key_t key;
@@ -223,6 +240,11 @@ static int uart_rcar_configure(const struct device *dev,
 	reg_val &= ~(SCSMR_C_A | SCSMR_CHR | SCSMR_PE | SCSMR_O_E | SCSMR_STOP |
 		     SCSMR_CKS1 | SCSMR_CKS0);
 	uart_rcar_write_16(dev, SCSMR, reg_val);
+
+	if (cfg_drv->is_hscif) {
+		/* TODO: calculate the optimal sampling and bit rates based on error rate */
+		uart_rcar_write_16(dev, HSSRR, HSSRR_SRE | HSSRR_SRCYC_DEF_VAL);
+	}
 
 	/* Set baudrate */
 	uart_rcar_set_baudrate(dev, cfg->baudrate);
@@ -275,14 +297,13 @@ static int uart_rcar_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	ret = clock_control_on(config->clock_dev,
-			       (clock_control_subsys_t)&config->mod_clk);
+	ret = clock_control_on(config->clock_dev, RCAR_CLOCK_SUBSYS(config->mod_clk));
 	if (ret < 0) {
 		return ret;
 	}
 
 	ret = clock_control_get_rate(config->clock_dev,
-				     (clock_control_subsys_t)&config->bus_clk,
+				     RCAR_CLOCK_SUBSYS(config->bus_clk),
 				     &data->clk_rate);
 	if (ret < 0) {
 		return ret;
@@ -347,7 +368,7 @@ static int uart_rcar_fifo_read(const struct device *dev, uint8_t *rx_data,
 	while (((size - num_rx) > 0) &&
 	       (uart_rcar_read_16(dev, SCFSR) & SCFSR_RDF)) {
 		/* Receive current byte */
-		rx_data[num_rx++] = uart_rcar_read_16(dev, SCFRDR);
+		rx_data[num_rx++] = uart_rcar_read_8(dev, SCFRDR);
 
 		reg_val = uart_rcar_read_16(dev, SCFSR);
 		reg_val &= ~(SCFSR_RDF);
@@ -460,11 +481,6 @@ static int uart_rcar_irq_is_pending(const struct device *dev)
 	       (uart_rcar_irq_tx_ready(dev) && uart_rcar_irq_is_enabled(dev, SCSCR_TIE));
 }
 
-static int uart_rcar_irq_update(const struct device *dev)
-{
-	return 1;
-}
-
 static void uart_rcar_irq_callback_set(const struct device *dev,
 				       uart_irq_callback_user_data_t cb,
 				       void *cb_data)
@@ -493,7 +509,7 @@ void uart_rcar_isr(const struct device *dev)
 
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
-static const struct uart_driver_api uart_rcar_driver_api = {
+static DEVICE_API(uart, uart_rcar_driver_api) = {
 	.poll_in = uart_rcar_poll_in,
 	.poll_out = uart_rcar_poll_out,
 #ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
@@ -512,53 +528,47 @@ static const struct uart_driver_api uart_rcar_driver_api = {
 	.irq_err_enable = uart_rcar_irq_err_enable,
 	.irq_err_disable = uart_rcar_irq_err_disable,
 	.irq_is_pending = uart_rcar_irq_is_pending,
-	.irq_update = uart_rcar_irq_update,
 	.irq_callback_set = uart_rcar_irq_callback_set,
 #endif  /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
 
 /* Device Instantiation */
-#define UART_RCAR_DECLARE_CFG(n, IRQ_FUNC_INIT)			    \
-	PINCTRL_DT_INST_DEFINE(n);				    \
-	static const struct uart_rcar_cfg uart_rcar_cfg_##n = {	    \
-		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(n)),		    \
-		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)), \
-		.mod_clk.module =				    \
-			DT_INST_CLOCKS_CELL_BY_IDX(n, 0, module),   \
-		.mod_clk.domain =				    \
-			DT_INST_CLOCKS_CELL_BY_IDX(n, 0, domain),   \
-		.bus_clk.module =				    \
-			DT_INST_CLOCKS_CELL_BY_IDX(n, 1, module),   \
-		.bus_clk.domain =				    \
-			DT_INST_CLOCKS_CELL_BY_IDX(n, 1, domain),   \
-		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),	    \
-		IRQ_FUNC_INIT					    \
+#define UART_RCAR_DECLARE_CFG(n, IRQ_FUNC_INIT, compat)					\
+	PINCTRL_DT_INST_DEFINE(n);							\
+	static const struct uart_rcar_cfg uart_rcar_cfg_##compat##n = {			\
+		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(n)),					\
+		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)),			\
+		.mod_clk = RCAR_DT_INST_CLOCKS_CELL_BY_IDX(n, 0),			\
+		.bus_clk = RCAR_DT_INST_CLOCKS_CELL_BY_IDX(n, 1),			\
+		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),				\
+		.is_hscif = DT_INST_NODE_HAS_COMPAT(n, renesas_rcar_hscif),		\
+		IRQ_FUNC_INIT								\
 	}
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
-#define UART_RCAR_CONFIG_FUNC(n)				  \
-	static void irq_config_func_##n(const struct device *dev) \
-	{							  \
-		IRQ_CONNECT(DT_INST_IRQN(n),			  \
-			    DT_INST_IRQ(n, priority),		  \
-			    uart_rcar_isr,			  \
-			    DEVICE_DT_INST_GET(n), 0);		  \
-								  \
-		irq_enable(DT_INST_IRQN(n));			  \
+#define UART_RCAR_CONFIG_FUNC(n, compat)					 \
+	static void irq_config_func_##compat##n(const struct device *dev)	 \
+	{									 \
+		IRQ_CONNECT(DT_INST_IRQN(n),					 \
+			    DT_INST_IRQ(n, priority),				 \
+			    uart_rcar_isr,					 \
+			    DEVICE_DT_INST_GET(n), 0);				 \
+										 \
+		irq_enable(DT_INST_IRQN(n));					 \
 	}
-#define UART_RCAR_IRQ_CFG_FUNC_INIT(n) \
-	.irq_config_func = irq_config_func_##n
-#define UART_RCAR_INIT_CFG(n) \
-	UART_RCAR_DECLARE_CFG(n, UART_RCAR_IRQ_CFG_FUNC_INIT(n))
+#define UART_RCAR_IRQ_CFG_FUNC_INIT(n, compat) \
+	.irq_config_func = irq_config_func_##compat##n
+#define UART_RCAR_INIT_CFG(n, compat) \
+	UART_RCAR_DECLARE_CFG(n, UART_RCAR_IRQ_CFG_FUNC_INIT(n, compat), compat)
 #else
-#define UART_RCAR_CONFIG_FUNC(n)
+#define UART_RCAR_CONFIG_FUNC(n, compat)
 #define UART_RCAR_IRQ_CFG_FUNC_INIT
-#define UART_RCAR_INIT_CFG(n) \
-	UART_RCAR_DECLARE_CFG(n, UART_RCAR_IRQ_CFG_FUNC_INIT)
+#define UART_RCAR_INIT_CFG(n, compat) \
+	UART_RCAR_DECLARE_CFG(n, UART_RCAR_IRQ_CFG_FUNC_INIT, compat)
 #endif
 
-#define UART_RCAR_INIT(n)							\
-	static struct uart_rcar_data uart_rcar_data_##n = {			\
+#define UART_RCAR_INIT(n, compat)						\
+	static struct uart_rcar_data uart_rcar_data_##compat##n = {		\
 		.current_config = {						\
 			.baudrate = DT_INST_PROP(n, current_speed),		\
 			.parity = UART_CFG_PARITY_NONE,				\
@@ -568,18 +578,23 @@ static const struct uart_driver_api uart_rcar_driver_api = {
 		},								\
 	};									\
 										\
-	static const struct uart_rcar_cfg uart_rcar_cfg_##n;			\
+	static const struct uart_rcar_cfg uart_rcar_cfg_##compat##n;		\
 										\
 	DEVICE_DT_INST_DEFINE(n,						\
 			      uart_rcar_init,					\
 			      NULL,						\
-			      &uart_rcar_data_##n,				\
-			      &uart_rcar_cfg_##n,				\
+			      &uart_rcar_data_##compat##n,			\
+			      &uart_rcar_cfg_##compat##n,			\
 			      PRE_KERNEL_1, CONFIG_SERIAL_INIT_PRIORITY,	\
 			      &uart_rcar_driver_api);				\
 										\
-	UART_RCAR_CONFIG_FUNC(n)						\
+	UART_RCAR_CONFIG_FUNC(n, compat)					\
 										\
-	UART_RCAR_INIT_CFG(n);
+	UART_RCAR_INIT_CFG(n, compat);
 
-DT_INST_FOREACH_STATUS_OKAY(UART_RCAR_INIT)
+DT_INST_FOREACH_STATUS_OKAY_VARGS(UART_RCAR_INIT, DT_DRV_COMPAT)
+
+#undef DT_DRV_COMPAT
+#define DT_DRV_COMPAT renesas_rcar_hscif
+
+DT_INST_FOREACH_STATUS_OKAY_VARGS(UART_RCAR_INIT, DT_DRV_COMPAT)

@@ -11,7 +11,8 @@
 
 /* Declaration of 'private' function */
 int prepare_msg_for_send(struct lwm2m_message *msg);
-int build_msg_block_for_send(struct lwm2m_message *msg, uint16_t block_num);
+int build_msg_block_for_send(struct lwm2m_message *msg, uint16_t block_num,
+			     enum coap_block_size block_size);
 int request_output_block_ctx(struct coap_block_context **ctx);
 void release_output_block_ctx(struct coap_block_context ** const ctx);
 
@@ -52,6 +53,8 @@ static void net_block_transfer_before(void *f)
 	memset(&fixture->ctx, 0, sizeof(struct lwm2m_ctx));
 	memset(&fixture->msg, 0, sizeof(struct lwm2m_message));
 	fixture->msg.ctx = &fixture->ctx;
+
+	k_mutex_init(&fixture->ctx.lock);
 }
 
 static void net_block_transfer_after(void *f)
@@ -270,7 +273,7 @@ ZTEST_F(net_block_transfer, test_build_blocks_for_send_exactly_2_blocks)
 		      "Last byte in payload wrong");
 
 	/* block 1 */
-	ret = build_msg_block_for_send(msg, 1);
+	ret = build_msg_block_for_send(msg, 1, COAP_BLOCK_64);
 	zassert_equal(ret, 0, "Could not create second block");
 
 	ret = coap_get_option_int(&msg->cpkt, COAP_OPTION_BLOCK1);
@@ -285,7 +288,7 @@ ZTEST_F(net_block_transfer, test_build_blocks_for_send_exactly_2_blocks)
 		      "Last byte in payload wrong");
 
 	/* block 2 doesn't exist */
-	ret = build_msg_block_for_send(msg, 2);
+	ret = build_msg_block_for_send(msg, 2, COAP_BLOCK_64);
 	zassert_equal(ret, -EINVAL, "Could not create second block");
 }
 
@@ -346,7 +349,7 @@ ZTEST_F(net_block_transfer, test_build_blocks_for_send_more_than_2_blocks)
 		      "Last byte in payload wrong");
 
 	/* block 1 */
-	ret = build_msg_block_for_send(msg, 1);
+	ret = build_msg_block_for_send(msg, 1, COAP_BLOCK_64);
 	zassert_equal(ret, 0, "Could not create second block");
 
 	ret = coap_get_option_int(&msg->cpkt, COAP_OPTION_BLOCK1);
@@ -361,7 +364,7 @@ ZTEST_F(net_block_transfer, test_build_blocks_for_send_more_than_2_blocks)
 		      "Last byte in payload wrong");
 
 	/* block 2 */
-	ret = build_msg_block_for_send(msg, 2);
+	ret = build_msg_block_for_send(msg, 2, COAP_BLOCK_64);
 	zassert_equal(ret, 0, "Could not create second block");
 
 	ret = coap_get_option_int(&msg->cpkt, COAP_OPTION_BLOCK1);
@@ -374,7 +377,7 @@ ZTEST_F(net_block_transfer, test_build_blocks_for_send_more_than_2_blocks)
 	zassert_equal(0x80, payload[0], "First (and only) byte in payload wrong");
 
 	/* block 3 doesn't exist */
-	ret = build_msg_block_for_send(msg, 3);
+	ret = build_msg_block_for_send(msg, 3, COAP_BLOCK_64);
 	zassert_equal(ret, -EINVAL, "Could not create second block");
 }
 

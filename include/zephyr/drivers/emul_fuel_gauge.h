@@ -23,7 +23,8 @@ extern "C" {
 /**
  * @brief Fuel gauge backend emulator APIs
  * @defgroup fuel_gauge_emulator_backend Fuel gauge backend emulator APIs
- * @ingroup io_interfaces
+ * @ingroup io_emulators
+ * @ingroup fuel_gauge_interface
  * @{
  */
 
@@ -93,7 +94,7 @@ static inline int z_impl_emul_fuel_gauge_is_battery_cutoff(const struct emul *ta
 }
 #endif
 
-#include <syscalls/emul_fuel_gauge.h>
+#include <zephyr/syscalls/emul_fuel_gauge.h>
 
 /**
  * @}

@@ -2,6 +2,8 @@
 
 zephyr_library()
 
+zephyr_library_compile_definitions(_POSIX_C_SOURCE=200809L)
+
 zephyr_include_directories(.)
 
 zephyr_library_sources(
@@ -32,6 +34,10 @@ zephyr_library_sources_ifdef(CONFIG_LWM2M_SWMGMT_OBJ_SUPPORT
 zephyr_library_sources_ifdef(CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_SUPPORT
     lwm2m_obj_firmware_pull.c
     lwm2m_pull_context.c
+    )
+zephyr_library_sources_ifdef(CONFIG_LWM2M_SEND_SCHEDULER
+    send_scheduler/send_scheduler_core.c
+    send_scheduler/lwm2m_obj_send_scheduler.c
     )
 zephyr_library_sources_ifdef(CONFIG_LWM2M_LOCATION_OBJ_SUPPORT
     lwm2m_obj_location.c
@@ -91,11 +97,17 @@ zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_HUMIDITY_SENSOR
 zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_PRESSURE_SENSOR
     ipso_pressure_sensor.c
     )
+zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_TIME
+    ipso_time.c
+    )
 zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_LIGHT_CONTROL
     ipso_light_control.c
     )
 zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_ACCELEROMETER
     ipso_accelerometer.c
+    )
+zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_MAGNETOMETER
+    ipso_magnetometer.c
     )
 zephyr_library_sources_ifdef(CONFIG_LWM2M_IPSO_BUZZER
     ipso_buzzer.c
@@ -127,4 +139,6 @@ zephyr_library_sources_ifdef(CONFIG_LWM2M_SHELL
     lwm2m_shell.c
 )
 
-zephyr_library_link_libraries_ifdef(CONFIG_MBEDTLS mbedTLS)
+zephyr_linker_sources(SECTIONS iterables.ld)
+
+zephyr_library_link_libraries_ifdef(CONFIG_MBEDTLS_BUILTIN mbedtls_iface)

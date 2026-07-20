@@ -5,6 +5,7 @@
  */
 
 #include <st/l4/stm32l496.dtsi>
+#include <st/l4/stm32l4_crypt.dtsi>
 
 / {
 	soc {

@@ -31,10 +31,8 @@ struct k_spinlock _track_list_k_msgq_lock;
 struct k_mbox *_track_list_k_mbox;
 struct k_spinlock _track_list_k_mbox_lock;
 
-#ifdef CONFIG_PIPES
 struct k_pipe *_track_list_k_pipe;
 struct k_spinlock _track_list_k_pipe_lock;
-#endif
 
 struct k_queue *_track_list_k_queue;
 struct k_spinlock _track_list_k_queue_lock;
@@ -44,12 +42,24 @@ struct k_event *_track_list_k_event;
 struct k_spinlock _track_list_k_event_lock;
 #endif
 
-#define SYS_TRACK_LIST_PREPEND(list, obj) \
-	do { \
-		k_spinlock_key_t key = k_spin_lock(&list ## _lock); \
-		obj->_obj_track_next = list; \
-		list = obj; \
-		k_spin_unlock(&list ## _lock, key); \
+/* Iterates in the tracking list and prepends an object only when it doesn't exist */
+#define SYS_TRACK_LIST_PREPEND(list, obj)                                                          \
+	do {                                                                                       \
+		k_spinlock_key_t key = k_spin_lock(&list##_lock);                                  \
+		if ((obj) != (list)) {                                                             \
+			__typeof__(list) _cur = (list);                                            \
+			while (_cur != NULL) {                                                     \
+				if (_cur == (obj)) {                                               \
+					break;                                                     \
+				}                                                                  \
+				_cur = _cur->_obj_track_next;                                      \
+			}                                                                          \
+			if (_cur == NULL) {                                                        \
+				(obj)->_obj_track_next = (list);                                   \
+				(list) = (obj);                                                    \
+			}                                                                          \
+		}                                                                                  \
+		k_spin_unlock(&list##_lock, key);                                                  \
 	} while (false)
 
 #define SYS_TRACK_STATIC_INIT(type, ...) \
@@ -103,13 +113,14 @@ void sys_track_k_mbox_init(struct k_mbox *mbox)
 			SYS_TRACK_LIST_PREPEND(_track_list_k_mbox, mbox));
 }
 
-#ifdef CONFIG_PIPES
-void sys_track_k_pipe_init(struct k_pipe *pipe)
+void sys_track_k_pipe_init(struct k_pipe *pipe, void *buffer, size_t size)
 {
+	ARG_UNUSED(buffer);
+	ARG_UNUSED(size);
+
 	SYS_PORT_TRACING_TYPE_MASK(k_pipe,
 			SYS_TRACK_LIST_PREPEND(_track_list_k_pipe, pipe));
 }
-#endif
 
 void sys_track_k_queue_init(struct k_queue *queue)
 {
@@ -122,6 +133,16 @@ void sys_track_k_event_init(struct k_event *event)
 {
 	SYS_PORT_TRACING_TYPE_MASK(k_event,
 			SYS_TRACK_LIST_PREPEND(_track_list_k_event, event));
+}
+#endif
+
+#ifdef CONFIG_NETWORKING
+void sys_track_socket_init(int sock, int family, int type, int proto)
+{
+	ARG_UNUSED(sock);
+	ARG_UNUSED(family);
+	ARG_UNUSED(type);
+	ARG_UNUSED(proto);
 }
 #endif
 
@@ -149,10 +170,8 @@ static int sys_track_static_init(void)
 	SYS_PORT_TRACING_TYPE_MASK(k_mbox,
 			SYS_TRACK_STATIC_INIT(k_mbox));
 
-#ifdef CONFIG_PIPES
 	SYS_PORT_TRACING_TYPE_MASK(k_pipe,
-			SYS_TRACK_STATIC_INIT(k_pipe));
-#endif
+			SYS_TRACK_STATIC_INIT(k_pipe, NULL, 0));
 
 	SYS_PORT_TRACING_TYPE_MASK(k_queue,
 			SYS_TRACK_STATIC_INIT(k_queue));

@@ -1,7 +1,8 @@
-.. _bmi270:
+.. zephyr:code-sample:: bmi270
+   :name: BMI270 6-axis IMU sensor
+   :relevant-api: sensor_interface
 
-BMI270: 6 axis inertial measurement unit
-########################################
+   Configure and read accelerometer and gyroscope data from a BMI270 sensor.
 
 Description
 ***********
@@ -9,19 +10,13 @@ Description
 This sample application configures the accelerometer and gyroscope to
 measure data at 100Hz. The result is written to the console.
 
+The sample works on any board or board+shield combination that exposes an enabled Devicetree node
+with the compatible string :dtcompatible:`bosch,bmi270`.
+
 References
 **********
 
- - BMI270: https://www.bosch-sensortec.com/products/motion-sensors/imus/bmi270.html
-
-Wiring
-*******
-
-This sample uses the BMI270 sensor controlled using the I2C interface.
-Connect Supply: **VDD**, **VDDIO**, **GND** and Interface: **SDA**, **SCL**.
-The supply voltage can be in the 1.8V to 3.6V range.
-Depending on the baseboard used, the **SDA** and **SCL** lines require Pull-Up
-resistors.
+ - BMI270: https://www.bosch-sensortec.com/products/motion-sensors/imus/bmi270/
 
 Building and Running
 ********************
@@ -29,12 +24,12 @@ Building and Running
 This project outputs sensor data to the console. It requires a BMI270
 sensor. It should work with any platform featuring a I2C peripheral interface.
 It does not work on QEMU.
-In this example below the :ref:`nrf52840dk_nrf52840` board is used.
+In this example below the :zephyr:board:`nrf52840dk` board is used.
 
 
 .. zephyr-app-commands::
    :zephyr-app: samples/sensor/bmi270
-   :board: nrf52840dk_nrf52840
+   :board: nrf52840dk/nrf52840
    :goals: build flash
 
 Sample Output

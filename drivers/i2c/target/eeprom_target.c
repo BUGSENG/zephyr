@@ -18,11 +18,16 @@
 LOG_MODULE_REGISTER(i2c_target);
 
 struct i2c_eeprom_target_data {
+	const struct device *dev;
 	struct i2c_target_config config;
 	uint32_t buffer_size;
 	uint8_t *buffer;
 	uint32_t buffer_idx;
-	bool first_write;
+	uint32_t idx_write_cnt;
+	uint8_t address_width;
+	eeprom_target_changed_handler_t changed_handler;
+	void *changed_handler_data;
+	bool changed;
 };
 
 struct i2c_eeprom_target_config {
@@ -31,31 +36,48 @@ struct i2c_eeprom_target_config {
 	uint8_t *buffer;
 };
 
-int eeprom_target_program(const struct device *dev, const uint8_t *eeprom_data,
-			 unsigned int length)
+void eeprom_target_set_changed_callback(const struct device *dev,
+					eeprom_target_changed_handler_t handler,
+					void *user_data)
 {
 	struct i2c_eeprom_target_data *data = dev->data;
 
-	if (length > data->buffer_size) {
+	data->changed_handler = handler;
+	data->changed_handler_data = user_data;
+}
+
+size_t eeprom_target_get_size(const struct device *dev)
+{
+	struct i2c_eeprom_target_data *data = dev->data;
+
+	return data->buffer_size;
+}
+
+int eeprom_target_read_data(const struct device *dev, off_t offset,
+			    void *data, size_t len)
+{
+	struct i2c_eeprom_target_data *drv_data = dev->data;
+
+	if ((offset + len) > drv_data->buffer_size) {
+		LOG_WRN("attempt to read past device boundary");
 		return -EINVAL;
 	}
 
-	memcpy(data->buffer, eeprom_data, length);
-
+	memcpy(data, drv_data->buffer + offset, len);
 	return 0;
 }
 
-int eeprom_target_read(const struct device *dev, uint8_t *eeprom_data,
-		      unsigned int offset)
+int eeprom_target_write_data(const struct device *dev, off_t offset,
+			     const void *data, size_t len)
 {
-	struct i2c_eeprom_target_data *data = dev->data;
+	struct i2c_eeprom_target_data *drv_data = dev->data;
 
-	if (!data || offset >= data->buffer_size) {
+	if ((offset + len) > drv_data->buffer_size) {
+		LOG_WRN("attempt to write past device boundary");
 		return -EINVAL;
 	}
 
-	*eeprom_data = data->buffer[offset];
-
+	memcpy(drv_data->buffer + offset, data, len);
 	return 0;
 }
 
@@ -86,7 +108,7 @@ static int eeprom_target_write_requested(struct i2c_target_config *config)
 
 	LOG_DBG("eeprom: write req");
 
-	data->first_write = true;
+	data->idx_write_cnt = 0;
 
 	return 0;
 }
@@ -121,11 +143,16 @@ static int eeprom_target_write_received(struct i2c_target_config *config,
 	 * I2C controller support
 	 */
 
-	if (data->first_write) {
-		data->buffer_idx = val;
-		data->first_write = false;
+	if (data->idx_write_cnt < (data->address_width >> 3)) {
+		if (data->idx_write_cnt == 0) {
+			data->buffer_idx = 0;
+		}
+
+		data->buffer_idx = val | (data->buffer_idx << 8);
+		data->idx_write_cnt++;
 	} else {
 		data->buffer[data->buffer_idx++] = val;
+		data->changed = true;
 	}
 
 	data->buffer_idx = data->buffer_idx % data->buffer_size;
@@ -159,10 +186,16 @@ static int eeprom_target_stop(struct i2c_target_config *config)
 	struct i2c_eeprom_target_data *data = CONTAINER_OF(config,
 						struct i2c_eeprom_target_data,
 						config);
+	eeprom_target_changed_handler_t handler = data->changed_handler;
 
 	LOG_DBG("eeprom: stop");
 
-	data->first_write = true;
+	data->idx_write_cnt = 0;
+
+	if (data->changed && handler != NULL) {
+		handler(data->dev, data->changed_handler_data);
+	}
+	data->changed = false;
 
 	return 0;
 }
@@ -174,9 +207,20 @@ static void eeprom_target_buf_write_received(struct i2c_target_config *config,
 	struct i2c_eeprom_target_data *data = CONTAINER_OF(config,
 						struct i2c_eeprom_target_data,
 						config);
-	/* The first byte is offset */
-	data->buffer_idx = *ptr;
-	memcpy(&data->buffer[data->buffer_idx], ptr + 1, len - 1);
+	/* The first byte(s) is offset */
+	uint32_t idx_write_cnt = 0;
+
+	data->buffer_idx = 0;
+	while (idx_write_cnt < (data->address_width >> 3)) {
+		data->buffer_idx = (data->buffer_idx << 8) | *ptr++;
+		len--;
+		idx_write_cnt++;
+	}
+
+	if (len > 0) {
+		memcpy(&data->buffer[data->buffer_idx], ptr, len);
+		data->changed = true;
+	}
 }
 
 static int eeprom_target_buf_read_requested(struct i2c_target_config *config,
@@ -209,7 +253,7 @@ static int eeprom_target_unregister(const struct device *dev)
 	return i2c_target_unregister(cfg->bus.bus, &data->config);
 }
 
-static const struct i2c_target_driver_api api_funcs = {
+static DEVICE_API(i2c_target, api_funcs) = {
 	.driver_register = eeprom_target_register,
 	.driver_unregister = eeprom_target_unregister,
 };
@@ -236,6 +280,7 @@ static int i2c_eeprom_target_init(const struct device *dev)
 		return -ENODEV;
 	}
 
+	data->dev = dev;
 	data->buffer_size = cfg->buffer_size;
 	data->buffer = cfg->buffer;
 	data->config.address = cfg->bus.addr;
@@ -246,10 +291,17 @@ static int i2c_eeprom_target_init(const struct device *dev)
 
 #define I2C_EEPROM_INIT(inst)						\
 	static struct i2c_eeprom_target_data				\
-		i2c_eeprom_target_##inst##_dev_data;			\
+		i2c_eeprom_target_##inst##_dev_data = {			\
+			.address_width = DT_INST_PROP_OR(inst,		\
+					address_width, 8),		\
+		};							\
 									\
 	static uint8_t							\
 	i2c_eeprom_target_##inst##_buffer[(DT_INST_PROP(inst, size))];	\
+									\
+	BUILD_ASSERT(DT_INST_PROP(inst, size) <=			\
+			(1 << DT_INST_PROP_OR(inst, address_width, 8)), \
+			"size must be <= than 2^address_width");	\
 									\
 	static const struct i2c_eeprom_target_config			\
 		i2c_eeprom_target_##inst##_cfg = {			\

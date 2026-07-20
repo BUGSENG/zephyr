@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef H_MGMT_MGMT_DEFINES_
-#define H_MGMT_MGMT_DEFINES_
+#ifndef ZEPHYR_INCLUDE_MGMT_MCUMGR_MGMT_MGMT_DEFINES_H_
+#define ZEPHYR_INCLUDE_MGMT_MCUMGR_MGMT_MGMT_DEFINES_H_
 
 #include <inttypes.h>
 
@@ -15,9 +15,7 @@ extern "C" {
 #endif
 
 /**
- * @brief MCUmgr mgmt API
- * @defgroup mcumgr_mgmt_api MCUmgr mgmt API
- * @ingroup mcumgr
+ * @addtogroup mcumgr_mgmt_api
  * @{
  */
 
@@ -40,6 +38,8 @@ enum mcumgr_op_t {
 
 	/** Write response op-code */
 	MGMT_OP_WRITE_RSP,
+
+	MGMT_OP_COUNT,
 };
 
 /**
@@ -53,7 +53,7 @@ enum mcumgr_group_t {
 	/** Image management group, used for uploading firmware images */
 	MGMT_GROUP_ID_IMAGE,
 
-	/** Statistic management group, used for retieving statistics */
+	/** Statistic management group, used for retrieving statistics */
 	MGMT_GROUP_ID_STAT,
 
 	/** Settings management (config) group, used for reading/writing settings */
@@ -76,6 +76,9 @@ enum mcumgr_group_t {
 
 	/** Shell management group, used for executing shell commands */
 	MGMT_GROUP_ID_SHELL,
+
+	/** Enumeration management group, used for listing supported command groups */
+	MGMT_GROUP_ID_ENUM,
 
 	/** User groups defined from 64 onwards */
 	MGMT_GROUP_ID_PERUSER	= 64,
@@ -147,4 +150,4 @@ enum mcumgr_err_t {
 }
 #endif
 
-#endif /* MGMT_MGMT_DEFINES_H_ */
+#endif /* ZEPHYR_INCLUDE_MGMT_MCUMGR_MGMT_MGMT_DEFINES_H_ */

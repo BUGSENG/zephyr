@@ -29,6 +29,8 @@ extern "C" {
 
 /**
  * @defgroup ieee802154_driver IEEE 802.15.4 Drivers
+ * @since 1.0
+ * @version 0.8.0
  * @ingroup ieee802154
  *
  * @brief IEEE 802.15.4 driver API
@@ -231,8 +233,8 @@ enum ieee802154_phy_channel_page {
  * ieee802154_phy_supported_channels.
  */
 struct ieee802154_phy_channel_range {
-	uint16_t from_channel;
-	uint16_t to_channel;
+	uint16_t from_channel; /**< From channel range */
+	uint16_t to_channel;   /**< To channel range */
 };
 
 /**
@@ -515,24 +517,40 @@ enum ieee802154_hw_caps {
 	/** TX security supported (key management, encryption and authentication) */
 	IEEE802154_HW_TX_SEC = BIT(11),
 
+	/** RxOnWhenIdle handling supported */
+	IEEE802154_RX_ON_WHEN_IDLE = BIT(12),
+
+	/** Support for timed transmissions on selective channel.
+	 *
+	 *  This capability informs that transmissions with modes
+	 *  @ref IEEE802154_TX_MODE_TXTIME and @ref IEEE802154_TX_MODE_TXTIME_CCA support
+	 *  scheduling of timed transmissions on selective tx channel.
+	 *  The driver MAY have this capability only if the Kconfig option
+	 *  `CONFIG_IEEE802154_SELECTIVE_TXCHANNEL` is set, otherwise the driver MUST
+	 *  NOT have this capability.
+	 *
+	 *  Please refer to the `ieee802154_radio_api::tx` documentation for details.
+	 */
+	IEEE802154_HW_SELECTIVE_TXCHANNEL = BIT(13),
+
 	/* Note: Update also IEEE802154_HW_CAPS_BITS_COMMON_COUNT when changing
 	 * the ieee802154_hw_caps type.
 	 */
 };
 
 /** @brief Number of bits used by ieee802154_hw_caps type. */
-#define IEEE802154_HW_CAPS_BITS_COMMON_COUNT (12)
+#define IEEE802154_HW_CAPS_BITS_COMMON_COUNT (14)
 
 /** @brief This and higher values are specific to the protocol- or driver-specific extensions. */
 #define IEEE802154_HW_CAPS_BITS_PRIV_START IEEE802154_HW_CAPS_BITS_COMMON_COUNT
 
 /** Filter type, see @ref ieee802154_radio_api::filter */
 enum ieee802154_filter_type {
-	IEEE802154_FILTER_TYPE_IEEE_ADDR,
-	IEEE802154_FILTER_TYPE_SHORT_ADDR,
-	IEEE802154_FILTER_TYPE_PAN_ID,
-	IEEE802154_FILTER_TYPE_SRC_IEEE_ADDR,
-	IEEE802154_FILTER_TYPE_SRC_SHORT_ADDR,
+	IEEE802154_FILTER_TYPE_IEEE_ADDR,      /**< Address type filter */
+	IEEE802154_FILTER_TYPE_SHORT_ADDR,     /**< Short address type filter */
+	IEEE802154_FILTER_TYPE_PAN_ID,         /**< PAN id type filter */
+	IEEE802154_FILTER_TYPE_SRC_IEEE_ADDR,  /**< Source address type filter */
+	IEEE802154_FILTER_TYPE_SRC_SHORT_ADDR, /**< Source short address type filter */
 };
 
 /** Driver events, see @ref IEEE802154_CONFIG_EVENT_HANDLER */
@@ -559,6 +577,10 @@ enum ieee802154_rx_fail_reason {
 	IEEE802154_RX_FAIL_INVALID_FCS,
 	/** Address did not match */
 	IEEE802154_RX_FAIL_ADDR_FILTERED,
+	/** No buffer available */
+	IEEE802154_RX_FAIL_NO_BUFS,
+	/** Aborted */
+	IEEE802154_RX_FAIL_ABORT,
 	/** General reason */
 	IEEE802154_RX_FAIL_OTHER
 };
@@ -589,11 +611,16 @@ struct ieee802154_filter {
  * IEEE802154_CONFIG_MAC_KEYS.
  */
 struct ieee802154_key {
+	/** Key material */
 	uint8_t *key_value;
+	/** Initial value of frame counter associated with the key, see section 9.4.3 */
 	uint32_t key_frame_counter;
+	/** Indicates if per-key frame counter should be used, see section 9.4.3 */
 	bool frame_counter_per_key;
+	/** Key Identifier Mode, see section 9.4.2.3, Table 9-7 */
 	uint8_t key_id_mode;
-	uint8_t key_index;
+	/** Key Identifier, see section 9.4.4 */
+	uint8_t *key_id;
 };
 
 /** IEEE 802.15.4 Transmission mode. */
@@ -615,6 +642,8 @@ enum ieee802154_tx_mode {
 	 * Transmit packet in the future, at the specified time, no CCA.
 	 *
 	 * @note requires IEEE802154_HW_TXTIME capability.
+	 *
+	 * @note capability IEEE802154_HW_SELECTIVE_TXCHANNEL may apply.
 	 */
 	IEEE802154_TX_MODE_TXTIME,
 
@@ -622,6 +651,11 @@ enum ieee802154_tx_mode {
 	 * Transmit packet in the future, perform CCA before transmission.
 	 *
 	 * @note requires IEEE802154_HW_TXTIME capability.
+	 *
+	 * @note Required for Thread 1.2 Coordinated Sampled Listening feature
+	 * (see Thread specification 1.2.0, ch. 3.2.6.3).
+	 *
+	 * @note capability IEEE802154_HW_SELECTIVE_TXCHANNEL may apply.
 	 */
 	IEEE802154_TX_MODE_TXTIME_CCA,
 
@@ -699,7 +733,8 @@ enum ieee802154_config_type {
 	 * larger than the current frame counter associated with the same key,
 	 * see sections 8.2.2, 9.2.4 g/h) and 9.4.3.
 	 *
-	 * @note Available in any interface operational state.
+	 * @note Requires @ref IEEE802154_HW_TX_SEC capability and is available
+	 * in any interface operational state.
 	 */
 	IEEE802154_CONFIG_MAC_KEYS,
 
@@ -715,7 +750,8 @@ enum ieee802154_config_type {
 	 * Drivers SHALL return -EINVAL in case the configured frame counter
 	 * does not conform to this requirement.
 	 *
-	 * @note Available in any interface operational state.
+	 * @note Requires @ref IEEE802154_HW_TX_SEC capability and is available
+	 * in any interface operational state.
 	 */
 	IEEE802154_CONFIG_FRAME_COUNTER,
 
@@ -723,7 +759,8 @@ enum ieee802154_config_type {
 	 * Sets the current MAC frame counter value if the provided value is greater than
 	 * the current one.
 	 *
-	 * @note Available in any interface operational state.
+	 * @note Requires @ref IEEE802154_HW_TX_SEC capability and is available
+	 * in any interface operational state.
 	 *
 	 * @warning This configuration option does not conform to the
 	 * requirements specified in #61227 as it is redundant with @ref
@@ -777,6 +814,9 @@ enum ieee802154_config_type {
 	 *
 	 * @note requires @ref IEEE802154_HW_RXTIME capability and is available
 	 * in any interface operational state.
+	 *
+	 * @note Required for Thread 1.2 Coordinated Sampled Listening feature
+	 * (see Thread specification 1.2.0, ch. 3.2.6.3).
 	 */
 	IEEE802154_CONFIG_RX_SLOT,
 
@@ -906,6 +946,9 @@ enum ieee802154_config_type {
 	 *                                         +--------------------- loop ---------+
 	 *
 	 * @note Available in any interface operational state.
+	 *
+	 * @note Required for Thread 1.2 Coordinated Sampled Listening feature
+	 * (see Thread specification 1.2.0, ch. 3.2.6.3).
 	 */
 	IEEE802154_CONFIG_CSL_PERIOD,
 
@@ -948,7 +991,7 @@ enum ieee802154_config_type {
 	 * beacons of a single PAN, periodic ranging "blinks"), a single
 	 * timestamp at any time in the past or in the future may be given from
 	 * which other expected timestamps can be derived by adding or
-	 * substracting multiples of the RX period. See e.g. the CSL
+	 * subtracting multiples of the RX period. See e.g. the CSL
 	 * documentation in this API.
 	 *
 	 * Additionally this parameter MAY be used by drivers to discipline
@@ -957,6 +1000,9 @@ enum ieee802154_config_type {
 	 * same clock (as in PTP).
 	 *
 	 * @note Available in any interface operational state.
+	 *
+	 * @note Required for Thread 1.2 Coordinated Sampled Listening feature
+	 * (see Thread specification 1.2.0, ch. 3.2.6.3).
 	 */
 	IEEE802154_CONFIG_EXPECTED_RX_TIME,
 
@@ -1028,13 +1074,55 @@ enum ieee802154_config_type {
 	 *
 	 * L2 SHALL minimize the space required to keep IE configuration inside
 	 * the driver by consolidating address filters and by removing
-	 * configuation that is no longer required.
+	 * configuration that is no longer required.
 	 *
 	 * @note requires @ref IEEE802154_HW_RX_TX_ACK capability and is
 	 * available in any interface operational state. Currently we only
 	 * support header IEs but that may change in the future.
+	 *
+	 * @note Required for Thread 1.2 Coordinated Sampled Listening feature
+	 * (see Thread specification 1.2.0, ch. 3.2.6.3).
+	 *
+	 * @note Required for Thread 1.2 Link Metrics feature (see Thread
+	 * specification 1.2.0, ch. 4.11.3.3).
 	 */
 	IEEE802154_CONFIG_ENH_ACK_HEADER_IE,
+
+	/**
+	 * Enable/disable RxOnWhenIdle MAC PIB attribute (Table 8-94).
+	 *
+	 * Since there is no clear guidance in IEEE 802.15.4 specification about the definition of
+	 * an "idle period", this implementation expects that drivers use the RxOnWhenIdle attribute
+	 * to determine next radio state (false --> off, true --> receive) in the following
+	 * scenarios:
+	 * - Finalization of a regular frame reception task, provided that:
+	 *   - The frame is received without errors and passes the filtering and it's not an
+	 *     spurious ACK.
+	 *   - ACK is not requested or transmission of ACK is not possible due to internal
+	 *     conditions.
+	 * - Finalization of a frame transmission or transmission of an ACK frame, when ACK is not
+	 *     requested in the transmitted frame.
+	 * - Finalization of the reception operation of a requested ACK due to:
+	 *   - ACK timeout expiration.
+	 *   - Reception of an invalid ACK or not an ACK frame.
+	 *   - Reception of the proper ACK, unless the transmitted frame was a Data Request Command
+	 *     and the frame pending bit on the received ACK is set to true. In this case the radio
+	 *     platform implementation SHOULD keep the receiver on until a determined timeout which
+	 *     triggers an idle period start.
+	 * - Finalization of a stand alone CCA task.
+	 * - Finalization of a CCA operation with busy result during CSMA/CA procedure.
+	 * - Finalization of an Energy Detection task.
+	 * - Finalization of a scheduled radio reception window
+	 *     (see @ref IEEE802154_CONFIG_RX_SLOT).
+	 */
+	IEEE802154_CONFIG_RX_ON_WHEN_IDLE,
+
+	/** The maximum number of backoffs the CSMA-CA algorithm will attempt before declaring a
+	 * channel access failure.
+	 *
+	 * @note requires IEEE802154_HW_CSMA capability.
+	 */
+	IEEE802154_CONFIG_CSMA_CA_BACKOFFS,
 
 	/** Number of types defined in ieee802154_config_type. */
 	IEEE802154_CONFIG_COMMON_COUNT,
@@ -1065,15 +1153,15 @@ struct ieee802154_config {
 	union {
 		/** see @ref IEEE802154_CONFIG_AUTO_ACK_FPB */
 		struct {
-			bool enabled;
-			enum ieee802154_fpb_mode mode;
+			bool enabled;                  /**< Is auto ACK FPB enabled */
+			enum ieee802154_fpb_mode mode; /**< Auto ACK FPB mode */
 		} auto_ack_fpb;
 
 		/** see @ref IEEE802154_CONFIG_ACK_FPB */
 		struct {
-			uint8_t *addr; /* in little endian for both, short and extended address */
-			bool extended;
-			bool enabled;
+			uint8_t *addr; /**< little endian for both short and extended address */
+			bool extended; /**< Is extended address */
+			bool enabled;  /**< Is enabled */
 		} ack_fpb;
 
 		/** see @ref IEEE802154_CONFIG_PAN_COORDINATOR */
@@ -1082,8 +1170,14 @@ struct ieee802154_config {
 		/** see @ref IEEE802154_CONFIG_PROMISCUOUS */
 		bool promiscuous;
 
+		/** see @ref IEEE802154_CONFIG_RX_ON_WHEN_IDLE */
+		bool rx_on_when_idle;
+
 		/** see @ref IEEE802154_CONFIG_EVENT_HANDLER */
 		ieee802154_event_cb_t event_handler;
+
+		/** see @ref IEEE802154_CONFIG_CSMA_CA_BACKOFFS */
+		uint8_t csma_ca_backoffs;
 
 		/**
 		 * @brief see @ref IEEE802154_CONFIG_MAC_KEYS
@@ -1131,6 +1225,9 @@ struct ieee802154_config {
 			 */
 			net_time_t duration;
 
+			/**
+			 * Used channel
+			 */
 			uint8_t channel;
 		} rx_slot;
 
@@ -1180,6 +1277,15 @@ struct ieee802154_config {
 			 * in CPU byte order
 			 */
 			uint16_t short_addr;
+
+			/**
+			 * Flag for purging enh ACK header IEs.
+			 * When flag is set to true, driver should remove all existing
+			 * header IEs, and all other entries in config should be ignored.
+			 * This means that purging current header IEs and
+			 * configuring a new one in the same call is not allowed.
+			 */
+			bool purge_ie;
 		} ack_ie;
 	};
 };
@@ -1471,8 +1577,6 @@ struct ieee802154_radio_api {
 	 * @param channel the number of the channel to be set in CPU byte order
 	 *
 	 * @retval 0 channel was successfully set
-	 * @retval -EALREADY The previous channel is the same as the requested
-	 * channel.
 	 * @retval -EINVAL The given channel is not within the range of valid
 	 * channels of the driver's current channel page, see the
 	 * IEEE802154_ATTR_PHY_SUPPORTED_CHANNEL_RANGES driver attribute.
@@ -1582,6 +1686,23 @@ struct ieee802154_radio_api {
 	 * considerable idle waiting time. SHALL return `-ENETDOWN` unless the
 	 * interface is "UP".
 	 *
+	 * @note The transmission occurs on the radio channel set by the call to
+	 * `set_channel()`. However, if the `CONFIG_IEEE802154_SELECTIVE_TXCHANNEL`
+	 * is set and the driver has the capability `IEEE802154_HW_SELECTIVE_TXCHANNEL`
+	 * then the transmissions requested with `mode` IEEE802154_TX_MODE_TXTIME
+	 * or `IEEE802154_TX_MODE_TXTIME_CCA` SHALL use the radio channel
+	 * returned by `net_pkt_ieee802154_txchannel()` to transmit the packet
+	 * and receive an ACK on that channel if the frame requested it. After
+	 * the operation the driver should return to the channel set previously by
+	 * `set_channel()` call.
+	 * It is responsibility of an upper layer to set the required radio channel
+	 * for the packet by a call to `net_pkt_set_ieee802154_txchannel()`.
+	 * This feature allows CSL transmissions as stated in IEEE 802.15.4-2020
+	 * chapter 6.12.2.7 CSL over multiple channels. This feature allows to perform
+	 * a switch of the radio channel as late as possible before transmission without
+	 * interrupting possible reception that could occur if separate `set_channel()`
+	 * was called.
+	 *
 	 * @param dev pointer to IEEE 802.15.4 driver device
 	 * @param mode the transmission mode, some of which require specific
 	 * offloading capabilities.
@@ -1590,7 +1711,7 @@ struct ieee802154_radio_api {
 	 * with the frame data to be transmitted
 	 *
 	 * @retval 0 The frame was successfully sent or scheduled. If the driver
-	 * supports ACK offloading and the frame requested acknowlegment (AR bit
+	 * supports ACK offloading and the frame requested acknowledgment (AR bit
 	 * set), this means that the packet was successfully acknowledged by its
 	 * peer.
 	 * @retval -EINVAL Invalid packet (e.g. an expected IE is missing or the
@@ -1598,7 +1719,7 @@ struct ieee802154_radio_api {
 	 * @retval -EBUSY The frame could not be sent because the medium was
 	 * busy (CSMA/CA or CCA offloading feature only).
 	 * @retval -ENOMSG The frame was not confirmed by an ACK packet (TX ACK
-	 * offloading feature only).
+	 * offloading feature only) or the received ACK packet was invalid.
 	 * @retval -ENOBUFS The frame could not be scheduled due to missing
 	 * internal resources (timed TX offloading feature only).
 	 * @retval -ENETDOWN The interface is not "UP".
@@ -1656,6 +1777,7 @@ struct ieee802154_radio_api {
 	 */
 	int (*stop)(const struct device *dev);
 
+#if defined(CONFIG_IEEE802154_CARRIER_FUNCTIONS)
 	/**
 	 * @brief Start continuous carrier wave transmission.
 	 *
@@ -1676,6 +1798,30 @@ struct ieee802154_radio_api {
 	 * @retval -EIO not started
 	 */
 	int (*continuous_carrier)(const struct device *dev);
+
+	/**
+	 * @brief Start modulated carrier wave transmission.
+	 *
+	 * @details When the radio is emitting modulated carrier signals, it
+	 * blocks all transmissions on the selected channel.
+	 * This function is to be called only during radio
+	 * tests. Do not use it during normal device operation.
+	 *
+	 * @note Implementations MAY **sleep** and will usually NOT be
+	 * **isr-ok**. MAY be called in any interface state once the driver is
+	 * fully initialized ("ready").
+	 *
+	 * @param dev pointer to IEEE 802.15.4 driver device
+	 * @param data Pointer to a buffer to modulate the carrier with.
+	 * The first byte is the data length.
+	 *
+	 * @retval 0 modulated carrier wave transmission started
+	 * @retval -EALREADY The driver was already in "TESTING" state and
+	 * emitting a modulated carrier.
+	 * @retval -EIO not started
+	 */
+	int (*modulated_carrier)(const struct device *dev, const uint8_t *data);
+#endif /* CONFIG_IEEE802154_CARRIER_FUNCTIONS */
 
 	/**
 	 * @brief Set or update driver configuration.

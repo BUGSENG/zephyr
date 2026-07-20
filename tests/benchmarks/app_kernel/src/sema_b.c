@@ -8,53 +8,47 @@
 
 #include "master.h"
 
-#ifdef SEMA_BENCH
-
-
 /**
- *
  * @brief Semaphore signal speed test
- *
  */
 void sema_test(void)
 {
-	uint32_t et; /* elapsed Time */
+	uint64_t et; /* elapsed Time */
 	int i;
+	timing_t  start;
+	timing_t  end;
 
 	PRINT_STRING(dashline);
-	et = BENCH_START();
+	start = timing_timestamp_get();
 	for (i = 0; i < NR_OF_SEMA_RUNS; i++) {
 	  k_sem_give(&SEM0);
 	}
-	et = TIME_STAMP_DELTA_GET(et);
-	check_result();
+	end = timing_timestamp_get();
+	et = timing_cycles_get(&start, &end);
 
 	PRINT_F(FORMAT, "signal semaphore",
-		SYS_CLOCK_HW_CYCLES_TO_NS_AVG(et, NR_OF_SEMA_RUNS));
+		test_timing_cycles_to_ns_avg(et, NR_OF_SEMA_RUNS));
 
 	k_sem_reset(&SEM1);
 	k_sem_give(&STARTRCV);
 
-	et = BENCH_START();
+	start = timing_timestamp_get();
 	for (i = 0; i < NR_OF_SEMA_RUNS; i++) {
 		k_sem_give(&SEM1);
 	}
-	et = TIME_STAMP_DELTA_GET(et);
-	check_result();
+	end = timing_timestamp_get();
+	et = timing_cycles_get(&start, &end);
 
 	PRINT_F(FORMAT, "signal to waiting high pri task",
-		SYS_CLOCK_HW_CYCLES_TO_NS_AVG(et, NR_OF_SEMA_RUNS));
+		test_timing_cycles_to_ns_avg(et, NR_OF_SEMA_RUNS));
 
-	et = BENCH_START();
+	start = timing_timestamp_get();
 	for (i = 0; i < NR_OF_SEMA_RUNS; i++) {
 		k_sem_give(&SEM1);
 	}
-	et = TIME_STAMP_DELTA_GET(et);
-	check_result();
+	end = timing_timestamp_get();
+	et = timing_cycles_get(&start, &end);
 
 	PRINT_F(FORMAT, "signal to waiting high pri task, with timeout",
-		SYS_CLOCK_HW_CYCLES_TO_NS_AVG(et, NR_OF_SEMA_RUNS));
-
+		test_timing_cycles_to_ns_avg(et, NR_OF_SEMA_RUNS));
 }
-
-#endif /* SEMA_BENCH */

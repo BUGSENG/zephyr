@@ -57,3 +57,15 @@ int posix_arch_get_unique_thread_id(int thread_idx)
 {
 	return nct_get_unique_thread_id(te_state, thread_idx);
 }
+
+int posix_arch_thread_name_set(int thread_idx, const char *str)
+{
+	return nct_thread_name_set(te_state, thread_idx, str);
+}
+
+#if defined(CONFIG_ARCH_POSIX_UPDATE_STACK_INFO)
+void posix_arch_get_thread_stack(int thread_idx, void **stack_addr, unsigned long *stack_size)
+{
+	nct_get_thread_stack(te_state, thread_idx, stack_addr, stack_size);
+}
+#endif

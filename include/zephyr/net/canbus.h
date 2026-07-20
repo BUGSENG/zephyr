@@ -4,8 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_NET_CAN_H_
-#define ZEPHYR_INCLUDE_NET_CAN_H_
+/** @file
+ *  @brief CAN bus socket API definitions.
+ */
+
+#ifndef ZEPHYR_INCLUDE_NET_CANBUS_H_
+#define ZEPHYR_INCLUDE_NET_CANBUS_H_
 
 #include <zephyr/types.h>
 #include <zephyr/net/net_ip.h>
@@ -35,12 +39,12 @@ struct canbus_api {
 	/** Set socket CAN option */
 	int (*setsockopt)(const struct device *dev, void *obj, int level,
 			  int optname,
-			  const void *optval, socklen_t optlen);
+			  const void *optval, net_socklen_t optlen);
 
 	/** Get socket CAN option */
 	int (*getsockopt)(const struct device *dev, void *obj, int level,
 			  int optname,
-			  const void *optval, socklen_t *optlen);
+			  const void *optval, net_socklen_t *optlen);
 };
 
 /* Make sure that the network interface API is properly setup inside
@@ -52,4 +56,4 @@ BUILD_ASSERT(offsetof(struct canbus_api, iface_api) == 0);
 }
 #endif
 
-#endif /* ZEPHYR_INCLUDE_NET_CAN_H_ */
+#endif /* ZEPHYR_INCLUDE_NET_CANBUS_H_ */

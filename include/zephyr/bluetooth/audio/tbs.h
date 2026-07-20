@@ -1,8 +1,9 @@
-/** @file
- *  @brief Public APIs for Bluetooth Telephone Bearer Service.
+/**
+ * @file
+ * @brief Public APIs for Bluetooth Telephone Bearer Service.
  *
  * Copyright (c) 2020 Bose Corporation
- * Copyright (c) 2021 Nordic Semiconductor ASA
+ * Copyright (c) 2021-2026 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,60 +11,164 @@
 #ifndef ZEPHYR_INCLUDE_BLUETOOTH_AUDIO_TBS_H_
 #define ZEPHYR_INCLUDE_BLUETOOTH_AUDIO_TBS_H_
 
+/**
+ * @brief Telephone Bearer Service (TBS)
+ *
+ * @defgroup bt_tbs Telephone Bearer Service (TBS)
+ *
+ * @since 3.0
+ * @version 0.8.0
+ *
+ * @ingroup bluetooth
+ * @{
+ *
+ * The Telephone Bearer Service (TBS) provide procedures to discover telephone bearers and control
+ * calls.
+ */
+
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/sys/slist.h>
+#include <zephyr/sys/util_macro.h>
 
-/* Call States */
-#define BT_TBS_CALL_STATE_INCOMING                      0x00
-#define BT_TBS_CALL_STATE_DIALING                       0x01
-#define BT_TBS_CALL_STATE_ALERTING                      0x02
-#define BT_TBS_CALL_STATE_ACTIVE                        0x03
-#define BT_TBS_CALL_STATE_LOCALLY_HELD                  0x04
-#define BT_TBS_CALL_STATE_REMOTELY_HELD                 0x05
-#define BT_TBS_CALL_STATE_LOCALLY_AND_REMOTELY_HELD     0x06
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-/* Terminate Reason */
-#define BT_TBS_REASON_BAD_REMOTE_URI                    0x00
-#define BT_TBS_REASON_CALL_FAILED                       0x01
-#define BT_TBS_REASON_REMOTE_ENDED_CALL                 0x02
-#define BT_TBS_REASON_SERVER_ENDED_CALL                 0x03
-#define BT_TBS_REASON_LINE_BUSY                         0x04
-#define BT_TBS_REASON_NETWORK_CONGESTED                 0x05
-#define BT_TBS_REASON_CLIENT_TERMINATED                 0x06
-#define BT_TBS_REASON_UNSPECIFIED                       0x07
+/** A characteristic value has changed while a Read Long Value Characteristic sub-procedure is in
+ * progress
+ */
+#define BT_TBS_ERR_VAL_CHANGED 0x80U
 
-/* Application error codes */
-#define BT_TBS_RESULT_CODE_SUCCESS                      0x00
-#define BT_TBS_RESULT_CODE_OPCODE_NOT_SUPPORTED         0x01
-#define BT_TBS_RESULT_CODE_OPERATION_NOT_POSSIBLE       0x02
-#define BT_TBS_RESULT_CODE_INVALID_CALL_INDEX           0x03
-#define BT_TBS_RESULT_CODE_STATE_MISMATCH               0x04
-#define BT_TBS_RESULT_CODE_OUT_OF_RESOURCES             0x05
-#define BT_TBS_RESULT_CODE_INVALID_URI                  0x06
+/**
+ * @name Call States
+ * @{
+ */
+/** A remote party is calling (incoming call). */
+#define BT_TBS_CALL_STATE_INCOMING                      0x00U
+/**
+ * The process to call the remote party has started on the server, but the remote party is not
+ * being alerted (outgoing call).
+ */
+#define BT_TBS_CALL_STATE_DIALING                       0x01U
+/** A remote party is being alerted (outgoing call). */
+#define BT_TBS_CALL_STATE_ALERTING                      0x02U
+/** The call is in an active conversation. */
+#define BT_TBS_CALL_STATE_ACTIVE                        0x03U
+/**
+ * The call is connected but held locally. Locally Held implies that either the server or the
+ * client can affect the state.
+ */
+#define BT_TBS_CALL_STATE_LOCALLY_HELD                  0x04U
+/**
+ *The call is connected but held remotely. Remotely Held means that the state is controlled by the
+ * remote party of a call.
+ */
+#define BT_TBS_CALL_STATE_REMOTELY_HELD                 0x05U
+/** The call is connected but held both locally and remotely. */
+#define BT_TBS_CALL_STATE_LOCALLY_AND_REMOTELY_HELD     0x06U
+/** @} */
 
-#define BT_TBS_FEATURE_HOLD                             BIT(0)
-#define BT_TBS_FEATURE_JOIN                             BIT(1)
+/**
+ * @name Terminate Reason
+ * @{
+ */
+/** The URI value used to originate a call was formed improperly. */
+#define BT_TBS_REASON_BAD_REMOTE_URI                    0x00U
+/** The call failed. */
+#define BT_TBS_REASON_CALL_FAILED                       0x01U
+/** The remote party ended the call. */
+#define BT_TBS_REASON_REMOTE_ENDED_CALL                 0x02U
+/** The call ended from the server. */
+#define BT_TBS_REASON_SERVER_ENDED_CALL                 0x03U
+/** The line was busy. */
+#define BT_TBS_REASON_LINE_BUSY                         0x04U
+/** Network congestion. */
+#define BT_TBS_REASON_NETWORK_CONGESTED                 0x05U
+/** The client terminated the call. */
+#define BT_TBS_REASON_CLIENT_TERMINATED                 0x06U
+/** No service. */
+#define BT_TBS_REASON_NO_SERVICE                        0x07U
+/** No answer. */
+#define BT_TBS_REASON_NO_ANSWER                         0x08U
+/** Unspecified. */
+#define BT_TBS_REASON_UNSPECIFIED                       0x09U
+/** @} */
 
-#define BT_TBS_CALL_FLAG_SET_INCOMING(flag)            (flag &= ~BIT(0))
-#define BT_TBS_CALL_FLAG_SET_OUTGOING(flag)            (flag |= BIT(0))
+/**
+ * @name Control point error codes
+ * @{
+ */
+/** The opcode write was successful. */
+#define BT_TBS_RESULT_CODE_SUCCESS                0x00U
+/** An invalid opcode was used for the Call Control Point write. */
+#define BT_TBS_RESULT_CODE_OPCODE_NOT_SUPPORTED   0x01U
+/** The requested operation cannot be completed. */
+#define BT_TBS_RESULT_CODE_OPERATION_NOT_POSSIBLE 0x02U
+/** The Call Index used for the Call Control Point write is invalid. */
+#define BT_TBS_RESULT_CODE_INVALID_CALL_INDEX     0x03U
+/**
+ * The opcode written to the Call Control Point was received when the current Call State for the
+ * Call Index was not in the expected state.
+ */
+#define BT_TBS_RESULT_CODE_STATE_MISMATCH         0x04U
+/** Lack of internal resources to complete the requested action. */
+#define BT_TBS_RESULT_CODE_OUT_OF_RESOURCES       0x05U
+/** The Outgoing URI is incorrect or invalid when an Originate opcode is sent. */
+#define BT_TBS_RESULT_CODE_INVALID_URI            0x06U
+/** @} */
 
-#define BT_TBS_SIGNAL_STRENGTH_NO_SERVICE               0
-#define BT_TBS_SIGNAL_STRENGTH_MAX                      100
-#define BT_TBS_SIGNAL_STRENGTH_UNKNOWN                  255
+/**
+ * @name Optional opcodes bits
+ *
+ * Optional opcodes that can be supported. See bt_tbs_client_read_optional_opcodes() on how to
+ * read these from a remote device
+ * @{
+ */
+/** Local Hold and Local Retrieve Call Control Point Opcodes supported */
+#define BT_TBS_OPTIONAL_OPCODE_HOLD BIT(0U)
+/** Join Call Control Point Opcode supported */
+#define BT_TBS_OPTIONAL_OPCODE_JOIN BIT(1U)
+/** All Control Point Opcodes supported */
+#define BT_TBS_OPTIONAL_OPCODE_ALL  (BT_TBS_OPTIONAL_OPCODE_HOLD | BT_TBS_OPTIONAL_OPCODE_JOIN)
+/** @} */
 
-/* Bearer Technology */
-#define BT_TBS_TECHNOLOGY_3G                       0x01
-#define BT_TBS_TECHNOLOGY_4G                       0x02
-#define BT_TBS_TECHNOLOGY_LTE                      0x03
-#define BT_TBS_TECHNOLOGY_WIFI                     0x04
-#define BT_TBS_TECHNOLOGY_5G                       0x05
-#define BT_TBS_TECHNOLOGY_GSM                      0x06
-#define BT_TBS_TECHNOLOGY_CDMA                     0x07
-#define BT_TBS_TECHNOLOGY_2G                       0x08
-#define BT_TBS_TECHNOLOGY_WCDMA                    0x09
-#define BT_TBS_TECHNOLOGY_IP                       0x0a
+/**
+ * @name Signal strength value limits
+ * @{
+ */
+/** No service */
+#define BT_TBS_SIGNAL_STRENGTH_NO_SERVICE               0U
+/** Maximum signal strength */
+#define BT_TBS_SIGNAL_STRENGTH_MAX                      100U
+/** Signal strength is unknown  */
+#define BT_TBS_SIGNAL_STRENGTH_UNKNOWN                  255U
+/** @} */
+
+/**
+ * @name Call status flags bitfield
+ * @{
+ */
+/** Inband ringtone enabled */
+#define BT_TBS_STATUS_FLAG_INBAND_RINGTONE BIT(0U)
+/** Server is in silent mod */
+#define BT_TBS_STATUS_FLAG_SILENT_MOD      BIT(1U)
+/** @} */
+
+/**
+ * @name Call flags bitfield
+ * @{
+ */
+/** If set, call is outgoing else incoming */
+#define BT_TBS_CALL_FLAG_OUTGOING            BIT(0U)
+/** If set call is withheld, else not withheld */
+#define BT_TBS_CALL_FLAG_WITHHELD            BIT(1U)
+/** If set call is withheld by network, else provided by network */
+#define BT_TBS_CALL_FLAG_WITHHELD_BY_NETWORK BIT(2U)
+/** @} */
 
 /**
  * @brief The GTBS index denotes whenever a callback is from a
@@ -71,9 +176,19 @@
  * whenever the client should perform on action on the GTBS instance of the
  * server, rather than any of the specific Telephone Bearer Service instances.
  */
-#define BT_TBS_GTBS_INDEX                               0xFF
+#define BT_TBS_GTBS_INDEX 0xFFU
 
-/** @brief Opaque Telephone Bearer Service instance. */
+/** Maximum size of bearer uniform caller identifier (UCI)
+ *
+ * Includes the NULL terminator.
+ * Allowed values are defined by Bluetooth Assigned Numbers.
+ */
+#define BT_TBS_MAX_UCI_SIZE 6U
+
+/**
+ * @struct bt_tbs_instance
+ * @brief Opaque Telephone Bearer Service instance.
+ */
 struct bt_tbs_instance;
 
 /**
@@ -126,21 +241,31 @@ typedef void (*bt_tbs_call_change_cb)(struct bt_conn *conn,
 /**
  * @brief Callback function for authorizing a client.
  *
- * Only used if BT_TBS_AUTHORIZATION is enabled.
- *
  * @param conn         The connection used.
  *
  * @return true if authorized, false otherwise
  */
 typedef bool (*bt_tbs_authorize_cb)(struct bt_conn *conn);
 
+/**
+ * @brief Struct to hold the Telephone Bearer Service callbacks
+ *
+ * These can be registered for usage with bt_tbs_register_cb().
+ */
 struct bt_tbs_cb {
+	/** Client originating call */
 	bt_tbs_originate_call_cb      originate_call;
+	/** Client terminating call */
 	bt_tbs_terminate_call_cb      terminate_call;
+	/** Client holding call */
 	bt_tbs_call_change_cb         hold_call;
+	/** Client accepting call */
 	bt_tbs_call_change_cb         accept_call;
+	/** Client retrieving call */
 	bt_tbs_call_change_cb         retrieve_call;
+	/** Client joining calls */
 	bt_tbs_join_calls_cb          join_calls;
+	/** Callback to authorize a client */
 	bt_tbs_authorize_cb           authorize;
 };
 
@@ -284,7 +409,7 @@ int bt_tbs_set_bearer_provider_name(uint8_t bearer_index, const char *name);
  * @return int           BT_TBS_RESULT_CODE_* if positive or 0,
  *                       errno value if negative.
  */
-int bt_tbs_set_bearer_technology(uint8_t bearer_index, uint8_t new_technology);
+int bt_tbs_set_bearer_technology(uint8_t bearer_index, enum bt_bearer_tech new_technology);
 
 /**
  * @brief Update the signal strength reported by the server.
@@ -311,16 +436,15 @@ int bt_tbs_set_signal_strength(uint8_t bearer_index,
  */
 int bt_tbs_set_status_flags(uint8_t bearer_index, uint16_t status_flags);
 
-/** @brief Sets the URI scheme list of a bearer.
+/**
+ * @brief Sets the URI scheme list of a bearer.
  *
- *  @param bearer_index  The index of the Telephone Bearer.
- *  @param uri_list      List of URI prefixes (e.g. {"skype", "tel"}).
- *  @param uri_count     Number of URI prefixies in @p uri_list.
+ * @param bearer_index  The index of the Telephone Bearer.
+ * @param uri_scheme_list Comma-separated list of URI prefixes (e.g. "skype,tel").
  *
- *  @return BT_TBS_RESULT_CODE_* if positive or 0, errno value if negative.
+ * @return BT_TBS_RESULT_CODE_* if positive or 0, errno value if negative.
  */
-int bt_tbs_set_uri_scheme_list(uint8_t bearer_index, const char **uri_list,
-			       uint8_t uri_count);
+int bt_tbs_set_uri_scheme_list(uint8_t bearer_index, const char *uri_scheme_list);
 /**
  * @brief Register the callbacks for TBS.
  *
@@ -328,17 +452,113 @@ int bt_tbs_set_uri_scheme_list(uint8_t bearer_index, const char **uri_list,
  */
 void bt_tbs_register_cb(struct bt_tbs_cb *cbs);
 
+/** Parameters for registering a Telephone Bearer Service */
+struct bt_tbs_register_param {
+	/** The name of the provider, for example a cellular service provider */
+	char *provider_name;
+
+	/**
+	 * @brief The Uniform Caller Identifier of the bearer
+	 *
+	 * See the Uniform Caller Identifiers table in Bluetooth Assigned Numbers
+	 */
+	char *uci;
+
+	/**
+	 * The Uniform Resource Identifiers schemes supported by this bearer as an UTF-8 string
+	 *
+	 * See https://www.iana.org/assignments/uri-schemes/uri-schemes.xhtml for possible values.
+	 * If multiple values are used, these shall be comma separated, e.g. "tel,skype".
+	 */
+	char *uri_schemes_supported;
+
+	/** @brief The technology of the bearer */
+	enum bt_bearer_tech technology;
+
+	/**
+	 * @brief Whether this bearer shall be registered as a Generic Telephone Bearer server
+	 *
+	 * A GTBS shall be registered before any non-GTBS services. There can only be a single GTBS
+	 * registered.
+	 */
+	bool gtbs;
+
+	/**
+	 * @brief Whether the application will need to authorize changes to calls
+	 *
+	 * If set to false then the service will automatically accept write requests from clients.
+	 */
+	bool authorization_required;
+
+	/**
+	 * @brief The optional supported opcodes of the bearer
+	 *
+	 * See the BT_TBS_OPTIONAL_OPCODE_* values.
+	 */
+	uint16_t optional_opcodes;
+};
+
+/**
+ * @brief Register a Telephone Bearer
+ *
+ * This will register a Telephone Bearer Service (TBS) (or a Generic Telephone Bearer service
+ * (GTBS)) with the provided parameters.
+ *
+ * As per the TBS specification, the GTBS shall be instantiated for the feature, and as such a GTBS
+ * shall always be registered before any TBS can be registered.
+ * Similarly, all TBS shall be unregistered before the GTBS can be unregistered with
+ * bt_tbs_unregister_bearer().
+ *
+ * @param param The parameters to initialize the bearer.
+
+ * @retval index The bearer index if return value is >= 0
+ * @retval -EINVAL @p param contains invalid data
+ * @retval -EALREADY @p param.gtbs is true and GTBS has already been registered
+ * @retval -EAGAIN @p param.gtbs is false and GTBS has not been registered
+ * @retval -ENOMEM @p param.gtbs is false and no more TBS can be registered (see
+ *         @kconfig{CONFIG_BT_TBS_BEARER_COUNT})
+ * @retval -ENOEXEC The service failed to be registered
+ */
+int bt_tbs_register_bearer(const struct bt_tbs_register_param *param);
+
+/**
+ * @brief Unregister a Telephone Bearer
+ *
+ * This will unregister a Telephone Bearer Service (TBS) (or a Generic Telephone Bearer service
+ * (GTBS)) with the provided parameters. The bearer shall be registered first by
+ * bt_tbs_register_bearer() before it can be unregistered.
+ *
+ * Similarly, all TBS shall be unregistered before the GTBS can be unregistered with.
+ *
+ * @param bearer_index The index of the bearer to unregister.
+ *
+ * @retval 0 Success
+ * @retval -EINVAL @p bearer_index is invalid
+ * @retval -EALREADY The bearer identified by @p bearer_index is not registered
+ * @retval -EAGAIN The bearer identified by @p bearer_index is GTBS and there are TBS instances
+ *                 registered.
+ * @retval -ENOEXEC The service failed to be unregistered
+ */
+int bt_tbs_unregister_bearer(uint8_t bearer_index);
+
 /** @brief Prints all calls of all services to the debug log */
 void bt_tbs_dbg_print_calls(void);
 
+/** Struct to hold a call state */
 struct bt_tbs_client_call_state {
+	/** Index of the call */
 	uint8_t index;
+	/** State of the call (see BT_TBS_CALL_STATE_*) */
 	uint8_t state;
+	/** Call flags (see BT_TBS_CALL_FLAG_*) */
 	uint8_t flags;
 } __packed;
 
+/** Struct to hold a call as the Telephone Bearer Service client */
 struct bt_tbs_client_call {
+	/** Call information */
 	struct bt_tbs_client_call_state call_info;
+	/** The remove URI */
 	char *remote_uri;
 };
 
@@ -452,67 +672,107 @@ typedef void (*bt_tbs_client_call_states_cb)(struct bt_conn *conn, int err,
 					     uint8_t call_count,
 					     const struct bt_tbs_client_call_state *call_states);
 
+/**
+ * @brief Struct to hold the Telephone Bearer Service client callbacks
+ *
+ * These can be registered for usage with bt_tbs_client_register_cb().
+ */
 struct bt_tbs_client_cb {
+	/** Discovery has completed */
 	bt_tbs_client_discover_cb            discover;
-#if defined(CONFIG_BT_TBS_CLIENT_ORIGINATE_CALL)
+#if defined(CONFIG_BT_TBS_CLIENT_ORIGINATE_CALL) || defined(__DOXYGEN__)
+	/** Originate call has completed */
 	bt_tbs_client_cp_cb                  originate_call;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_ORIGINATE_CALL) */
-#if defined(CONFIG_BT_TBS_CLIENT_TERMINATE_CALL)
+#if defined(CONFIG_BT_TBS_CLIENT_TERMINATE_CALL) || defined(__DOXYGEN__)
+	/** Terminate call has completed */
 	bt_tbs_client_cp_cb                  terminate_call;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_TERMINATE_CALL) */
-#if defined(CONFIG_BT_TBS_CLIENT_HOLD_CALL)
+#if defined(CONFIG_BT_TBS_CLIENT_HOLD_CALL) || defined(__DOXYGEN__)
+	/** Hold call has completed */
 	bt_tbs_client_cp_cb                  hold_call;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_HOLD_CALL) */
-#if defined(CONFIG_BT_TBS_CLIENT_ACCEPT_CALL)
+#if defined(CONFIG_BT_TBS_CLIENT_ACCEPT_CALL) || defined(__DOXYGEN__)
+	/** Accept call has completed */
 	bt_tbs_client_cp_cb                  accept_call;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_ACCEPT_CALL) */
-#if defined(CONFIG_BT_TBS_CLIENT_RETRIEVE_CALL)
+#if defined(CONFIG_BT_TBS_CLIENT_RETRIEVE_CALL) || defined(__DOXYGEN__)
+	/** Retrieve call has completed */
 	bt_tbs_client_cp_cb                  retrieve_call;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_RETRIEVE_CALL) */
-#if defined(CONFIG_BT_TBS_CLIENT_JOIN_CALLS)
+#if defined(CONFIG_BT_TBS_CLIENT_JOIN_CALLS) || defined(__DOXYGEN__)
+	/** Join calls has completed */
 	bt_tbs_client_cp_cb                  join_calls;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_JOIN_CALLS) */
-#if defined(CONFIG_BT_TBS_CLIENT_BEARER_PROVIDER_NAME)
+#if defined(CONFIG_BT_TBS_CLIENT_BEARER_PROVIDER_NAME) || defined(__DOXYGEN__)
+	/** Bearer provider name has been read */
 	bt_tbs_client_read_string_cb         bearer_provider_name;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_BEARER_PROVIDER_NAME) */
-#if defined(CONFIG_BT_TBS_CLIENT_BEARER_UCI)
+#if defined(CONFIG_BT_TBS_CLIENT_BEARER_UCI) || defined(__DOXYGEN__)
+	/** Bearer UCI has been read */
 	bt_tbs_client_read_string_cb         bearer_uci;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_BEARER_UCI) */
-#if defined(CONFIG_BT_TBS_CLIENT_BEARER_TECHNOLOGY)
-	bt_tbs_client_read_value_cb          technology;
+#if defined(CONFIG_BT_TBS_CLIENT_BEARER_TECHNOLOGY) || defined(__DOXYGEN__)
+	/**
+	 * @brief Bearer technology has been read.
+	 *
+	 * @param conn The connection used in the function.
+	 * @param err Error value. BT_TBS_CLIENT_RESULT_CODE_* or GATT error.
+	 * @param inst_index The index of the TBS instance that was updated.
+	 * @param tech The technology read. The value may be outside the values of the enum.
+	 */
+	void (*technology)(struct bt_conn *conn, int err, uint8_t inst_index,
+			   enum bt_bearer_tech tech);
 #endif /* defined(CONFIG_BT_TBS_CLIENT_BEARER_TECHNOLOGY) */
-#if defined(CONFIG_BT_TBS_CLIENT_BEARER_URI_SCHEMES_SUPPORTED_LIST)
+#if defined(CONFIG_BT_TBS_CLIENT_BEARER_URI_SCHEMES_SUPPORTED_LIST) || defined(__DOXYGEN__)
+	/** Bearer URI list has been read */
 	bt_tbs_client_read_string_cb         uri_list;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_BEARER_URI_SCHEMES_SUPPORTED_LIST) */
-#if defined(CONFIG_BT_TBS_CLIENT_BEARER_SIGNAL_STRENGTH)
+#if defined(CONFIG_BT_TBS_CLIENT_BEARER_SIGNAL_STRENGTH) || defined(__DOXYGEN__)
+	/** Bearer signal strength has been read */
 	bt_tbs_client_read_value_cb          signal_strength;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_BEARER_SIGNAL_STRENGTH) */
-#if defined(CONFIG_BT_TBS_CLIENT_READ_BEARER_SIGNAL_INTERVAL)
+#if defined(CONFIG_BT_TBS_CLIENT_READ_BEARER_SIGNAL_INTERVAL) || defined(__DOXYGEN__)
+	/** Bearer signal interval has been read */
 	bt_tbs_client_read_value_cb          signal_interval;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_READ_BEARER_SIGNAL_INTERVAL) */
-#if defined(CONFIG_BT_TBS_CLIENT_BEARER_LIST_CURRENT_CALLS)
+#if defined(CONFIG_BT_TBS_CLIENT_BEARER_LIST_CURRENT_CALLS) || defined(__DOXYGEN__)
+	/** Bearer current calls has been read */
 	bt_tbs_client_current_calls_cb       current_calls;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_BEARER_LIST_CURRENT_CALLS) */
-#if defined(CONFIG_BT_TBS_CLIENT_CCID)
+#if defined(CONFIG_BT_TBS_CLIENT_CCID) || defined(__DOXYGEN__)
+	/** Bearer CCID has been read */
 	bt_tbs_client_read_value_cb          ccid;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_CCID) */
-#if defined(CONFIG_BT_TBS_CLIENT_INCOMING_URI)
+#if defined(CONFIG_BT_TBS_CLIENT_INCOMING_URI) || defined(__DOXYGEN__)
+	/** Bearer call URI has been read */
 	bt_tbs_client_read_string_cb         call_uri;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_INCOMING_URI) */
-#if defined(CONFIG_BT_TBS_CLIENT_STATUS_FLAGS)
+#if defined(CONFIG_BT_TBS_CLIENT_STATUS_FLAGS) || defined(__DOXYGEN__)
+	/** Bearer status flags has been read */
 	bt_tbs_client_read_value_cb          status_flags;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_STATUS_FLAGS) */
+	/** Bearer call states has been read */
 	bt_tbs_client_call_states_cb         call_state;
-#if defined(CONFIG_BT_TBS_CLIENT_OPTIONAL_OPCODES)
+#if defined(CONFIG_BT_TBS_CLIENT_OPTIONAL_OPCODES) || defined(__DOXYGEN__)
+	/** Bearer optional opcodes has been read */
 	bt_tbs_client_read_value_cb          optional_opcodes;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_OPTIONAL_OPCODES) */
+	/** Bearer terminate reason has been read */
 	bt_tbs_client_termination_reason_cb  termination_reason;
-#if defined(CONFIG_BT_TBS_CLIENT_INCOMING_CALL)
+#if defined(CONFIG_BT_TBS_CLIENT_INCOMING_CALL) || defined(__DOXYGEN__)
+	/** Bearer remote URI has been read */
 	bt_tbs_client_read_string_cb         remote_uri;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_INCOMING_CALL) */
-#if defined(CONFIG_BT_TBS_CLIENT_CALL_FRIENDLY_NAME)
+#if defined(CONFIG_BT_TBS_CLIENT_CALL_FRIENDLY_NAME) || defined(__DOXYGEN__)
+	/** Bearer friendly name has been read */
 	bt_tbs_client_read_string_cb         friendly_name;
 #endif /* defined(CONFIG_BT_TBS_CLIENT_CALL_FRIENDLY_NAME) */
+
+	/** @cond INTERNAL_HIDDEN */
+	/** Internally used field for list handling */
+	sys_snode_t _node;
+	/** @endcond */
 };
 
 /**
@@ -813,12 +1073,13 @@ int bt_tbs_client_read_remote_uri(struct bt_conn *conn, uint8_t inst_index);
  */
 int bt_tbs_client_read_friendly_name(struct bt_conn *conn, uint8_t inst_index);
 
-/** @brief Read the supported opcode of a TBS instance.
+/**
+ * @brief Read the supported opcode of a TBS instance.
  *
- *  @param conn          The connection to the TBS server.
- *  @param inst_index    The index of the TBS instance.
+ * @param conn          The connection to the TBS server.
+ * @param inst_index    The index of the TBS instance.
  *
- *  @return              int 0 on success, errno value on fail.
+ * @return              int 0 on success, errno value on fail.
  *
  * @note @kconfig{CONFIG_BT_TBS_CLIENT_OPTIONAL_OPCODES} must be set
  * for this function to be effective.
@@ -830,8 +1091,12 @@ int bt_tbs_client_read_optional_opcodes(struct bt_conn *conn,
  * @brief Register the callbacks for CCP.
  *
  * @param cbs Pointer to the callback structure.
+ *
+ * @retval 0 Success
+ * @retval -EINVAL @p cbs is NULL
+ * @retval -EEXIST @p cbs is already registered
  */
-void bt_tbs_client_register_cb(const struct bt_tbs_client_cb *cbs);
+int bt_tbs_client_register_cb(struct bt_tbs_client_cb *cbs);
 
 /**
  * @brief Look up Telephone Bearer Service instance by CCID
@@ -846,5 +1111,21 @@ void bt_tbs_client_register_cb(const struct bt_tbs_client_cb *cbs);
  */
 struct bt_tbs_instance *bt_tbs_client_get_by_ccid(const struct bt_conn *conn,
 						  uint8_t ccid);
+
+/**
+ * @brief Look up Telephone Bearer Service instance by index
+ *
+ * @param conn The connection to the TBS server.
+ * @param index The index to lookup a service instance for.
+ *
+ * @return Pointer to a Telephone Bearer Service instance if found else NULL.
+ */
+struct bt_tbs_instance *bt_tbs_client_get_by_index(const struct bt_conn *conn, uint8_t index);
+
+#ifdef __cplusplus
+}
+#endif
+
+/** @} */
 
 #endif /* ZEPHYR_INCLUDE_BLUETOOTH_AUDIO_TBS_H_ */

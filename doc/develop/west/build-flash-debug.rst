@@ -145,8 +145,8 @@ Setting the Build System Target
 To specify the build system target to run, use ``--target`` (or ``-t``).
 
 For example, on host platforms with QEMU, you can use the ``run`` target to
-build and run the :ref:`hello_world` sample for the emulated :ref:`qemu_x86
-<qemu_x86>` board in one command::
+build and run the :zephyr:code-sample:`hello_world` sample for the emulated
+:zephyr:board:`qemu_x86 <qemu_x86>` board in one command::
 
   west build -b qemu_x86 -t run samples/hello_world
 
@@ -179,7 +179,7 @@ it the value ``always``. For example, these commands are equivalent::
 
 By default, ``west build`` makes no attempt to detect if the build directory
 needs to be made pristine. This can lead to errors if you do something like
-try to re-use a build directory for a different ``--board``.
+try to reuse a build directory for a different ``--board``.
 
 Using ``--pristine=auto`` makes ``west build`` detect some of these situations
 and make the build directory pristine before trying the build.
@@ -349,7 +349,7 @@ The ``-o`` option is described further in the previous section.
 Build a single domain
 ---------------------
 
-In a multi-domain build with :ref:`hello_world` and `MCUboot`_, you can use
+In a multi-domain build with :zephyr:code-sample:`hello_world` and `MCUboot`_, you can use
 ``--domain hello_world`` to only build this domain::
 
   west build --sysbuild --domain hello_world
@@ -395,10 +395,23 @@ You can :ref:`configure <west-config-cmd>` ``west build`` using these options.
        west whenever it needs to create or locate a build folder. The currently
        available arguments are:
 
+         - ``west_topdir``: The absolute path to the west workspace, as
+           returned by the ``west_topdir`` command
          - ``board``: The board name
-         - ``source_dir``: The relative path from the current working directory
-           to the source directory. If the current working directory is inside
-           the source directory this will be set to an empty string.
+         - ``source_dir``: Path to the CMake source directory, relative to the
+           current working directory. If the current working directory is
+           inside the source directory, this is an empty string. If no source
+           directory is specified, it defaults to current working directory.
+           E.g. if ``west build ../app`` is run from ``<west_topdir>/app1``,
+           ``source_dir`` resolves to ``../app`` (which is the relative path
+           to the current working dir).
+         - ``source_dir_workspace``: Path to the source directory, relative to
+           ``west_topdir`` (if it is inside the workspace). Otherwise, it is
+           relative to the filesystem root (``/`` on Unix, respectively
+           ``C:/`` on Windows).
+           E.g. if ``west build ../app`` is run from ``<west_topdir>/app1``,
+           ``source_dir`` resolves to ``app`` (which is the relative path to
+           the west workspace dir).
          - ``app``: The name of the source directory.
    * - ``build.generator``
      - String, default ``Ninja``. The `CMake Generator`_ to use to create a
@@ -543,13 +556,29 @@ will flash all domains in the order defined by sysbuild.
 It is possible to flash the image from a single domain in a multi-domain project
 by using ``--domain``.
 
-For example, in a multi-domain build with :ref:`hello_world` and
+For example, in a multi-domain build with :zephyr:code-sample:`hello_world` and
 `MCUboot`_, you can use the ``--domain hello_world`` domain to only flash
 only the image from this domain::
 
   west flash --domain hello_world
 
 .. _west-debugging:
+
+Configuration Options
+=====================
+
+You can :ref:`configure <west-config-cmd>` ``west flash`` using these options.
+
+.. NOTE: docs authors: keep this table sorted alphabetically
+
+.. list-table::
+   :widths: 10 30
+   :header-rows: 1
+
+   * - Option
+     - Description
+   * - ``flash.rebuild``
+     - Boolean, default ``true``. If ``false``, do not rebuild on west flash.
 
 Debugging: ``west debug``, ``west debugserver``
 ***********************************************
@@ -683,6 +712,25 @@ to debug::
 
 .. _west-runner:
 
+Configuration Options
+=====================
+
+You can :ref:`configure <west-config-cmd>` ``west debug`` and
+:ref:`configure <west-config-cmd>` ``west debugserver`` using these options.
+
+.. NOTE: docs authors: keep this table sorted alphabetically
+
+.. list-table::
+   :widths: 10 30
+   :header-rows: 1
+
+   * - Option
+     - Description
+   * - ``debug.rebuild``
+     - Boolean, default ``true``. If ``false``, do not rebuild on west debug.
+   * - ``debugserver.rebuild``
+     - Boolean, default ``true``. If ``false``, do not rebuild on west debugserver.
+
 Flash and debug runners
 ***********************
 
@@ -698,17 +746,106 @@ determined by the imported subclasses of ``ZephyrBinaryRunner``.
 runner implementations are in other submodules, such as ``runners.nrfjprog``,
 ``runners.openocd``, etc.
 
+Running Robot Framework tests: ``west robot``
+*********************************************
+
+.. tip:: Run ``west robot -h`` for additional help.
+
+Basics
+======
+
+Currently the command supports only one runner which is using ``renode-test``,
+(essentially a wrapper for running Robot tests in Renode), but can be
+easily extended by adding other runners.
+
+From a Zephyr build directory, to run a Robot test suite::
+
+  west robot --runner=renode-robot --testsuite path/to/testsuite.robot
+
+This will run all tests from testsuite.robot and print output provided
+by Robot Framework.
+
+To pass additional parameters to Renode use ``--renode-robot-args`` switch.
+For example to show Renode logs in addition to Robot Framework's output:
+
+  west robot --runner=renode-robot --testsuite path/to/testsuite.robot --renode-robot-arg="--show-log"
+
+Runner-Specific Overrides
+=========================
+
+To view all of the available options for the Robot runners your board
+supports, as well as their usage information, use ``--context`` (or
+``-H``)::
+
+  west robot --runner=renode-robot --context
+
+
+To view all available options "renode-test" runner supports, use::
+
+  west robot --runner=renode-robot --renode-robot-help
+
+Simulating a board with: ``west simulate``
+******************************************
+
+Basics
+======
+
+Currently the command supports only one runner which is using Renode,
+but can be easily extended by adding other runners.
+
+From a Zephyr build directory, to run the built binary::
+
+  west simulate --runner=renode
+
+This will start Renode and configure simulation based on a default ``.resc`` script
+for the current platform with the zephyr.elf file loaded by default. The simulation
+then can be started by typing "start" or "s" in Renode's Monitor. This can also be
+done by passing a command to Renode, using an argument provided by the runner:
+
+  west simulate --runner=renode --renode-command start
+
+To pass an argument to Renode itself, for example to start Renode in console mode
+instead of a separate window:
+
+  west simulate --runner=renode --renode-arg="--console"
+
+From that point on Renode can be used normally in both console and window modes.
+For details on using Renode see `Renode - documentation`_.
+
+.. _Renode - documentation:
+   https://docs.renode.io
+
+Runner-Specific Overrides
+=========================
+
+To view all of the available options supported by the runners, as well
+as their usage information, use ``--context`` (or ``-H``)::
+
+  west simulate --runner=renode --context
+
+To view all available options Renode supports, use::
+
+  west simulate --runner=renode --renode-help
+
+Out of tree runners
+*******************
+
+:ref:`Zephyr modules <modules>` can have external runners discovered by adding python
+files in their :ref:`module.yml <modules-runners>`. Create an external runner class by
+inheriting from ``ZephyrBinaryRunner`` and implement all abstract methods.
+
+.. note::
+
+   Support for custom out-of-tree runners makes the ``runners.core`` module part of
+   the public API and backwards incompatible changes need to undergo the
+   :ref:`deprecation process <breaking_api_changes>`.
+
 Hacking
 *******
 
 This section documents the ``runners.core`` module used by the
 flash and debug commands. This is the core abstraction used to implement
 support for these features.
-
-.. warning::
-
-   These APIs are provided for reference, but they are more "shared code" used
-   to implement multiple extension commands than a stable API.
 
 Developers can add support for new ways to flash and debug Zephyr programs by
 implementing additional runners. To get this support into upstream Zephyr, the

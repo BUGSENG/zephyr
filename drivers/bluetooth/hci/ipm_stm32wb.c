@@ -11,7 +11,7 @@
 #include <zephyr/init.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/bluetooth/hci.h>
-#include <zephyr/drivers/bluetooth/hci_driver.h>
+#include <zephyr/drivers/bluetooth.h>
 #include <zephyr/bluetooth/addr.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <zephyr/irq.h>
@@ -21,7 +21,7 @@
 #include "shci.h"
 #include "shci_tl.h"
 
-static const struct stm32_pclken clk_cfg[] = STM32_DT_CLOCKS(DT_NODELABEL(ble_rf));
+static const struct stm32_pclken clk_cfg[] = STM32_DT_CLOCKS(DT_DRV_INST(0));
 
 #define POOL_SIZE (CFG_TLBLE_EVT_QUEUE_LENGTH * 4 * \
 		DIVC((sizeof(TL_PacketHeader_t) + TL_BLE_EVENT_FRAME_SIZE), 4))
@@ -45,11 +45,6 @@ static void sysevt_received(void *pdata);
 #define LOG_LEVEL CONFIG_BT_HCI_DRIVER_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(hci_ipm);
-
-#define HCI_CMD                 0x01
-#define HCI_ACL                 0x02
-#define HCI_SCO                 0x03
-#define HCI_EVT                 0x04
 
 #define STM32WB_C2_LOCK_TIMEOUT K_MSEC(500)
 
@@ -85,12 +80,80 @@ static struct k_thread ipm_rx_thread_data;
 
 static bool c2_started_flag;
 
+static void stm32wb_set_stack_options(SHCI_C2_Ble_Init_Cmd_Packet_t *ble_init_cmd_packet)
+{
+	ble_init_cmd_packet->Param.Options =
+		SHCI_C2_BLE_INIT_OPTIONS_LL_HOST |
+		SHCI_C2_BLE_INIT_OPTIONS_WITH_SVC_CHANGE_DESC |
+		SHCI_C2_BLE_INIT_OPTIONS_FULL_GATTDB_NVM |
+		SHCI_C2_BLE_INIT_OPTIONS_POWER_CLASS_2_3;
+	ble_init_cmd_packet->Param.Options_extension = 0;
+
+#if !defined(CONFIG_BT_DEVICE_NAME_GATT_WRITABLE)
+	ble_init_cmd_packet->Param.Options |=
+		SHCI_C2_BLE_INIT_OPTIONS_DEVICE_NAME_RO;
+#endif
+
+#if defined(CONFIG_BT_EXT_ADV)
+	ble_init_cmd_packet->Param.Options |=
+		SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV |
+		SHCI_C2_BLE_INIT_OPTIONS_CS_ALGO2;
+#endif
+
+#if defined(CONFIG_BT_GATT_CACHING)
+	ble_init_cmd_packet->Param.Options |=
+		SHCI_C2_BLE_INIT_OPTIONS_GATT_CACHING_USED;
+#endif
+
+#if defined(CONFIG_BT_DEVICE_APPEARANCE_GATT_WRITABLE)
+	ble_init_cmd_packet->Param.Options_extension |=
+		SHCI_C2_BLE_INIT_OPTIONS_APPEARANCE_WRITABLE;
+#endif
+
+#if defined(CONFIG_BT_EATT)
+	ble_init_cmd_packet->Param.Options_extension |=
+		SHCI_C2_BLE_INIT_OPTIONS_ENHANCED_ATT_SUPPORTED;
+#endif
+
+#if defined(CONFIG_BT_EXT_ADV_MAX_ADV_SET)
+#if (CONFIG_BT_EXT_ADV_MAX_ADV_SET > 8)
+	ble_init_cmd_packet->Param.max_adv_set_nbr = 1;
+#else
+	ble_init_cmd_packet->Param.max_adv_set_nbr = CONFIG_BT_EXT_ADV_MAX_ADV_SET;
+#endif
+#else
+	ble_init_cmd_packet->Param.max_adv_set_nbr = 1;
+#endif
+
+	if (ble_init_cmd_packet->Param.max_adv_set_nbr < 4) {
+		ble_init_cmd_packet->Param.max_adv_data_len = 1650;
+	} else if (ble_init_cmd_packet->Param.max_adv_set_nbr == 4) {
+		ble_init_cmd_packet->Param.max_adv_data_len = 1035;
+	} else if (ble_init_cmd_packet->Param.max_adv_set_nbr == 5) {
+		ble_init_cmd_packet->Param.max_adv_data_len = 621;
+	} else if (ble_init_cmd_packet->Param.max_adv_set_nbr == 6) {
+		ble_init_cmd_packet->Param.max_adv_data_len = 414;
+	} else {
+		ble_init_cmd_packet->Param.max_adv_data_len = 207;
+	}
+
+#if defined(CONFIG_BT_EATT_MAX)
+#if (CONFIG_BT_EATT_MAX > 4)
+	ble_init_cmd_packet->Param.MaxAddEattBearers = 4;
+#else
+	ble_init_cmd_packet->Param.MaxAddEattBearers = CONFIG_BT_EATT_MAX;
+#endif
+#else
+	ble_init_cmd_packet->Param.MaxAddEattBearers = 4;
+#endif
+}
+
 static void stm32wb_start_ble(uint32_t rf_clock)
 {
 	SHCI_C2_Ble_Init_Cmd_Packet_t ble_init_cmd_packet = {
-	  { { 0, 0, 0 } },                     /**< Header unused */
-	  { 0,                                 /** pBleBufferAddress not used */
-	    0,                                 /** BleBufferSize not used */
+	  { { 0, 0, 0 } },                 /**< Header unused */
+	  { 0,                             /** pBleBufferAddress not used */
+	    0,                             /** BleBufferSize not used */
 	    CFG_BLE_NUM_GATT_ATTRIBUTES,
 	    CFG_BLE_NUM_GATT_SERVICES,
 	    CFG_BLE_ATT_VALUE_ARRAY_SIZE,
@@ -99,15 +162,32 @@ static void stm32wb_start_ble(uint32_t rf_clock)
 	    CFG_BLE_PREPARE_WRITE_LIST_SIZE,
 	    CFG_BLE_MBLOCK_COUNT,
 	    CFG_BLE_MAX_ATT_MTU,
-	    CFG_BLE_SLAVE_SCA,
-	    CFG_BLE_MASTER_SCA,
+	    CFG_BLE_PERIPHERAL_SCA,
+	    CFG_BLE_CENTRAL_SCA,
 	    (rf_clock == STM32_SRC_LSE) ? CFG_BLE_LS_SOURCE : 0,
 	    CFG_BLE_MAX_CONN_EVENT_LENGTH,
 	    CFG_BLE_HSE_STARTUP_TIME,
 	    CFG_BLE_VITERBI_MODE,
 	    CFG_BLE_OPTIONS,
-	    0 }
+	    0,
+	    CFG_BLE_MAX_COC_INITIATOR_NBR,
+	    CFG_BLE_MIN_TX_POWER,
+	    CFG_BLE_MAX_TX_POWER,
+	    CFG_BLE_RX_MODEL_CONFIG,
+	    CFG_BLE_MAX_ADV_SET_NBR,
+	    CFG_BLE_MAX_ADV_DATA_LEN,
+	    CFG_BLE_TX_PATH_COMPENS,
+	    CFG_BLE_RX_PATH_COMPENS,
+	    CFG_BLE_CORE_VERSION,
+	    CFG_BLE_OPTIONS_EXT,
+	    CFG_BLE_MAX_ADD_EATT_BEARERS }
 	};
+
+	/**
+	 * Set BLE Options, Options_extension, max_adv_set_nbr,
+	 * max_adv_data_len and MaxAddEattBearers according zephyr KConfig
+	 */
+	stm32wb_set_stack_options(&ble_init_cmd_packet);
 
 	/**
 	 * Starts the BLE Stack on CPU2
@@ -149,8 +229,7 @@ static void tryfix_event(TL_Evt_t *tev)
 
 	if (bt_addr_eq(&evt->peer_addr.a, BT_ADDR_NONE)) {
 		LOG_WRN("Invalid peer addr %s", bt_addr_le_str(&evt->peer_addr));
-		bt_addr_copy(&evt->peer_addr.a, &evt->peer_rpa);
-		evt->peer_addr.type = BT_ADDR_LE_RANDOM;
+		bt_addr_le_copy_addr(&evt->peer_addr, &evt->peer_rpa, BT_ADDR_LE_RANDOM);
 	}
 }
 
@@ -159,8 +238,13 @@ void TM_EvtReceivedCb(TL_EvtPacket_t *hcievt)
 	k_fifo_put(&ipm_rx_events_fifo, hcievt);
 }
 
-static void bt_ipm_rx_thread(void)
+static void bt_ipm_rx_thread(void *p1, void *p2, void *p3)
 {
+	const struct device *dev = p1;
+
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	while (true) {
 		bool discardable = false;
 		k_timeout_t timeout = K_FOREVER;
@@ -177,7 +261,7 @@ static void bt_ipm_rx_thread(void)
 		k_sem_take(&ipm_busy, K_FOREVER);
 
 		switch (hcievt->evtserial.type) {
-		case HCI_EVT:
+		case BT_HCI_H4_EVT:
 			LOG_DBG("EVT: hcievt->evtserial.evt.evtcode: 0x%02x",
 				hcievt->evtserial.evt.evtcode);
 			switch (hcievt->evtserial.evt.evtcode) {
@@ -218,7 +302,7 @@ static void bt_ipm_rx_thread(void)
 			net_buf_add_mem(buf, &hcievt->evtserial.evt,
 					buf_add_len);
 			break;
-		case HCI_ACL:
+		case BT_HCI_H4_ACL:
 			acl = &(((TL_AclDataPacket_t *)hcievt)->AclDataSerial);
 			buf = bt_buf_get_rx(BT_BUF_ACL_IN, K_FOREVER);
 			acl_hdr.handle = acl->handle;
@@ -246,7 +330,7 @@ static void bt_ipm_rx_thread(void)
 
 		TL_MM_EvtDone(hcievt);
 
-		bt_recv(buf);
+		bt_hci_recv(dev, buf);
 end_loop:
 		k_sem_give(&ipm_busy);
 	}
@@ -348,28 +432,27 @@ void transport_init(void)
 	TL_Enable();
 }
 
-static int bt_ipm_send(struct net_buf *buf)
+static int bt_ipm_send(const struct device *dev, struct net_buf *buf)
 {
 	TL_CmdPacket_t *ble_cmd_buff = &BleCmdBuffer;
 
+	ARG_UNUSED(dev);
+
 	k_sem_take(&ipm_busy, K_FOREVER);
 
-	switch (bt_buf_get_type(buf)) {
-	case BT_BUF_ACL_OUT:
-		LOG_DBG("ACL: buf %p type %u len %u", buf, bt_buf_get_type(buf), buf->len);
+	switch (buf->data[0]) {
+	case BT_HCI_H4_ACL:
+		LOG_DBG("ACL: buf %p type %u len %u", buf, buf->data[0], buf->len);
 		k_sem_take(&acl_data_ack, K_FOREVER);
-		net_buf_push_u8(buf, HCI_ACL);
-		memcpy((void *)
-		       &((TL_AclDataPacket_t *)HciAclDataBuffer)->AclDataSerial,
+		memcpy((void *)&((TL_AclDataPacket_t *)HciAclDataBuffer)->AclDataSerial,
 		       buf->data, buf->len);
 		TL_BLE_SendAclData(NULL, 0);
 		break;
-	case BT_BUF_CMD:
-		LOG_DBG("CMD: buf %p type %u len %u", buf, bt_buf_get_type(buf), buf->len);
-		ble_cmd_buff->cmdserial.type = HCI_CMD;
+	case BT_HCI_H4_CMD:
+		LOG_DBG("CMD: buf %p type %u len %u", buf, buf->data[0], buf->len);
+		ble_cmd_buff->cmdserial.type = net_buf_pull_u8(buf);
 		ble_cmd_buff->cmdserial.cmd.plen = buf->len;
-		memcpy((void *)&ble_cmd_buff->cmdserial.cmd, buf->data,
-		       buf->len);
+		memcpy((void *)&ble_cmd_buff->cmdserial.cmd, buf->data, buf->len);
 		TL_BLE_SendCmd(NULL, 0);
 		break;
 	default:
@@ -421,7 +504,7 @@ static int bt_ipm_set_addr(void)
 {
 	bt_addr_t *uid_addr;
 	struct aci_set_ble_addr *param;
-	struct net_buf *buf, *rsp;
+	struct net_buf *buf;
 	int err;
 
 	uid_addr = bt_get_ble_addr();
@@ -429,8 +512,7 @@ static int bt_ipm_set_addr(void)
 		return -ENOMSG;
 	}
 
-	buf = bt_hci_cmd_create(ACI_HAL_WRITE_CONFIG_DATA, sizeof(*param));
-
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -445,18 +527,18 @@ static int bt_ipm_set_addr(void)
 	param->value[4] = uid_addr->val[4];
 	param->value[5] = uid_addr->val[5];
 
-	err = bt_hci_cmd_send_sync(ACI_HAL_WRITE_CONFIG_DATA, buf, &rsp);
+	err = bt_hci_cmd_send_sync(ACI_HAL_WRITE_CONFIG_DATA, buf, NULL);
 	if (err) {
 		return err;
 	}
-	net_buf_unref(rsp);
+
 	return 0;
 }
 
 static int bt_ipm_ble_init(void)
 {
 	struct aci_set_tx_power *param;
-	struct net_buf *buf, *rsp;
+	struct net_buf *buf;
 	int err;
 
 	err = bt_ipm_set_addr();
@@ -464,20 +546,19 @@ static int bt_ipm_ble_init(void)
 		LOG_ERR("Can't set BLE UID addr");
 	}
 	/* Send ACI_WRITE_SET_TX_POWER_LEVEL */
-	buf = bt_hci_cmd_create(ACI_WRITE_SET_TX_POWER_LEVEL, 3);
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
 	param = net_buf_add(buf, sizeof(*param));
 	param->cmd = 0x0F;
-	param->value[0] = 0x18;
+	param->value[0] = CFG_TX_POWER; /* app_conf.h define: 0x18 => -0.15dBm */
 	param->value[1] = 0x01;
 
-	err = bt_hci_cmd_send_sync(ACI_WRITE_SET_TX_POWER_LEVEL, buf, &rsp);
+	err = bt_hci_cmd_send_sync(ACI_WRITE_SET_TX_POWER_LEVEL, buf, NULL);
 	if (err) {
 		return err;
 	}
-	net_buf_unref(rsp);
 
 	return 0;
 }
@@ -487,11 +568,6 @@ static int c2_reset(void)
 {
 	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 	int err;
-
-	if (!device_is_ready(clk)) {
-		LOG_ERR("clock control device not ready");
-		return -ENODEV;
-	}
 
 	err = clock_control_configure(clk, (clock_control_subsys_t) &clk_cfg[1],
 					NULL);
@@ -535,7 +611,7 @@ static int c2_reset(void)
 	return 0;
 }
 
-static int bt_ipm_open(void)
+static int bt_ipm_open(const struct device *dev)
 {
 	int err;
 
@@ -554,9 +630,20 @@ static int bt_ipm_open(void)
 	/* Start RX thread */
 	k_thread_create(&ipm_rx_thread_data, ipm_rx_stack,
 			K_KERNEL_STACK_SIZEOF(ipm_rx_stack),
-			(k_thread_entry_t)bt_ipm_rx_thread, NULL, NULL, NULL,
+			bt_ipm_rx_thread, (void *)dev, NULL, NULL,
 			K_PRIO_COOP(CONFIG_BT_DRIVER_RX_HIGH_PRIO),
 			0, K_NO_WAIT);
+
+	LOG_DBG("IPM Channel Open Completed");
+
+	return 0;
+}
+
+static int bt_ipm_setup(const struct device *dev, const struct bt_hci_setup_params *params)
+{
+	ARG_UNUSED(params);
+	ARG_UNUSED(dev);
+	int err;
 
 #ifdef CONFIG_BT_HCI_HOST
 	err = bt_ipm_ble_init();
@@ -565,23 +652,21 @@ static int bt_ipm_open(void)
 	}
 #endif /* CONFIG_BT_HCI_HOST */
 
-	LOG_DBG("IPM Channel Open Completed");
+	LOG_DBG("IPM Channel Setup Completed");
 
 	return 0;
 }
 
 #ifdef CONFIG_BT_HCI_HOST
-static int bt_ipm_close(void)
+static int bt_ipm_close(const struct device *dev)
 {
 	int err;
-	struct net_buf *rsp;
 
-	err = bt_hci_cmd_send_sync(ACI_HAL_STACK_RESET, NULL, &rsp);
+	err = bt_hci_cmd_send_sync(ACI_HAL_STACK_RESET, NULL, NULL);
 	if (err) {
 		LOG_ERR("IPM Channel Close Issue");
 		return err;
 	}
-	net_buf_unref(rsp);
 
 	/* Wait till C2DS set */
 	while (LL_PWR_IsActiveFlag_C2DS() == 0) {
@@ -597,22 +682,20 @@ static int bt_ipm_close(void)
 }
 #endif /* CONFIG_BT_HCI_HOST */
 
-static const struct bt_hci_driver drv = {
-	.name           = "BT IPM",
-	.bus            = BT_HCI_DRIVER_BUS_IPM,
+static DEVICE_API(bt_hci, drv) = {
 	.open           = bt_ipm_open,
 #ifdef CONFIG_BT_HCI_HOST
 	.close          = bt_ipm_close,
 #endif
 	.send           = bt_ipm_send,
+	.setup          = bt_ipm_setup,
 };
 
-static int _bt_ipm_init(void)
+static int _bt_ipm_init(const struct device *dev)
 {
 	int err;
 
-
-	bt_hci_driver_register(&drv);
+	ARG_UNUSED(dev);
 
 	err = c2_reset();
 	if (err) {
@@ -622,4 +705,13 @@ static int _bt_ipm_init(void)
 	return 0;
 }
 
-SYS_INIT(_bt_ipm_init, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
+#define HCI_DEVICE_INIT(inst) \
+	static struct bt_hci_driver_data hci_data_##inst = { \
+	}; \
+	static const struct bt_hci_driver_config hci_config_##inst = \
+		BT_DT_HCI_DRIVER_CONFIG_INST_GET(inst); \
+	DEVICE_DT_INST_DEFINE(inst, _bt_ipm_init, NULL, &hci_data_##inst, &hci_config_##inst, \
+			      POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &drv)
+
+/* Only one instance supported right now */
+HCI_DEVICE_INIT(0)

@@ -190,7 +190,7 @@ uint8_t ll_create_connection(uint16_t scan_interval, uint16_t scan_window,
 	conn_lll = &conn->lll;
 
 	err = util_aa_le32(conn_lll->access_addr);
-	LL_ASSERT(!err);
+	LL_ASSERT_DBG(!err);
 
 	lll_csrand_get(conn_lll->crc_init, sizeof(conn_lll->crc_init));
 
@@ -215,11 +215,12 @@ uint8_t ll_create_connection(uint16_t scan_interval, uint16_t scan_window,
 
 #if defined(CONFIG_BT_CTLR_PHY)
 	/* Use the default 1M PHY, extended connection initiation in LLL will
-	 * update this with the correct PHY.
+	 * update this with the correct PHY and defaults using the coding on
+	 * which the connection is established.
 	 */
 	conn_lll->phy_tx = PHY_1M;
-	conn_lll->phy_flags = 0;
 	conn_lll->phy_tx_time = PHY_1M;
+	conn_lll->phy_flags = PHY_FLAGS_S8;
 	conn_lll->phy_rx = PHY_1M;
 #endif /* CONFIG_BT_CTLR_PHY */
 
@@ -252,6 +253,7 @@ uint8_t ll_create_connection(uint16_t scan_interval, uint16_t scan_window,
 	conn_lll->role = 0;
 	conn_lll->central.initiated = 0;
 	conn_lll->central.cancelled = 0;
+	conn_lll->central.forced = 0;
 	/* FIXME: END: Move to ULL? */
 #if defined(CONFIG_BT_CTLR_CONN_META)
 	memset(&conn_lll->conn_meta, 0, sizeof(conn_lll->conn_meta));
@@ -266,6 +268,7 @@ uint8_t ll_create_connection(uint16_t scan_interval, uint16_t scan_window,
 	conn_lll->df_tx_cfg.cte_rsp_en = 0U;
 #endif /* CONFIG_BT_CTLR_DF_CONN_CTE_TX */
 
+	conn->event_counter = 0U;
 	conn->connect_expire = CONN_ESTAB_COUNTDOWN;
 	conn->supervision_expire = 0U;
 	conn_interval_us = (uint32_t)interval * CONN_INT_UNIT_US;
@@ -295,7 +298,7 @@ uint8_t ll_create_connection(uint16_t scan_interval, uint16_t scan_window,
 	/* NOTE: use allocated link for generating dedicated
 	 * terminate ind rx node
 	 */
-	conn->llcp_terminate.node_rx.hdr.link = link;
+	conn->llcp_terminate.node_rx.rx.hdr.link = link;
 
 #if defined(CONFIG_BT_CTLR_PHY)
 	conn->phy_pref_tx = ull_conn_default_phy_tx_get();
@@ -309,12 +312,10 @@ uint8_t ll_create_connection(uint16_t scan_interval, uint16_t scan_window,
 	/* Re-initialize the Tx Q */
 	ull_tx_q_init(&conn->tx_q);
 
-	/* TODO: active_to_start feature port */
-	conn->ull.ticks_active_to_start = 0U;
-	conn->ull.ticks_prepare_to_start =
-		HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_XTAL_US);
-	conn->ull.ticks_preempt_to_start =
-		HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_PREEMPT_MIN_US);
+	conn_lll->tifs_tx_us = EVENT_IFS_DEFAULT_US;
+	conn_lll->tifs_rx_us = EVENT_IFS_DEFAULT_US;
+	conn_lll->tifs_hcto_us = EVENT_IFS_DEFAULT_US;
+	conn_lll->tifs_cis_us = EVENT_IFS_DEFAULT_US;
 
 #if defined(CONFIG_BT_CTLR_CHECK_SAME_PEER_CONN)
 	/* Remember peer and own identity address */
@@ -361,7 +362,7 @@ conn_is_valid:
 
 	/* Calculate event time reservation */
 	slot_us = max_tx_time + max_rx_time;
-	slot_us += EVENT_IFS_US + (EVENT_CLOCK_JITTER_US << 1);
+	slot_us += conn_lll->tifs_rx_us + (EVENT_CLOCK_JITTER_US << 1);
 	slot_us += ready_delay_us;
 	slot_us += EVENT_OVERHEAD_START_US + EVENT_OVERHEAD_END_US;
 
@@ -378,8 +379,8 @@ conn_is_valid:
 						 NULL);
 	}
 
-	if (own_addr_type == BT_ADDR_LE_PUBLIC_ID ||
-	    own_addr_type == BT_ADDR_LE_RANDOM_ID) {
+	if (own_addr_type == BT_HCI_OWN_ADDR_RPA_OR_PUBLIC ||
+	    own_addr_type == BT_HCI_OWN_ADDR_RPA_OR_RANDOM) {
 
 		/* Generate RPAs if required */
 		ull_filter_rpa_update(false);
@@ -516,9 +517,9 @@ uint8_t ll_connect_disable(void **rx)
 		memq_link_t *link;
 
 		conn = HDR_LLL2ULL(conn_lll);
-		node_rx = (void *)&conn->llcp_terminate.node_rx;
+		node_rx = (void *)&conn->llcp_terminate.node_rx.rx;
 		link = node_rx->hdr.link;
-		LL_ASSERT(link);
+		LL_ASSERT_DBG(link);
 
 		/* free the memq link early, as caller could overwrite it */
 		ll_rx_link_release(link);
@@ -536,7 +537,7 @@ uint8_t ll_connect_disable(void **rx)
 		 *       LLL context for other cases, pass LLL context as
 		 *       parameter.
 		 */
-		node_rx->hdr.rx_ftr.param = scan_lll;
+		node_rx->rx_ftr.param = scan_lll;
 
 		*rx = node_rx;
 	}
@@ -558,7 +559,7 @@ uint8_t ll_enc_req_send(uint16_t handle, uint8_t const *const rand_num,
 #if defined(CONFIG_BT_CTLR_CENTRAL_ISO)
 	struct ll_conn_iso_stream *cis = ll_conn_iso_stream_get_by_acl(conn, NULL);
 
-	if (cis || ull_lp_cc_is_enqueued(conn)) {
+	if (cis || ull_lp_cc_is_enqueued(conn, NULL)) {
 		return BT_HCI_ERR_CMD_DISALLOWED;
 	}
 #endif /* CONFIG_BT_CTLR_CENTRAL_ISO */
@@ -602,7 +603,7 @@ int ull_central_reset(void)
 			}
 		}
 
-		LL_ASSERT(scan);
+		LL_ASSERT_DBG(scan);
 
 		scan->is_enabled = 0U;
 		scan->lll.conn = NULL;
@@ -613,7 +614,7 @@ int ull_central_reset(void)
 	return err;
 }
 
-void ull_central_cleanup(struct node_rx_hdr *rx_free)
+void ull_central_cleanup(struct node_rx_pdu *rx_free)
 {
 	struct lll_conn *conn_lll;
 	struct ll_scan_set *scan;
@@ -627,13 +628,13 @@ void ull_central_cleanup(struct node_rx_hdr *rx_free)
 	 */
 	scan = HDR_LLL2ULL(rx_free->rx_ftr.param);
 	conn_lll = scan->lll.conn;
-	LL_ASSERT(conn_lll);
+	LL_ASSERT_DBG(conn_lll);
 	scan->lll.conn = NULL;
 
-	LL_ASSERT(!conn_lll->link_tx_free);
+	LL_ASSERT_DBG(!conn_lll->link_tx_free);
 	link = memq_deinit(&conn_lll->memq_tx.head,
 			   &conn_lll->memq_tx.tail);
-	LL_ASSERT(link);
+	LL_ASSERT_DBG(link);
 	conn_lll->link_tx_free = link;
 
 	conn = HDR_LLL2ULL(conn_lll);
@@ -654,7 +655,7 @@ void ull_central_cleanup(struct node_rx_hdr *rx_free)
 				ull_scan_is_enabled_get(SCAN_HANDLE_PHY_CODED);
 	if (scan_coded && scan_coded != scan) {
 		conn_lll = scan_coded->lll.conn;
-		LL_ASSERT(conn_lll);
+		LL_ASSERT_DBG(conn_lll);
 		scan_coded->lll.conn = NULL;
 
 		scan_coded->is_enabled = 0U;
@@ -663,7 +664,7 @@ void ull_central_cleanup(struct node_rx_hdr *rx_free)
 #endif /* CONFIG_BT_CTLR_ADV_EXT && CONFIG_BT_CTLR_PHY_CODED */
 }
 
-void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
+void ull_central_setup(struct node_rx_pdu *rx, struct node_rx_ftr *ftr,
 		      struct lll_conn *lll)
 {
 	uint32_t conn_offset_us, conn_interval_us;
@@ -683,7 +684,7 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 	void *node;
 
 	/* Get reference to Tx-ed CONNECT_IND PDU */
-	pdu_tx = (void *)((struct node_rx_pdu *)rx)->pdu;
+	pdu_tx = (void *)rx->pdu;
 
 	/* Backup peer addr and type, as we reuse the Tx-ed PDU to generate
 	 * event towards LL
@@ -698,7 +699,7 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 	 * complete event.
 	 */
 	node = pdu_tx;
-	LL_ASSERT(IS_PTR_ALIGNED(node, struct node_rx_cc));
+	LL_ASSERT_DBG(IS_PTR_ALIGNED(node, struct node_rx_cc));
 
 	/* Populate the fields required for connection complete event */
 	cc = node;
@@ -720,7 +721,7 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 		ll_rl_id_addr_get(rl_idx, &cc->peer_addr_type,
 				  &cc->peer_addr[0]);
 		/* Mark it as identity address from RPA (0x02, 0x03) */
-		cc->peer_addr_type += 2;
+		MARK_AS_IDENTITY_ADDR(cc->peer_addr_type);
 
 		/* Store peer RPA */
 		memcpy(&cc->peer_rpa[0], &peer_addr[0], BDADDR_SIZE);
@@ -742,10 +743,15 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 
 	conn = lll->hdr.parent;
 	lll->handle = ll_conn_handle_get(conn);
-	rx->handle = lll->handle;
+	rx->hdr.handle = lll->handle;
 
 	/* Set LLCP as connection-wise connected */
 	ull_cp_state_set(conn, ULL_CP_CONNECTED);
+
+#if defined(CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER)
+	/* Set default PAST parameters */
+	conn->past = ull_conn_default_past_param_get();
+#endif /* CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER */
 
 #if defined(CONFIG_BT_CTLR_TX_PWR_DYNAMIC_CONTROL)
 	lll->tx_pwr_lvl = RADIO_TXP_DEFAULT;
@@ -754,7 +760,7 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 	/* Use the link stored in the node rx to enqueue connection
 	 * complete node rx towards LL context.
 	 */
-	link = rx->link;
+	link = rx->hdr.link;
 
 	/* Use Channel Selection Algorithm #2 if peer too supports it */
 	if (IS_ENABLED(CONFIG_BT_CTLR_CHAN_SEL_2)) {
@@ -770,11 +776,11 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 		ll_rx_put(link, rx);
 
 		/* use the rx node for CSA event */
-		rx = (void *)rx_csa;
-		link = rx->link;
+		rx = rx_csa;
+		link = rx->hdr.link;
 
-		rx->handle = lll->handle;
-		rx->type = NODE_RX_TYPE_CHAN_SEL_ALGO;
+		rx->hdr.handle = lll->handle;
+		rx->hdr.type = NODE_RX_TYPE_CHAN_SEL_ALGO;
 
 		cs = (void *)rx_csa->pdu;
 
@@ -790,8 +796,7 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 
 	ll_rx_put_sched(link, rx);
 
-	ticks_slot_offset = MAX(conn->ull.ticks_active_to_start,
-				conn->ull.ticks_prepare_to_start);
+	ticks_slot_offset = HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_XTAL_US);
 	if (IS_ENABLED(CONFIG_BT_CTLR_LOW_LAT)) {
 		ticks_slot_overhead = ticks_slot_offset;
 	} else {
@@ -826,8 +831,8 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 					TICKER_USER_ID_ULL_HIGH,
 					ticker_id_scan, ticks_at_stop,
 					ticker_op_stop_scan_cb, scan);
-	LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
-		  (ticker_status == TICKER_STATUS_BUSY));
+	LL_ASSERT_ERR((ticker_status == TICKER_STATUS_SUCCESS) ||
+		      (ticker_status == TICKER_STATUS_BUSY));
 
 #if defined(CONFIG_BT_CTLR_ADV_EXT) && defined(CONFIG_BT_CTLR_PHY_CODED)
 	/* Determine if coded PHY was also enabled, if so, reset the assigned
@@ -848,8 +853,8 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 						    ticker_id_scan,
 						    ticker_op_stop_scan_other_cb,
 						    scan_other);
-			LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
-				  (ticker_status == TICKER_STATUS_BUSY));
+			LL_ASSERT_ERR((ticker_status == TICKER_STATUS_SUCCESS) ||
+				      (ticker_status == TICKER_STATUS_BUSY));
 		}
 	}
 #endif /* CONFIG_BT_CTLR_ADV_EXT && CONFIG_BT_CTLR_PHY_CODED */
@@ -875,8 +880,8 @@ void ull_central_setup(struct node_rx_hdr *rx, struct node_rx_ftr *ftr,
 					(conn->ull.ticks_slot + ticks_slot_overhead),
 					ull_central_ticker_cb, conn,
 					ticker_op_cb, (void *)__LINE__);
-	LL_ASSERT((ticker_status == TICKER_STATUS_SUCCESS) ||
-		  (ticker_status == TICKER_STATUS_BUSY));
+	LL_ASSERT_ERR((ticker_status == TICKER_STATUS_SUCCESS) ||
+		      (ticker_status == TICKER_STATUS_BUSY));
 
 #if (CONFIG_BT_CTLR_ULL_HIGH_PRIO == CONFIG_BT_CTLR_ULL_LOW_PRIO)
 	/* enable ticker job, irrespective of disabled in this function so
@@ -939,7 +944,16 @@ void ull_central_ticker_cb(uint32_t ticks_at_expire, uint32_t ticks_drift,
 
 	/* Increment prepare reference count */
 	ref = ull_ref_inc(&conn->ull);
-	LL_ASSERT(ref);
+	LL_ASSERT_DBG(ref);
+
+	/* Increment event counter.
+	 *
+	 * Refer to BT Spec v6.0, Vol 6, Part B, Section 4.5.1 Connection events
+	 *
+	 * `the connEventCounter shall wrap from 0xFFFF to 0x0000. This counter is used to
+	 * synchronize Link Layer control procedures.`
+	 */
+	conn->event_counter += (lazy + 1U);
 
 	/* De-mux 2 tx node from FIFO, sufficient to be able to set MD bit */
 	ull_conn_tx_demux(2);
@@ -958,7 +972,7 @@ void ull_central_ticker_cb(uint32_t ticks_at_expire, uint32_t ticks_drift,
 	/* Kick LLL prepare */
 	err = mayfly_enqueue(TICKER_USER_ID_ULL_HIGH, TICKER_USER_ID_LLL,
 			     0, &mfy);
-	LL_ASSERT(!err);
+	LL_ASSERT_ERR(!err);
 
 	/* De-mux remaining tx nodes from FIFO */
 	ull_conn_tx_demux(UINT8_MAX);
@@ -1003,8 +1017,6 @@ static void ticker_op_stop_scan_cb(uint32_t status, void *param)
 #if defined(CONFIG_BT_CTLR_ADV_EXT) && defined(CONFIG_BT_CTLR_PHY_CODED)
 static void ticker_op_stop_scan_other_cb(uint32_t status, void *param)
 {
-	static memq_link_t link;
-	static struct mayfly mfy = {0, 0, &link, NULL, NULL};
 	struct ll_scan_set *scan;
 	struct ull_hdr *hdr;
 
@@ -1023,14 +1035,16 @@ static void ticker_op_stop_scan_other_cb(uint32_t status, void *param)
 	 */
 	scan = param;
 	hdr = &scan->ull;
-	mfy.param = &scan->lll;
 	if (ull_ref_get(hdr)) {
+		static memq_link_t link;
+		static struct mayfly mfy = {0, 0, &link, NULL, lll_disable};
 		uint32_t ret;
 
-		mfy.fp = lll_disable;
+		mfy.param = &scan->lll;
+
 		ret = mayfly_enqueue(TICKER_USER_ID_ULL_LOW,
 				     TICKER_USER_ID_LLL, 0, &mfy);
-		LL_ASSERT(!ret);
+		LL_ASSERT_ERR(!ret);
 	}
 }
 #endif /* CONFIG_BT_CTLR_ADV_EXT && CONFIG_BT_CTLR_PHY_CODED */
@@ -1039,7 +1053,7 @@ static void ticker_op_cb(uint32_t status, void *param)
 {
 	ARG_UNUSED(param);
 
-	LL_ASSERT(status == TICKER_STATUS_SUCCESS);
+	LL_ASSERT_ERR(status == TICKER_STATUS_SUCCESS);
 }
 
 static inline void conn_release(struct ll_scan_set *scan)
@@ -1050,16 +1064,16 @@ static inline void conn_release(struct ll_scan_set *scan)
 	memq_link_t *link;
 
 	lll = scan->lll.conn;
-	LL_ASSERT(!lll->link_tx_free);
+	LL_ASSERT_DBG(!lll->link_tx_free);
 	link = memq_deinit(&lll->memq_tx.head, &lll->memq_tx.tail);
-	LL_ASSERT(link);
+	LL_ASSERT_DBG(link);
 	lll->link_tx_free = link;
 
 	conn = HDR_LLL2ULL(lll);
 
-	cc = (void *)&conn->llcp_terminate.node_rx;
+	cc = (void *)&conn->llcp_terminate.node_rx.rx;
 	link = cc->hdr.link;
-	LL_ASSERT(link);
+	LL_ASSERT_DBG(link);
 
 	ll_rx_link_release(link);
 

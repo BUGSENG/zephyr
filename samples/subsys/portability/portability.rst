@@ -1,10 +1,6 @@
-.. _portability-samples:
+.. zephyr:code-sample-category:: portability
+   :name: Portability
+   :show-listing:
+   :glob: */*
 
-Portability Samples
-###################
-
-.. toctree::
-   :maxdepth: 1
-   :glob:
-
-   **/*
+   Samples that demonstrate :ref:`OS abstraction and portability <osal>` features.

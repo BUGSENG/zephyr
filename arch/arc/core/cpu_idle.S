@@ -26,6 +26,7 @@ SECTION_VAR(BSS, z_arc_cpu_sleep_mode)
 	.align 4
 	.word 0
 
+#ifndef CONFIG_ARCH_HAS_CUSTOM_CPU_IDLE
 /*
  * @brief Put the CPU in low-power mode
  *
@@ -36,7 +37,7 @@ SECTION_VAR(BSS, z_arc_cpu_sleep_mode)
 
 SECTION_FUNC(TEXT, arch_cpu_idle)
 
-#ifdef CONFIG_TRACING
+#ifdef CONFIG_SYS_IDLE_HOOKS
 	PUSHR blink
 	jl    sys_trace_idle
 	POPR blink
@@ -48,7 +49,9 @@ SECTION_FUNC(TEXT, arch_cpu_idle)
 	sleep r1
 	j_s [blink]
 	nop
+#endif
 
+#ifndef CONFIG_ARCH_HAS_CUSTOM_CPU_ATOMIC_IDLE
 /*
  * @brief Put the CPU in low-power mode, entered with IRQs locked
  *
@@ -56,9 +59,10 @@ SECTION_FUNC(TEXT, arch_cpu_idle)
  *
  * void arch_cpu_atomic_idle(unsigned int key)
  */
+
 SECTION_FUNC(TEXT, arch_cpu_atomic_idle)
 
-#ifdef CONFIG_TRACING
+#ifdef CONFIG_SYS_IDLE_HOOKS
 	PUSHR blink
 	jl    sys_trace_idle
 	POPR blink
@@ -70,3 +74,4 @@ SECTION_FUNC(TEXT, arch_cpu_atomic_idle)
 	sleep r1
 	j_s.d [blink]
 	seti r0
+#endif

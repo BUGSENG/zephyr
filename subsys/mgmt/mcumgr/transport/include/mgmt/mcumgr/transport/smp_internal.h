@@ -10,8 +10,10 @@
 
 #include <stdint.h>
 #include <zephyr/kernel.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
+#include <zephyr/mgmt/mcumgr/smp/smp.h>
 #include <zephyr/mgmt/mcumgr/transport/smp.h>
+#include <zcbor_encode.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,7 +34,7 @@ struct smp_hdr {
 	uint16_t nh_group;		/* MGMT_GROUP_ID_[...] */
 	uint8_t  nh_seq;		/* Sequence number */
 	uint8_t  nh_id;			/* Message ID within group */
-};
+} __packed;
 
 struct smp_transport;
 struct zephyr_smp_transport;
@@ -50,18 +52,22 @@ void smp_rx_req(struct smp_transport *smtp, struct net_buf *nb);
 
 #ifdef CONFIG_SMP_CLIENT
 /**
- * @brief Trig SMP client request packet for transmission.
+ * @brief Get work queue for SMP client.
  *
- * @param work	The transport to use to send the corresponding response(s).
+ * @return SMP work queue object.
  */
-void smp_tx_req(struct k_work *work);
+struct k_work_q *smp_get_wq(void);
 #endif
 
-__deprecated static inline
-void zephyr_smp_rx_req(struct zephyr_smp_transport *smpt, struct net_buf *nb)
-{
-	smp_rx_req((struct smp_transport *)smpt, nb);
-}
+/**
+ * @brief Allocates a request buffer.
+ *
+ * @param arg		The streamer providing the callback.
+ *
+ * @return	Newly-allocated buffer on success
+ *		NULL on failure.
+ */
+struct net_buf *smp_alloc_req(void *arg, void *priv);
 
 /**
  * @brief Allocates a response buffer.
@@ -76,12 +82,6 @@ void zephyr_smp_rx_req(struct zephyr_smp_transport *smpt, struct net_buf *nb)
  */
 void *smp_alloc_rsp(const void *req, void *arg);
 
-__deprecated static inline
-void *zephyr_smp_alloc_rsp(const void *req, void *arg)
-{
-	return smp_alloc_rsp(req, arg);
-}
-
 
 /**
  * @brief Frees an allocated buffer.
@@ -91,10 +91,28 @@ void *zephyr_smp_alloc_rsp(const void *req, void *arg)
  */
 void smp_free_buf(void *buf, void *arg);
 
-__deprecated static inline
-void zephyr_smp_free_buf(void *buf, void *arg)
+/**
+ * @brief	Reeset a zcbor encoder to allow a new response.
+ *
+ * If a response has already been (partially) generated than this will allow resetting back to
+ * the default state so that new response can be used (e.g. an error).
+ *
+ * @param streamer	The streamer providing the required SMP callbacks.
+ *
+ * @return	true on success, false on failure (memory error).
+ */
+static inline bool smp_mgmt_reset_zse(struct smp_streamer *streamer)
 {
-	smp_free_buf(buf, arg);
+	zcbor_state_t *zse = streamer->writer->zs;
+
+	/* Because there is already data in the buffer, it must be cleared first */
+	net_buf_reset(streamer->writer->nb);
+	streamer->writer->nb->len = sizeof(struct smp_hdr);
+	zcbor_new_encode_state(zse, ARRAY_SIZE(streamer->writer->zs),
+			       streamer->writer->nb->data + sizeof(struct smp_hdr),
+			       net_buf_tailroom(streamer->writer->nb), 0);
+
+	return zcbor_map_start_encode(zse, CONFIG_MCUMGR_SMP_CBOR_MAX_MAIN_MAP_ENTRIES);
 }
 
 #ifdef __cplusplus

@@ -13,14 +13,13 @@
  */
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(wpan_serial, CONFIG_USB_DEVICE_LOG_LEVEL);
+LOG_MODULE_REGISTER(wpan_serial, LOG_LEVEL_DBG);
 
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
-#include <zephyr/usb/usb_device.h>
 #include <zephyr/random/random.h>
 
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <net_private.h>
 #include <zephyr/net/ieee802154_radio.h>
 
@@ -113,7 +112,7 @@ static int slip_process_byte(unsigned char c)
 
 	if (!pkt_curr) {
 		pkt_curr = net_pkt_rx_alloc_with_buffer(NULL, 256,
-							AF_UNSPEC, 0,
+							NET_AF_UNSPEC, 0,
 							K_NO_WAIT);
 		if (!pkt_curr) {
 			LOG_ERR("No more buffers");
@@ -138,12 +137,13 @@ static int slip_process_byte(unsigned char c)
 static void interrupt_handler(const struct device *dev, void *user_data)
 {
 	ARG_UNUSED(user_data);
+	unsigned char byte;
 
-	while (uart_irq_update(dev) && uart_irq_is_pending(dev)) {
-		unsigned char byte;
+	while (true) {
+		uart_irq_update(dev);
 
-		if (!uart_irq_rx_ready(dev)) {
-			continue;
+		if (uart_irq_rx_ready(dev) <= 0) {
+			return;
 		}
 
 		while (uart_fifo_read(dev, &byte, sizeof(byte))) {
@@ -174,7 +174,7 @@ static void send_data(uint8_t *cfg, uint8_t *data, size_t len)
 	struct net_pkt *pkt;
 
 	pkt = net_pkt_alloc_with_buffer(NULL, len + 5,
-					AF_UNSPEC, 0, K_NO_WAIT);
+					NET_AF_UNSPEC, 0, K_NO_WAIT);
 	if (!pkt) {
 		LOG_DBG("No pkt available");
 		return;
@@ -299,8 +299,12 @@ static void process_config(struct net_pkt *pkt)
 	}
 }
 
-static void rx_thread(void)
+static void rx_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	LOG_DBG("RX thread started");
 
 	while (true) {
@@ -386,8 +390,12 @@ static int try_write(uint8_t *data, uint16_t len)
 /**
  * TX - transmit to SLIP interface
  */
-static void tx_thread(void)
+static void tx_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	LOG_DBG("TX thread started");
 
 	while (true) {
@@ -421,7 +429,7 @@ static void init_rx_queue(void)
 
 	k_thread_create(&rx_thread_data, rx_stack,
 			K_THREAD_STACK_SIZEOF(rx_stack),
-			(k_thread_entry_t)rx_thread,
+			rx_thread,
 			NULL, NULL, NULL, THREAD_PRIORITY, 0, K_NO_WAIT);
 }
 
@@ -431,7 +439,7 @@ static void init_tx_queue(void)
 
 	k_thread_create(&tx_thread_data, tx_stack,
 			K_THREAD_STACK_SIZEOF(tx_stack),
-			(k_thread_entry_t)tx_thread,
+			tx_thread,
 			NULL, NULL, NULL, THREAD_PRIORITY, 0, K_NO_WAIT);
 }
 
@@ -440,14 +448,12 @@ static void init_tx_queue(void)
  */
 static uint8_t *get_mac(const struct device *dev)
 {
-	uint32_t *ptr = (uint32_t *)mac_addr;
-
 	mac_addr[7] = 0x00;
 	mac_addr[6] = 0x12;
 	mac_addr[5] = 0x4b;
-
 	mac_addr[4] = 0x00;
-	UNALIGNED_PUT(sys_rand32_get(), ptr);
+
+	sys_rand_get(mac_addr, 4U);
 
 	mac_addr[0] = (mac_addr[0] & ~0x01) | 0x02;
 
@@ -535,12 +541,6 @@ int main(void)
 
 	if (!device_is_ready(uart_dev)) {
 		LOG_ERR("CDC ACM device not ready");
-		return 0;
-	}
-
-	ret = usb_enable(NULL);
-	if (ret != 0) {
-		LOG_ERR("Failed to enable USB");
 		return 0;
 	}
 

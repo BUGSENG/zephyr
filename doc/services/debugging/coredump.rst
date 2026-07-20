@@ -18,6 +18,12 @@ Configure this module using the following options.
 Here are the options to enable output backends for core dump:
 
 * ``DEBUG_COREDUMP_BACKEND_LOGGING``: use log module for core dump output.
+* ``DEBUG_COREDUMP_BACKEND_LOGGING_UDP``: same as logging backend with optional
+  raw UDP transfer; the peer is ``DEBUG_COREDUMP_LOGGING_UDP_HOST``, a string
+  parsed by ``net_ipaddr_parse()`` (IPv4 or IPv6, optional ``:port`` with default
+  UDP port ``17777`` when omitted). Use
+  :zephyr_file:`scripts/coredump/coredump_udp_receiver.py` to build the binary
+  for :zephyr_file:`scripts/coredump/coredump_gdbserver.py`.
 * ``DEBUG_COREDUMP_BACKEND_FLASH_PARTITION``: use flash partition for core
   dump output.
 * ``DEBUG_COREDUMP_BACKEND_NULL``: fallback core dump backend if other
@@ -30,6 +36,13 @@ Here are the choices regarding memory dump:
   walking the stack in the debugger. Use this only if absolute minimum of data
   dump is desired.
 
+* ``DEBUG_COREDUMP_MEMORY_DUMP_THREADS``: Dumps the thread struct and stack of all
+  threads and all data required to debug threads.
+
+* ``DEBUG_COREDUMP_MEMORY_DUMP_LINKER_RAM``: Dumps the memory region between
+  _image_ram_start[] and _image_ram_end[]. This includes at least data, noinit,
+  and BSS sections. This is the default.
+
 Additional memory can be included in a dump (even with the "DEBUG_COREDUMP_MEMORY_DUMP_MIN"
 config selected) through one or more :ref:`coredump devices <coredump_device_api>`
 
@@ -38,7 +51,7 @@ Usage
 
 When the core dump module is enabled, during a fatal error, CPU registers
 and memory content are printed or stored according to which backends
-are enabled. This core dump data can fed into a custom-made GDB server as
+are enabled. This core dump data can be fed into a custom-made GDB server as
 a remote target for GDB (and other GDB compatible debuggers). CPU registers,
 memory content and stack can be examined in the debugger.
 
@@ -52,10 +65,15 @@ This usually involves the following steps:
    the GDB server. For example,
    :zephyr_file:`scripts/coredump/coredump_serial_log_parser.py` can be used
    to convert the serial console log into a binary file.
+   If the UDP coredump backend is enabled
+   (``DEBUG_COREDUMP_BACKEND_LOGGING_UDP``), run
+   :zephyr_file:`scripts/coredump/coredump_udp_receiver.py` on the collector
+   host to reassemble UDP datagrams into the **same** raw binary format.
 
 3. Start the custom GDB server using the script
    :zephyr_file:`scripts/coredump/coredump_gdbserver.py` with the core dump
-   binary log file, and the Zephyr ELF file as parameters.
+   binary log file, and the Zephyr ELF file as parameters. The GDB server
+   can also be started from within GDB, see below.
 
 4. Start the debugger corresponding to the target architecture.
 
@@ -68,21 +86,22 @@ This usually involves the following steps:
    data is stored in the flash partition. The flash partition must be defined
    in the device tree:
 
-	.. code-block:: devicetree
+   .. code-block:: devicetree
 
-		&flash0 {
-			partitions {
-				coredump_partition: partition@255000 {
-					label = "coredump-partition";
-					reg = <0x255000 DT_SIZE_K(4)>;
-				};
-		};
+      &flash0 {
+         partitions {
+            coredump_partition: partition@255000 {
+               label = "coredump-partition";
+               reg = <0x255000 DT_SIZE_K(4)>;
+            };
+         };
+      };
 
 Example
 -------
 
 This example uses the log module backend tied to serial console.
-This was done on :ref:`qemu_x86` where a null pointer was dereferenced.
+This was done on :zephyr:board:`qemu_x86` where a null pointer was dereferenced.
 
 This is the core dump log from the serial console, and is stored
 in :file:`coredump.log`:
@@ -220,11 +239,31 @@ in :file:`coredump.log`:
       #2  0x00100492 in func_1 (addr=0x0) at zephyr/rtos/zephyr/samples/hello_world/src/main.c:28
       #3  0x001004c8 in main () at zephyr/rtos/zephyr/samples/hello_world/src/main.c:42
 
+Starting the GDB server from within GDB
+---------------------------------------
+
+You can use ``target remote |`` to start the custom GDB server from inside
+GDB, instead of in a separate shell.
+
+1. Start GDB:
+
+   .. code-block:: console
+
+      <path to SDK>/x86_64-zephyr-elf/bin/x86_64-zephyr-elf-gdb build/zephyr/zephyr.elf
+
+2. Inside GDB, start the GDB server using the ``--pipe`` option:
+
+   .. code-block:: console
+
+      (gdb) target remote | ./scripts/coredump/coredump_gdbserver.py --pipe build/zephyr/zephyr.elf coredump.bin
+
+
 File Format
 ***********
 
 The core dump binary file consists of one file header, one
-architecture-specific block, and multiple memory blocks. All numbers in
+architecture-specific block, zero or one threads metadata block(s),
+and multiple memory blocks. All numbers in
 the headers below are little endian.
 
 File Header
@@ -295,6 +334,36 @@ to the target architecture (e.g. CPU registers)
      - ``uint8_t[]``
      - Contains target architecture specific data.
 
+Threads Metadata Block
+---------------------------
+
+The threads metadata block contains the byte stream of data necessary
+for debugging threads.
+
+.. list-table:: Threads Metadata Block
+   :widths: 2 1 7
+   :header-rows: 1
+
+   * - Field
+     - Data Type
+     - Description
+   * - ID
+     - ``char``
+     - ``T`` to indicate this is a threads metadata block.
+   * - Header version
+     - ``uint16_t``
+     - Identify the version of the header. This needs to be incremented
+       whenever the header struct is modified. This allows parser to
+       reject older header versions so it will not incorrectly parse
+       the header.
+   * - Number of bytes
+     - ``uint16_t``
+     - Number of bytes following the header which contains the byte stream
+       for target data.
+   * - Byte stream
+     - ``uint8_t[]``
+     - Contains data necessary for debugging threads.
+
 Memory Block
 ------------
 
@@ -360,6 +429,18 @@ the following needs to be done:
 #. Extend ``get_gdbstub()`` in
    :zephyr_file:`scripts/coredump/gdbstubs/__init__.py` to return
    the newly implemented GDB stub.
+
+UDP logging backend sample
+**************************
+
+Sample README pages that exercise the UDP coredump path are linked into this chapter so Sphinx
+includes them in the documentation tree:
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   ../../samples/subsys/debug/coredump_udp_demos/demo_shell/README
 
 API documentation
 *****************

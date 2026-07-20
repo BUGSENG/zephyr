@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2013-2014 Wind River Systems, Inc.
+ * Copyright 2023, 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,18 +13,18 @@
  * arm/arch.h.
  */
 
-#ifndef ZEPHYR_INCLUDE_ARCH_ARM_AARCH32_ERROR_H_
-#define ZEPHYR_INCLUDE_ARCH_ARM_AARCH32_ERROR_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_ARM_ERROR_H_
+#define ZEPHYR_INCLUDE_ARCH_ARM_ERROR_H_
 
 #include <zephyr/arch/arm/syscall.h>
-#include <zephyr/arch/arm/exc.h>
+#include <zephyr/arch/exception.h>
 #include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
+#if defined(CONFIG_CPU_CORTEX_M)
 /* ARMv6 will hard-fault if SVC is called with interrupts locked. Just
  * force them unlocked, the thread is in an undefined state anyway
  *
@@ -33,28 +34,17 @@ extern "C" {
  * Force them unlocked as well.
  */
 #define ARCH_EXCEPT(reason_p) \
-register uint32_t r0 __asm__("r0") = reason_p; \
-do { \
-	__asm__ volatile ( \
-		"cpsie i\n\t" \
-		"svc %[id]\n\t" \
-		: \
-		: "r" (r0), [id] "i" (_SVC_CALL_RUNTIME_EXCEPT) \
-		: "memory"); \
-} while (false)
-#elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
-#define ARCH_EXCEPT(reason_p) do { \
-	__asm__ volatile ( \
-		"eors.n r0, r0\n\t" \
-		"msr BASEPRI, r0\n\t" \
-		"mov r0, %[reason]\n\t" \
-		"svc %[id]\n\t" \
-		: \
-		: [reason] "i" (reason_p), [id] "i" (_SVC_CALL_RUNTIME_EXCEPT) \
-		: "memory"); \
+do {\
+	arch_irq_unlock(0); \
+	__asm__ volatile( \
+		"mov r0, %[_reason]\n" \
+		"svc %[id]\n" \
+		IF_ENABLED(CONFIG_ARM_BTI, ("bti\n")) \
+		:: [_reason] "r" (reason_p), [id] "i" (_SVC_CALL_RUNTIME_EXCEPT) \
+		: "r0", "memory"); \
 } while (false)
 #elif defined(CONFIG_ARMV7_R) || defined(CONFIG_AARCH32_ARMV8_R) \
-	|| defined(CONFIG_ARMV7_A)
+	|| defined(CONFIG_ARMV7_A) || defined(CONFIG_AARCH32_ARMV8_A)
 /*
  * In order to support using svc for an exception while running in an
  * isr, stack $lr_svc before calling svc.  While exiting the isr,
@@ -64,12 +54,13 @@ do { \
  * z_check_stack_sentinel call if it is not stacked before the svc.
  */
 #define ARCH_EXCEPT(reason_p) \
-register uint32_t r0 __asm__("r0") = reason_p; \
 do { \
+	register uint32_t r0 __asm__("r0") = reason_p; \
 	__asm__ volatile ( \
 		"push {lr}\n\t" \
 		"cpsie i\n\t" \
 		"svc %[id]\n\t" \
+		IF_ENABLED(CONFIG_ARM_BTI, ("bti\n\t")) \
 		"pop {lr}\n\t" \
 		: \
 		: "r" (r0), [id] "i" (_SVC_CALL_RUNTIME_EXCEPT) \
@@ -83,4 +74,4 @@ do { \
 }
 #endif
 
-#endif /* ZEPHYR_INCLUDE_ARCH_ARM_AARCH32_ERROR_H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARM_ERROR_H_ */

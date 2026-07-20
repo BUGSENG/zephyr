@@ -34,7 +34,7 @@ Building and Running
 ********************
 
 This sample runs with X-NUCLEO-IKS01A1 stacked on any board with a matching
-Arduino connector. For this example, we use a :ref:`nucleo_f429zi_board` board.
+Arduino connector. For this example, we use a :zephyr:board:`nucleo_f429zi` board.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/shields/x_nucleo_iks01a1
@@ -51,9 +51,9 @@ Sample Output
 
     HTS221: Temperature:29.1 C
     HTS221: Relative Humidity:46.0%
-    LPS25HB: Pressure:100.0 kpa
-    LIS3MDL: Magnetic field (gauss): x: 0.1, y: -0.4, z: 0.4
-    LSM6DS0: Acceleration (m.s-2): x: -0.0, y: -0.1, z: 9.7
+    LPS25HB: Pressure:100.0 kPa
+    LIS3MDL: Magnetic field (G): x: 0.1, y: -0.4, z: 0.4
+    LSM6DS0: Acceleration (m/s^2): x: -0.0, y: -0.1, z: 9.7
 
 
     <updated endlessly every 2 seconds>

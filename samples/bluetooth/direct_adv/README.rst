@@ -1,32 +1,41 @@
-.. _ble_direct_adv:
+.. zephyr:code-sample:: ble_direct_adv
+   :name: Direct Advertising
+   :relevant-api: bluetooth
 
-Bluetooth: Direct Advertising
-#############################
+   Advertise directly to a bonded central device.
 
 Overview
 ********
 
-Application demonstrating the BLE Direct Advertising capability. If no device is bonded
+Application demonstrating the Bluetooth LE Direct Advertising capability. If no device is bonded
 to the peripheral, casual advertising will be performed. Once bonded, on every subsequent
 boot direct advertising to the bonded central will be performed. Additionally this sample
-provides two BLE characteristics. To perform write, devices need to be bonded, while read
+provides two Bluetooth LE characteristics. To perform write, devices need to be bonded, while read
 can be done just after connection (no bonding required).
 
 Please note that direct advertising towards iOS based devices is not allowed.
-For more information about designing BLE devices for Apple products refer to
+For more information about designing Bluetooth LE devices for Apple products refer to
 "Accessory Design Guidelines for Apple Devices".
 
 Requirements
 ************
 
-* A board with BLE support
-* Second BLE device acting as a central with enabled privacy. For example another Zephyr board
+* A board with Bluetooth LE support
+* Second Bluetooth LE device acting as a central with enabled privacy. For example another Zephyr board
   or any modern smartphone
 
 Building and Running
 ********************
 
-This sample can be found under :zephyr_file:`samples/bluetooth/direct_adv` in the
-Zephyr tree.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/direct_adv
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+After flashing, the device will start advertising. If no bond exists,
+it performs undirected advertising. After pairing completes,
+the device reboots after 5 seconds. On subsequent boots it uses
+directed advertising towards the bonded peer.

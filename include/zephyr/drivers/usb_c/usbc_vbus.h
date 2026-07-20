@@ -8,7 +8,7 @@
  * @brief USB-C VBUS device APIs
  *
  * This file contains the USB-C VBUS device APIs.
- * All USB-C VBUS measurment and control device drivers should
+ * All USB-C VBUS measurement and control device drivers should
  * implement the APIs described in this file.
  */
 
@@ -18,7 +18,9 @@
 /**
  * @brief USB-C VBUS API
  * @defgroup usbc_vbus_api USB-C VBUS API
- * @ingroup io_interfaces
+ * @since 3.3
+ * @version 0.1.0
+ * @ingroup usb_type_c
  * @{
  */
 
@@ -30,12 +32,27 @@
 extern "C" {
 #endif
 
-struct usbc_vbus_driver_api {
+/**
+ * @def_driverbackendgroup{USB-C VBUS,usbc_vbus_api}
+ * @ingroup usbc_vbus_api
+ * @{
+ */
+
+/**
+ * @driver_ops{USB-C VBUS}
+ */
+__subsystem struct usbc_vbus_driver_api {
+	/** @driver_ops_mandatory @copybrief usbc_vbus_check_level */
 	bool (*check_level)(const struct device *dev, enum tc_vbus_level level);
+	/** @driver_ops_mandatory @copybrief usbc_vbus_measure */
 	int (*measure)(const struct device *dev, int *vbus_meas);
+	/** @driver_ops_mandatory @copybrief usbc_vbus_discharge */
 	int (*discharge)(const struct device *dev, bool enable);
+	/** @driver_ops_mandatory @copybrief usbc_vbus_enable */
 	int (*enable)(const struct device *dev, bool enable);
 };
+
+/** @} */
 
 /**
  * @brief Checks if VBUS is at a particular level
@@ -48,9 +65,7 @@ struct usbc_vbus_driver_api {
  */
 static inline bool usbc_vbus_check_level(const struct device *dev, enum tc_vbus_level level)
 {
-	const struct usbc_vbus_driver_api *api = (const struct usbc_vbus_driver_api *)dev->api;
-
-	return api->check_level(dev, level);
+	return DEVICE_API_GET(usbc_vbus, dev)->check_level(dev, level);
 }
 
 /**
@@ -64,9 +79,7 @@ static inline bool usbc_vbus_check_level(const struct device *dev, enum tc_vbus_
  */
 static inline int usbc_vbus_measure(const struct device *dev, int *meas)
 {
-	const struct usbc_vbus_driver_api *api = (const struct usbc_vbus_driver_api *)dev->api;
-
-	return api->measure(dev, meas);
+	return DEVICE_API_GET(usbc_vbus, dev)->measure(dev, meas);
 }
 
 /**
@@ -81,16 +94,14 @@ static inline int usbc_vbus_measure(const struct device *dev, int *meas)
  */
 static inline int usbc_vbus_discharge(const struct device *dev, bool enable)
 {
-	const struct usbc_vbus_driver_api *api = (const struct usbc_vbus_driver_api *)dev->api;
-
-	return api->discharge(dev, enable);
+	return DEVICE_API_GET(usbc_vbus, dev)->discharge(dev, enable);
 }
 
 /**
- * @brief Controls a pin that enables VBUS measurments
+ * @brief Controls a pin that enables VBUS measurements
  *
  * @param dev     Runtime device structure
- * @param enable  enable VBUS measurments when true
+ * @param enable  enable VBUS measurements when true
  *
  * @retval 0 on success
  * @retval -EIO on failure
@@ -98,9 +109,7 @@ static inline int usbc_vbus_discharge(const struct device *dev, bool enable)
  */
 static inline int usbc_vbus_enable(const struct device *dev, bool enable)
 {
-	const struct usbc_vbus_driver_api *api = (const struct usbc_vbus_driver_api *)dev->api;
-
-	return api->enable(dev, enable);
+	return DEVICE_API_GET(usbc_vbus, dev)->enable(dev, enable);
 }
 
 /**

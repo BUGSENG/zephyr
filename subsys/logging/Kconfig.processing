@@ -12,6 +12,10 @@ config LOG_PRINTK
 	  If enabled, printk messages are redirected to the logging subsystem.
 	  The messages are formatted in place and logged unconditionally.
 
+config LOG_PRINTK_STATIC
+	bool "Static processing of printk messages"
+	depends on LOG_PRINTK
+
 if LOG_MODE_DEFERRED && !LOG_FRONTEND_ONLY
 
 config LOG_MODE_OVERFLOW
@@ -114,14 +118,14 @@ config LOG_PROCESS_THREAD_PRIORITY
 	depends on LOG_PROCESS_THREAD_CUSTOM_PRIORITY
 	help
 	  The priority of the log processing thread.
-	  When not set the prority is set to K_LOWEST_APPLICATION_THREAD_PRIO.
+	  When not set the priority is set to K_LOWEST_APPLICATION_THREAD_PRIO.
 
 endif # LOG_PROCESS_THREAD
 
 config LOG_BUFFER_SIZE
 	int "Number of bytes dedicated for the logger internal buffer"
 	default 1024
-	range 128 65536
+	range 128 1048576
 	help
 	  Number of bytes dedicated for the logger internal buffer.
 
@@ -156,6 +160,12 @@ config LOG_TRACE_SHORT_TIMESTAMP
 
 config LOG_TIMESTAMP_64BIT
 	bool "Use 64 bit timestamp"
+
+config LOG_TIMESTAMP_USE_REALTIME
+	bool "Use real time clock for timestamp"
+	select LOG_TIMESTAMP_64BIT
+	help
+	  When enabled, real time clock is used for timestamping.
 
 config LOG_SPEED
 	bool "Prefer performance over size"

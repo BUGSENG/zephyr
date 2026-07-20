@@ -78,7 +78,6 @@ struct pca9685_config {
 	struct i2c_dt_spec i2c;
 	bool outdrv_open_drain;
 	bool och_on_ack;
-	bool invrt;
 };
 
 struct pca9685_data {
@@ -119,6 +118,7 @@ static int set_pre_scale(const struct device *dev, uint8_t value)
 	struct pca9685_data *data = dev->data;
 	uint8_t mode1;
 	int ret;
+	uint8_t restart = RESTART;
 
 	k_mutex_lock(&data->mutex, K_FOREVER);
 
@@ -134,9 +134,7 @@ static int set_pre_scale(const struct device *dev, uint8_t value)
 	}
 
 	if ((mode1 & RESTART) == 0x00) {
-		LOG_ERR("RESTART bit should be set");
-		ret = -EIO;
-		goto out;
+		restart = 0;
 	}
 
 	ret = set_reg(dev, ADDR_PRE_SCALE, value);
@@ -152,7 +150,7 @@ static int set_pre_scale(const struct device *dev, uint8_t value)
 
 	k_sleep(OSCILLATOR_STABILIZE);
 
-	ret = set_reg(dev, ADDR_MODE1, AUTO_INC | RESTART);
+	ret = set_reg(dev, ADDR_MODE1, AUTO_INC | restart);
 	if (ret != 0) {
 		goto out;
 	}
@@ -174,7 +172,9 @@ static int pca9685_set_cycles(const struct device *dev,
 	int32_t pre_scale;
 	int ret;
 
-	ARG_UNUSED(flags);
+	if (flags & PWM_POLARITY_INVERTED) {
+		pulse_count = period_count - pulse_count;
+	}
 
 	if (channel >= CHANNEL_CNT) {
 		LOG_WRN("channel out of range: %u", channel);
@@ -230,7 +230,7 @@ static int pca9685_get_cycles_per_sec(const struct device *dev,
 	return 0;
 }
 
-static const struct pwm_driver_api pca9685_api = {
+static DEVICE_API(pwm, pca9685_api) = {
 	.set_cycles = pca9685_set_cycles,
 	.get_cycles_per_sec = pca9685_get_cycles_per_sec,
 };
@@ -276,7 +276,6 @@ static int pca9685_init(const struct device *dev)
 		.i2c = I2C_DT_SPEC_INST_GET(inst),                      \
 		.outdrv_open_drain = DT_INST_PROP(inst, open_drain),    \
 		.och_on_ack = DT_INST_PROP(inst, och_on_ack),           \
-		.invrt = DT_INST_PROP(inst, invert),                    \
 	};                                                              \
                                                                         \
 	static struct pca9685_data pca9685_##inst##_data;               \

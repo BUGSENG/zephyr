@@ -110,7 +110,7 @@ stat_mgmt_foreach_entry(zcbor_state_t *zse, const char *group_name, stat_mgmt_fo
 static int
 stat_mgmt_cb_encode(zcbor_state_t *zse, struct stat_mgmt_entry *entry)
 {
-	bool ok = zcbor_tstr_put_term(zse, entry->name) &&
+	bool ok = zcbor_tstr_put_term(zse, entry->name, CONFIG_MCUMGR_GRP_STAT_MAX_NAME_LEN) &&
 		  zcbor_uint32_put(zse, entry->value);
 
 	return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
@@ -145,7 +145,7 @@ stat_mgmt_show(struct smp_streamer *ctxt)
 
 	if (stat_mgmt_count(stat_name, &counter) != 0) {
 		LOG_ERR("Invalid stat name: %s", stat_name);
-		ok = smp_add_cmd_err(zse, ZEPHYR_MGMT_GRP_BASIC,
+		ok = smp_add_cmd_err(zse, MGMT_GROUP_ID_STAT,
 				     STAT_MGMT_ERR_INVALID_STAT_NAME);
 		goto end;
 	}
@@ -172,7 +172,7 @@ stat_mgmt_show(struct smp_streamer *ctxt)
 				rc = STAT_MGMT_ERR_WALK_ABORTED;
 			}
 
-			ok = smp_add_cmd_err(zse, ZEPHYR_MGMT_GRP_BASIC, rc);
+			ok = smp_add_cmd_err(zse, MGMT_GROUP_ID_STAT, rc);
 		}
 	}
 
@@ -190,7 +190,7 @@ stat_mgmt_list(struct smp_streamer *ctxt)
 {
 	const struct stats_hdr *cur = NULL;
 	zcbor_state_t *zse = ctxt->writer->zs;
-	bool ok;
+	bool ok = true;
 	size_t counter = 0;
 
 	do {
@@ -200,10 +200,15 @@ stat_mgmt_list(struct smp_streamer *ctxt)
 		}
 	} while (cur != NULL);
 
-	ok = zcbor_tstr_put_lit(zse, "rc")		&&
-	     zcbor_int32_put(zse, MGMT_ERR_EOK)		&&
-	     zcbor_tstr_put_lit(zse, "stat_list")	&&
-	     zcbor_list_start_encode(zse, counter);
+	if (IS_ENABLED(CONFIG_MCUMGR_SMP_LEGACY_RC_BEHAVIOUR)) {
+		ok = zcbor_tstr_put_lit(zse, "rc") &&
+		zcbor_int32_put(zse, MGMT_ERR_EOK);
+	}
+
+	if (ok) {
+		ok = zcbor_tstr_put_lit(zse, "stat_list") &&
+		zcbor_list_start_encode(zse, counter);
+	}
 
 	if (!ok) {
 		return MGMT_ERR_EMSGSIZE;
@@ -215,7 +220,8 @@ stat_mgmt_list(struct smp_streamer *ctxt)
 	do {
 		cur = stats_group_get_next(cur);
 		if (cur != NULL) {
-			ok = zcbor_tstr_put_term(zse, cur->s_name);
+			ok = zcbor_tstr_put_term(zse, cur->s_name,
+						CONFIG_MCUMGR_GRP_STAT_MAX_NAME_LEN);
 		}
 	} while (ok && cur != NULL);
 
@@ -223,7 +229,7 @@ stat_mgmt_list(struct smp_streamer *ctxt)
 		return MGMT_ERR_EMSGSIZE;
 	}
 
-	return 0;
+	return MGMT_ERR_EOK;
 }
 
 #ifdef CONFIG_MCUMGR_SMP_SUPPORT_ORIGINAL_PROTOCOL
@@ -270,6 +276,9 @@ static struct mgmt_group stat_mgmt_group = {
 	.mg_group_id = MGMT_GROUP_ID_STAT,
 #ifdef CONFIG_MCUMGR_SMP_SUPPORT_ORIGINAL_PROTOCOL
 	.mg_translate_error = stat_mgmt_translate_error_code,
+#endif
+#ifdef CONFIG_MCUMGR_GRP_ENUM_DETAILS_NAME
+	.mg_group_name = "stat mgmt",
 #endif
 };
 

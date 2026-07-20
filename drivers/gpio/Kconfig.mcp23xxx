@@ -12,8 +12,12 @@ config GPIO_MCP23XXX
 menuconfig GPIO_MCP230XX
 	bool "MCP230XX I2C-based GPIO chip"
 	default y
-	depends on DT_HAS_MICROCHIP_MCP230XX_ENABLED
-	depends on I2C
+	depends on DT_HAS_MICROCHIP_MCP23008_ENABLED || \
+	           DT_HAS_MICROCHIP_MCP23009_ENABLED || \
+	           DT_HAS_MICROCHIP_MCP23016_ENABLED || \
+	           DT_HAS_MICROCHIP_MCP23017_ENABLED || \
+	           DT_HAS_MICROCHIP_MCP23018_ENABLED
+	select I2C
 	select GPIO_MCP23XXX
 	help
 	  Enable driver for MCP230XX I2C-based GPIO chip.
@@ -22,7 +26,7 @@ if GPIO_MCP230XX
 
 config GPIO_MCP230XX_INIT_PRIORITY
 	int "MCP230XX GPIO expander init priority"
-	default 75
+	default I2C_INIT_PRIORITY
 	help
 	  Device driver initialization priority.
 
@@ -31,7 +35,10 @@ endif #GPIO_MCP230XX
 menuconfig GPIO_MCP23SXX
 	bool "MCP23SXX SPI-based GPIO chip"
 	default y
-	depends on DT_HAS_MICROCHIP_MCP23SXX_ENABLED
+	depends on DT_HAS_MICROCHIP_MCP23S08_ENABLED || \
+	           DT_HAS_MICROCHIP_MCP23S09_ENABLED || \
+	           DT_HAS_MICROCHIP_MCP23S17_ENABLED || \
+	           DT_HAS_MICROCHIP_MCP23S18_ENABLED
 	depends on SPI
 	select GPIO_MCP23XXX
 	help

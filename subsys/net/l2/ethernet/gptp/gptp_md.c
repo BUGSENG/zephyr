@@ -7,6 +7,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(net_gptp, CONFIG_NET_GPTP_LOG_LEVEL);
 
+#include <zephyr/net/net_log.h>
 #include "gptp_messages.h"
 #include "gptp_md.h"
 #include "gptp_data_set.h"
@@ -23,17 +24,20 @@ static void gptp_md_sync_prepare(struct net_pkt *pkt,
 	memcpy(&hdr->port_id.clk_id, &sync_send->src_port_id.clk_id,
 	       GPTP_CLOCK_ID_LEN);
 
-	hdr->port_id.port_number = htons(port_number);
+	hdr->port_id.port_number = net_htons(port_number);
 
 	hdr->log_msg_interval = sync_send->log_msg_interval;
 }
 
 static void gptp_md_follow_up_prepare(struct net_pkt *pkt,
+				      struct net_pkt *sync,
 				      struct gptp_md_sync_info *sync_send,
 				      int port_number)
 {
 	struct gptp_hdr *hdr;
 	struct gptp_follow_up *fup;
+	uint64_t sync_ts_ns, delay_ns;
+	struct net_ptp_time *sync_ts = net_pkt_timestamp(sync);
 
 	hdr = GPTP_HDR(pkt);
 	fup = GPTP_FOLLOW_UP(pkt);
@@ -41,12 +45,54 @@ static void gptp_md_follow_up_prepare(struct net_pkt *pkt,
 	memcpy(&hdr->port_id.clk_id, &sync_send->src_port_id.clk_id,
 	       GPTP_CLOCK_ID_LEN);
 
-	hdr->port_id.port_number = htons(port_number);
+	hdr->port_id.port_number = net_htons(port_number);
 
 	hdr->log_msg_interval = sync_send->log_msg_interval;
 
-	fup->tlv_hdr.type = htons(GPTP_TLV_ORGANIZATION_EXT);
-	fup->tlv_hdr.len = htons(sizeof(struct gptp_follow_up_tlv));
+	if (memcmp(GPTP_GLOBAL_DS()->gm_priority.root_system_id.grand_master_id,
+			   GPTP_DEFAULT_DS()->clk_id, GPTP_CLOCK_ID_LEN) == 0 &&
+			   GPTP_GLOBAL_DS()->gm_present) {
+		/*
+		 * Time aware system acting as the Grand Master.
+		 *
+		 * Get preciseOriginTimestamp from previous sync message
+		 * according to IEEE802.1AS 11.4.4.2.1 syncEventEgressTimestamp
+		 */
+		fup->prec_orig_ts_secs_high = net_htons(sync_ts->_sec.high);
+		fup->prec_orig_ts_secs_low = net_htonl(sync_ts->_sec.low);
+		fup->prec_orig_ts_nsecs = net_htonl(sync_ts->nanosecond);
+		/*
+		 * Grand master clock should keep correction_field at zero,
+		 * according to IEEE802.1AS Table 11-6 and 10.6.2.2.9
+		 */
+		hdr->correction_field = 0LL;
+	} else {
+		/*
+		 * Time aware system acting as a bridge.
+		 */
+		fup->prec_orig_ts_secs_high =
+			net_htons(sync_send->precise_orig_ts._sec.high);
+		fup->prec_orig_ts_secs_low = net_htonl(sync_send->precise_orig_ts._sec.low);
+		fup->prec_orig_ts_nsecs = net_htonl(sync_send->precise_orig_ts.nanosecond);
+		/*
+		 * According to IEEE802.AS 11.1.3 and 11.2.14.2.3, when time aware
+		 * system is operating as a transparent clock also called a bridge, it
+		 * shall compute the sum of link propagation delay and residence time,
+		 * expressed in grand master time base. Then this quantity shall be
+		 * added to last received fup correction field to build value of
+		 * correction field.
+		 */
+		sync_ts_ns = sync_ts->second;
+		sync_ts_ns *= NSEC_PER_SEC;
+		sync_ts_ns += sync_ts->nanosecond;
+		delay_ns = sync_ts_ns - sync_send->upstream_tx_time;
+
+		hdr->correction_field = sync_send->follow_up_correction_field +
+			(int64_t)(sync_send->rate_ratio * delay_ns);
+		hdr->correction_field = net_htonll(hdr->correction_field << 16);
+	}
+	fup->tlv_hdr.type = net_htons(GPTP_TLV_ORGANIZATION_EXT);
+	fup->tlv_hdr.len = net_htons(sizeof(struct gptp_follow_up_tlv));
 	fup->tlv.org_id[0] = GPTP_FUP_TLV_ORG_ID_BYTE_0;
 	fup->tlv.org_id[1] = GPTP_FUP_TLV_ORG_ID_BYTE_1;
 	fup->tlv.org_id[2] = GPTP_FUP_TLV_ORG_ID_BYTE_2;
@@ -57,16 +103,16 @@ static void gptp_md_follow_up_prepare(struct net_pkt *pkt,
 	fup->tlv.cumulative_scaled_rate_offset =
 		(sync_send->rate_ratio - 1.0) * GPTP_POW2_41;
 	fup->tlv.cumulative_scaled_rate_offset =
-		ntohl(fup->tlv.cumulative_scaled_rate_offset);
+		net_ntohl(fup->tlv.cumulative_scaled_rate_offset);
 	fup->tlv.gm_time_base_indicator =
-		ntohs(sync_send->gm_time_base_indicator);
+		net_ntohs(sync_send->gm_time_base_indicator);
 	fup->tlv.last_gm_phase_change.high =
-		ntohl(sync_send->last_gm_phase_change.high);
+		net_ntohl(sync_send->last_gm_phase_change.high);
 	fup->tlv.last_gm_phase_change.low =
-		ntohll(sync_send->last_gm_phase_change.low);
+		net_ntohll(sync_send->last_gm_phase_change.low);
 	fup->tlv.scaled_last_gm_freq_change = sync_send->last_gm_freq_change;
 	fup->tlv.scaled_last_gm_freq_change =
-		ntohl(fup->tlv.scaled_last_gm_freq_change);
+		net_ntohl(fup->tlv.scaled_last_gm_freq_change);
 }
 
 static int gptp_set_md_sync_receive(int port,
@@ -93,14 +139,14 @@ static int gptp_set_md_sync_receive(int port,
 	sync_ts = &state->rcvd_sync_ptr->timestamp;
 
 	sync_rcv->follow_up_correction_field =
-		(ntohll(fup_hdr->correction_field) >> 16);
+		(net_ntohll(fup_hdr->correction_field) >> 16);
 	memcpy(&sync_rcv->src_port_id, &sync_hdr->port_id,
 	       sizeof(struct gptp_port_identity));
 	sync_rcv->log_msg_interval = fup_hdr->log_msg_interval;
 	sync_rcv->precise_orig_ts._sec.high =
-		ntohs(fup->prec_orig_ts_secs_high);
-	sync_rcv->precise_orig_ts._sec.low = ntohl(fup->prec_orig_ts_secs_low);
-	sync_rcv->precise_orig_ts.nanosecond = ntohl(fup->prec_orig_ts_nsecs);
+		net_ntohs(fup->prec_orig_ts_secs_high);
+	sync_rcv->precise_orig_ts._sec.low = net_ntohl(fup->prec_orig_ts_secs_low);
+	sync_rcv->precise_orig_ts.nanosecond = net_ntohl(fup->prec_orig_ts_nsecs);
 
 	/* Compute time when sync was sent by the remote. */
 	sync_rcv->upstream_tx_time = sync_ts->second;
@@ -117,18 +163,18 @@ static int gptp_set_md_sync_receive(int port,
 
 	sync_rcv->upstream_tx_time -= delay_asymmetry_rated;
 
-	sync_rcv->rate_ratio = ntohl(fup->tlv.cumulative_scaled_rate_offset);
+	sync_rcv->rate_ratio = net_ntohl(fup->tlv.cumulative_scaled_rate_offset);
 	sync_rcv->rate_ratio /= GPTP_POW2_41;
 	sync_rcv->rate_ratio += 1;
 
 	sync_rcv->gm_time_base_indicator =
-		ntohs(fup->tlv.gm_time_base_indicator);
+		net_ntohs(fup->tlv.gm_time_base_indicator);
 	sync_rcv->last_gm_phase_change.high =
-		ntohl(fup->tlv.last_gm_phase_change.high);
+		net_ntohl(fup->tlv.last_gm_phase_change.high);
 	sync_rcv->last_gm_phase_change.low =
-		ntohll(fup->tlv.last_gm_phase_change.low);
+		net_ntohll(fup->tlv.last_gm_phase_change.low);
 	sync_rcv->last_gm_freq_change =
-		ntohl(fup->tlv.scaled_last_gm_freq_change);
+		net_ntohl(fup->tlv.scaled_last_gm_freq_change);
 
 	return 0;
 }
@@ -138,7 +184,7 @@ static void gptp_md_pdelay_reset(int port)
 	struct gptp_pdelay_req_state *state;
 	struct gptp_port_ds *port_ds;
 
-	NET_WARN("Reset Pdelay requests");
+	NET_DBG("Reset Pdelay requests");
 
 	state = &GPTP_PORT_STATE(port)->pdelay_req;
 	port_ds = GPTP_PORT_DS(port);
@@ -215,12 +261,12 @@ static void gptp_md_compute_pdelay_rate_ratio(int port)
 		hdr = GPTP_HDR(pkt);
 		fup = GPTP_PDELAY_RESP_FOLLOWUP(pkt);
 
-		resp_evt_tstamp = ntohs(fup->resp_orig_ts_secs_high);
+		resp_evt_tstamp = net_ntohs(fup->resp_orig_ts_secs_high);
 		resp_evt_tstamp <<= 32;
-		resp_evt_tstamp |= ntohl(fup->resp_orig_ts_secs_low);
+		resp_evt_tstamp |= net_ntohl(fup->resp_orig_ts_secs_low);
 		resp_evt_tstamp *= NSEC_PER_SEC;
-		resp_evt_tstamp += ntohl(fup->resp_orig_ts_nsecs);
-		resp_evt_tstamp += (ntohll(hdr->correction_field) >> 16);
+		resp_evt_tstamp += net_ntohl(fup->resp_orig_ts_nsecs);
+		resp_evt_tstamp += (net_ntohll(hdr->correction_field) >> 16);
 	}
 
 	if (state->init_pdelay_compute) {
@@ -287,11 +333,11 @@ static void gptp_md_compute_prop_time(int port)
 		hdr = GPTP_HDR(pkt);
 		resp = GPTP_PDELAY_RESP(pkt);
 
-		t2_ns = ((uint64_t)ntohs(resp->req_receipt_ts_secs_high)) << 32;
-		t2_ns |= ntohl(resp->req_receipt_ts_secs_low);
+		t2_ns = ((uint64_t)net_ntohs(resp->req_receipt_ts_secs_high)) << 32;
+		t2_ns |= net_ntohl(resp->req_receipt_ts_secs_low);
 		t2_ns *= NSEC_PER_SEC;
-		t2_ns += ntohl(resp->req_receipt_ts_nsecs);
-		t2_ns += (ntohll(hdr->correction_field) >> 16);
+		t2_ns += net_ntohl(resp->req_receipt_ts_nsecs);
+		t2_ns += (net_ntohll(hdr->correction_field) >> 16);
 	}
 
 	pkt = state->rcvd_pdelay_follow_up_ptr;
@@ -299,11 +345,11 @@ static void gptp_md_compute_prop_time(int port)
 		hdr = GPTP_HDR(pkt);
 		fup = GPTP_PDELAY_RESP_FOLLOWUP(pkt);
 
-		t3_ns = ((uint64_t)ntohs(fup->resp_orig_ts_secs_high)) << 32;
-		t3_ns |= ntohl(fup->resp_orig_ts_secs_low);
+		t3_ns = ((uint64_t)net_ntohs(fup->resp_orig_ts_secs_high)) << 32;
+		t3_ns |= net_ntohl(fup->resp_orig_ts_secs_low);
 		t3_ns *= NSEC_PER_SEC;
-		t3_ns += ntohl(fup->resp_orig_ts_nsecs);
-		t3_ns += (ntohll(hdr->correction_field) >> 16);
+		t3_ns += net_ntohl(fup->resp_orig_ts_nsecs);
+		t3_ns += (net_ntohll(hdr->correction_field) >> 16);
 	}
 
 	prop_time = t4_ns - t1_ns;
@@ -414,7 +460,7 @@ static void gptp_md_pdelay_req_timeout(struct k_timer *timer)
 	struct gptp_pdelay_req_state *state;
 	int port;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		state = &GPTP_PORT_STATE(port)->pdelay_req;
 		if (timer == &state->pdelay_timer) {
 			state->pdelay_timer_expired = true;
@@ -449,7 +495,7 @@ static void gptp_md_follow_up_receipt_timeout(struct k_timer *timer)
 	struct gptp_sync_rcv_state *state;
 	int port;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		state = &GPTP_PORT_STATE(port)->sync_rcv;
 		if (timer == &state->follow_up_discard_timer) {
 			NET_WARN("No %s received after %s message",
@@ -531,7 +577,7 @@ void gptp_md_init_state_machine(void)
 {
 	int port;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		gptp_md_init_pdelay_req_state_machine(port);
 		gptp_md_init_pdelay_resp_state_machine(port);
 		gptp_md_init_sync_rcv_state_machine(port);
@@ -852,6 +898,7 @@ static void gptp_md_sync_send_state_machine(int port)
 			pkt = gptp_prepare_follow_up(port, state->sync_ptr);
 			if (pkt) {
 				gptp_md_follow_up_prepare(pkt,
+							 state->sync_ptr,
 							 state->sync_send_ptr,
 							 port);
 				gptp_send_follow_up(port, pkt);

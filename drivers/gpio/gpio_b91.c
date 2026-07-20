@@ -10,6 +10,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/irq.h>
 #include <zephyr/drivers/gpio/gpio_utils.h>
+#include <zephyr/drivers/interrupt_controller/riscv_plic.h>
 
 
 /* Driver dts compatibility: telink,b91_gpio */
@@ -466,7 +467,7 @@ static int gpio_b91_manage_callback(const struct device *dev,
 }
 
 /* GPIO driver APIs structure */
-static const struct gpio_driver_api gpio_b91_driver_api = {
+static DEVICE_API(gpio, gpio_b91_driver_api) = {
 	.pin_configure = gpio_b91_pin_configure,
 	.port_get_raw = gpio_b91_port_get_raw,
 	.port_set_masked_raw = gpio_b91_port_set_masked_raw,
@@ -540,9 +541,7 @@ static void gpio_b91_irq_connect_4(void)
 /* GPIO driver registration */
 #define GPIO_B91_INIT(n)						    \
 	static const struct gpio_b91_config gpio_b91_config_##n = {	    \
-		.common = {						    \
-			.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(n) \
-		},							    \
+		.common = GPIO_COMMON_CONFIG_FROM_DT_INST(n),		    \
 		.gpio_base = DT_INST_REG_ADDR(n),			    \
 		.irq_num = DT_INST_IRQN(n),				    \
 		.irq_priority = DT_INST_IRQ(n, priority),		    \

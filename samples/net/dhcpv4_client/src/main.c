@@ -38,7 +38,7 @@ static void start_dhcpv4_client(struct net_if *iface, void *user_data)
 }
 
 static void handler(struct net_mgmt_event_callback *cb,
-		    uint32_t mgmt_event,
+		    uint64_t mgmt_event,
 		    struct net_if *iface)
 {
 	int i = 0;
@@ -50,21 +50,21 @@ static void handler(struct net_mgmt_event_callback *cb,
 	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
 		char buf[NET_IPV4_ADDR_LEN];
 
-		if (iface->config.ip.ipv4->unicast[i].addr_type !=
+		if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type !=
 							NET_ADDR_DHCP) {
 			continue;
 		}
 
 		LOG_INF("   Address[%d]: %s", net_if_get_by_iface(iface),
-			net_addr_ntop(AF_INET,
-			    &iface->config.ip.ipv4->unicast[i].address.in_addr,
+			net_addr_ntop(NET_AF_INET,
+			    &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
 						  buf, sizeof(buf)));
 		LOG_INF("    Subnet[%d]: %s", net_if_get_by_iface(iface),
-			net_addr_ntop(AF_INET,
-				       &iface->config.ip.ipv4->netmask,
+			net_addr_ntop(NET_AF_INET,
+				       &iface->config.ip.ipv4->unicast[i].netmask,
 				       buf, sizeof(buf)));
 		LOG_INF("    Router[%d]: %s", net_if_get_by_iface(iface),
-			net_addr_ntop(AF_INET,
+			net_addr_ntop(NET_AF_INET,
 						 &iface->config.ip.ipv4->gw,
 						 buf, sizeof(buf)));
 		LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
@@ -80,7 +80,7 @@ static void option_handler(struct net_dhcpv4_option_callback *cb,
 	char buf[NET_IPV4_ADDR_LEN];
 
 	LOG_INF("DHCP Option %d: %s", cb->option,
-		net_addr_ntop(AF_INET, cb->data, buf, sizeof(buf)));
+		net_addr_ntop(NET_AF_INET, cb->data, buf, sizeof(buf)));
 }
 
 int main(void)

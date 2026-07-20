@@ -7,9 +7,27 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <errno.h>
+
 #include <zephyr/bluetooth/hci_types.h>
+
+#include "util/util.h"
+#include "util/memq.h"
+
+#include "hal/ccm.h"
+
+#include "pdu_df.h"
+#include "lll/pdu_vendor.h"
+#include "pdu.h"
+
+#include "lll.h"
+#include "lll_conn.h"
+
 #include "isoal.h"
+
 #include "ull_iso_types.h"
+#include "ull_conn_internal.h"
+#include "ull_internal.h"
 
 /* FIXME: Implement vendor specific data path configuration */
 static bool dummy;
@@ -42,7 +60,6 @@ bool ll_data_path_source_create(uint16_t handle,
 uint8_t ll_configure_data_path(uint8_t data_path_dir, uint8_t data_path_id,
 			       uint8_t vs_config_len, uint8_t *vs_config)
 {
-	ARG_UNUSED(data_path_dir);
 	ARG_UNUSED(data_path_id);
 	ARG_UNUSED(vs_config_len);
 	ARG_UNUSED(vs_config);
@@ -53,4 +70,17 @@ uint8_t ll_configure_data_path(uint8_t data_path_dir, uint8_t data_path_id,
 	}
 
 	return 0;
+}
+
+int ll_data_path_tx_pdu_release(uint16_t handle, struct node_tx_iso *node_tx)
+{
+	/* Process as TX ack, we are in LLL execution context here.
+	 *
+	 * Call Path:
+	 *   ull_iso_lll_ack_enqueue() --> ll_data_path_tx_pdu_release()
+	 *   (this function).
+	 *
+	 * Fallback to using MFIFO to safely transition from LLL to ULL context.
+	 */
+	return -ENOTSUP;
 }

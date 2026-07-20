@@ -28,7 +28,8 @@ contain the following:
   have an MPU region configuring it. It is strongly recommended to use this
   to maximize the number of available MPU regions for the end user. On
   ARMv7-M/ARMv8-M this is called the System Address Map, other CPUs may
-  have similar capabilities.
+  have similar capabilities. See :ref:`mem_mgmt_api` for information on
+  how to annotate the system map in the device tree.
 
 - A read-only, executable region or regions for program text and ro-data, that
   is accessible to user mode. This could be further sub-divided into a
@@ -74,10 +75,24 @@ Thread Stack
 ************
 
 Any thread running in user mode will need access to its own stack buffer.
-On context switch into a user mode thread, a dedicated MPU region will be
-programmed with the bounds of the stack buffer. A thread exceeding its stack
-buffer will start pushing data onto memory it doesn't have access to and a
-memory access violation exception will be generated.
+On context switch into a user mode thread, a dedicated MPU region or MMU
+page table entries will be programmed with the bounds of the stack buffer.
+A thread exceeding its stack buffer will start pushing data onto memory
+it doesn't have access to and a memory access violation exception will be
+generated.
+
+Note that user threads have access to the stacks of other user threads in
+the same memory domain. This is the minimum required for architectures to
+support memory domains. Architecture can further restrict access to stacks
+so each user thread only has access to its own stack if such architecture
+advertises this capability via
+:kconfig:option:`CONFIG_ARCH_MEM_DOMAIN_SUPPORTS_ISOLATED_STACKS`.
+This behavior is enabled by default if supported and can be selectively
+disabled via :kconfig:option:`CONFIG_MEM_DOMAIN_ISOLATED_STACKS` if
+architecture supports both operating modes. However, some architectures
+may decide to enable this all the time, and thus this option cannot be
+disabled. Regardless of these kconfigs, user threads cannot access
+the stacks of other user threads outside of their memory domains.
 
 Thread Resource Pools
 *********************
@@ -97,12 +112,6 @@ noted for users who do not want heap allocations within their application:
    user. An alternative is to declare k_stacks that are automatically
    initialized at boot with :c:macro:`K_STACK_DEFINE()`, or to initialize the
    k_stack in supervisor mode with :c:func:`k_stack_init`.
-
- - :c:func:`k_pipe_alloc_init` sets up a k_pipe object with its
-   storage buffer allocated out of a resource pool instead of a buffer provided
-   by the user. An alternative is to declare k_pipes that are automatically
-   initialized at boot with :c:macro:`K_PIPE_DEFINE()`, or to initialize the
-   k_pipe in supervisor mode with :c:func:`k_pipe_init`.
 
  - :c:func:`k_msgq_alloc_init` sets up a k_msgq object with its
    storage buffer allocated out of a resource pool instead of a buffer provided
@@ -307,7 +316,7 @@ There are a few memory partitions which are pre-defined by the system:
    Required when using either the Minimal C library or the Newlib C Library.
    Required when :kconfig:option:`CONFIG_STACK_CANARIES` is enabled.
 
-Library-specific partitions are listed in ``include/app_memory/partitions.h``.
+Library-specific partitions are listed in :zephyr_file:`include/zephyr/app_memory/partitions.h`.
 For example, to use the MBEDTLS library from user mode, the
 ``k_mbedtls_partition`` must be added to the domain.
 
@@ -419,7 +428,7 @@ dependent.
 
 The complete list of available partition attributes for a specific architecture
 is found in the architecture-specific include file
-``include/zephyr/arch/<arch name>/arch.h``, (for example, ``include/zehpyr/arch/arm/arch.h``.)
+``include/zephyr/arch/<arch name>/arch.h``, (for example, :zephyr_file:`include/zephyr/arch/arm/arch.h`.)
 Some examples of partition attributes are:
 
 .. code-block:: c

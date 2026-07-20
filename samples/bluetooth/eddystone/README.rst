@@ -1,7 +1,8 @@
-.. _bluetooth-eddystone-sample:
+.. zephyr:code-sample:: bluetooth_eddystone
+   :name: Eddystone
+   :relevant-api: bluetooth
 
-Bluetooth: Eddystone
-####################
+   Export an Eddystone Configuration Service as a Bluetooth LE GATT service.
 
 Overview
 ********
@@ -18,13 +19,21 @@ Requirements
 ************
 
 * BlueZ running on the host, or
-* A board with BLE support
+* A board with Bluetooth LE support
 
 Building and Running
 ********************
-This sample can be found under :zephyr_file:`samples/bluetooth/eddystone` in the
-Zephyr tree.
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/eddystone
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+After flashing, the device starts advertising as a connectable Eddystone beacon. Use an
+Eddystone Configuration Service compatible app (e.g. nRF Connect) to connect and configure
+the advertised data, broadcast power levels, and advertising intervals.
 
 .. _Eddystone Configuration Service: https://github.com/google/eddystone/tree/master/configuration-service

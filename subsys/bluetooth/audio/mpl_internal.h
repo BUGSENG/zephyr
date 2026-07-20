@@ -10,6 +10,13 @@
 #ifndef ZEPHYR_SUBSYS_BLUETOOTH_AUDIO_MPL_INTERNAL_
 #define ZEPHYR_SUBSYS_BLUETOOTH_AUDIO_MPL_INTERNAL_
 
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/audio/media_proxy.h>
+#include <zephyr/kernel.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,8 +31,7 @@ extern "C" {
  * Set this equal to the minimum speed factor, to ensure only valid speed factors
  * are used when changing to/from zero
  */
-#define MPL_SEEKING_SPEED_FACTOR_STEP  4
-
+#define MPL_SEEKING_SPEED_FACTOR_STEP 4
 
 /* Track segments */
 struct mpl_tseg {
@@ -89,6 +95,8 @@ struct mpl_mediaplayer   {
 		struct mpl_track    *track; /* The track explicitly set as next track */
 		struct mpl_group    *group; /* The group of the set track */
 	} next;
+
+	struct k_work_delayable pos_work;
 };
 
 

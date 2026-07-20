@@ -3,10 +3,46 @@
 Kconfig extensions
 ##################
 
-Zephyr uses the `Kconfiglib <https://github.com/ulfalizer/Kconfiglib>`__
+Zephyr uses the `Kconfiglib <https://github.com/zephyrproject-rtos/Kconfiglib>`__
 implementation of `Kconfig
 <https://docs.kernel.org/kbuild/kconfig-language.html>`__,
 which includes some Kconfig extensions:
+
+- Default values can be applied to existing symbols without
+  :ref:`weakening <multiple_symbol_definitions>` the symbols dependencies
+  through the use of ``configdefault``.
+
+  .. code-block:: none
+
+      config FOO
+          bool "FOO"
+          depends on BAR
+
+      configdefault FOO
+          default y if FIZZ
+
+  The statement above is equivalent to:
+
+  .. code-block:: none
+
+      config FOO
+          bool "Foo"
+          default y if FIZZ
+          depends on BAR
+
+  ``configdefault`` symbols cannot contain any fields other than ``default``,
+  however they can be wrapped in ``if`` statements. The two statements below
+  are equivalent:
+
+  .. code-block:: none
+
+      configdefault FOO
+          default y if BAR
+
+      if BAR
+      configdefault FOO
+          default y
+      endif # BAR
 
 - Environment variables in ``source`` statements are expanded directly, meaning
   no "bounce" symbols with ``option env="ENV_VAR"`` need to be defined.
@@ -90,3 +126,35 @@ which includes some Kconfig extensions:
 - ``def_int``, ``def_hex``, and ``def_string`` keywords are available,
   analogous to ``def_bool``. These set the type and add a ``default`` at the
   same time.
+
+- A symbol name can be associated to ``choice`` groups using the ``choice <symbol>`` syntax.
+  Such choices, called *named choices*, can be modified from places other than their initial
+  definition. For example, the following statements define the named choice ``FOOBAR``:
+
+  .. code-block:: kconfig
+
+    choice FOOBAR
+	    prompt "Example choice"
+	    default BAR
+
+    config FOO
+	    bool "Foo"
+
+    config BAR
+	    bool "Bar"
+
+    endchoice
+
+  The following statements could then be used, in a ``Kconfig.defconfig`` file for example,
+  to override the default option of choice ``FOOBAR``:
+
+  .. code-block:: kconfig
+
+    # Note how "prompt" is not present here
+    choice FOOBAR
+        default FOO
+    endchoice
+
+  .. note::
+    The *named choices* feature originates from Linux, but it is no longer supported in Linux
+    since kernel release 6.9, and has thus become a Kconfiglib language extension.

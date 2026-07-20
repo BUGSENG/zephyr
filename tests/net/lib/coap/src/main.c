@@ -24,7 +24,6 @@ LOG_MODULE_REGISTER(net_test, LOG_LEVEL_DBG);
 #include "net_private.h"
 
 #define COAP_BUF_SIZE 128
-#define COAP_FIXED_HEADER_SIZE 4
 
 #define NUM_PENDINGS 3
 #define NUM_OBSERVERS 3
@@ -39,29 +38,42 @@ bool _coap_match_path_uri(const char * const *path,
 			  const char *uri, uint16_t len);
 
 /* Some forward declarations */
-static void server_notify_callback(struct coap_resource *resource,
-				   struct coap_observer *observer);
+static void server_resource_1_callback(struct coap_resource *resource,
+				       struct coap_observer *observer);
+
+static void server_resource_2_callback(struct coap_resource *resource,
+				       struct coap_observer *observer);
 
 static int server_resource_1_get(struct coap_resource *resource,
 				 struct coap_packet *request,
-				 struct sockaddr *addr, socklen_t addr_len);
+				 struct net_sockaddr *addr, net_socklen_t addr_len);
 
 static const char * const server_resource_1_path[] = { "s", "1", NULL };
-static struct coap_resource server_resources[] =  {
+static const char *const server_resource_2_path[] = { "s", "2", NULL };
+static struct coap_resource server_resources[] = {
 	{ .path = server_resource_1_path,
 	  .get = server_resource_1_get,
-	  .notify = server_notify_callback },
+	  .notify = server_resource_1_callback },
+	{ .path = server_resource_2_path,
+	  .get = server_resource_1_get, /* Get can be shared with the first resource */
+	  .notify = server_resource_2_callback },
 	{ },
 };
 
 #define MY_PORT 12345
 #define peer_addr { { { 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, \
 			0, 0, 0, 0, 0, 0, 0, 0x2 } } }
-static struct sockaddr_in6 dummy_addr = {
-	.sin6_family = AF_INET6,
+static struct net_sockaddr_in6 dummy_addr = {
+	.sin6_family = NET_AF_INET6,
 	.sin6_addr = peer_addr };
 
 static uint8_t data_buf[2][COAP_BUF_SIZE];
+
+#define COAP_ROLLOVER_AGE (1 << 23)
+#define COAP_MAX_AGE      0xffffff
+#define COAP_FIRST_AGE    2
+
+extern bool coap_age_is_newer(int v1, int v2);
 
 ZTEST(coap, test_build_empty_pdu)
 {
@@ -778,8 +790,8 @@ ZTEST(coap, test_retransmit_second_round)
 	pending = coap_pending_next_unused(pendings, NUM_PENDINGS);
 	zassert_not_null(pending, "No free pending");
 
-	r = coap_pending_init(pending, &cpkt, (struct sockaddr *) &dummy_addr,
-			      CONFIG_COAP_MAX_RETRANSMIT);
+	r = coap_pending_init(pending, &cpkt, (struct net_sockaddr *) &dummy_addr,
+			      NULL);
 	zassert_equal(r, 0, "Could not initialize packet");
 
 	/* We "send" the packet the first time here */
@@ -805,16 +817,16 @@ ZTEST(coap, test_retransmit_second_round)
 	zassert_is_null(rsp_pending, "There should be no active pendings");
 }
 
-static bool ipaddr_cmp(const struct sockaddr *a, const struct sockaddr *b)
+static bool ipaddr_cmp(const struct net_sockaddr *a, const struct net_sockaddr *b)
 {
 	if (a->sa_family != b->sa_family) {
 		return false;
 	}
 
-	if (a->sa_family == AF_INET6) {
+	if (a->sa_family == NET_AF_INET6) {
 		return net_ipv6_addr_cmp(&net_sin6(a)->sin6_addr,
 					 &net_sin6(b)->sin6_addr);
-	} else if (a->sa_family == AF_INET) {
+	} else if (a->sa_family == NET_AF_INET) {
 		return net_ipv4_addr_cmp(&net_sin(a)->sin_addr,
 					 &net_sin(b)->sin_addr);
 	}
@@ -822,20 +834,28 @@ static bool ipaddr_cmp(const struct sockaddr *a, const struct sockaddr *b)
 	return false;
 }
 
-static void server_notify_callback(struct coap_resource *resource,
-				   struct coap_observer *observer)
+static void server_resource_1_callback(struct coap_resource *resource,
+				       struct coap_observer *observer)
 {
 	bool r;
 
-	r = ipaddr_cmp(&observer->addr, (const struct sockaddr *)&dummy_addr);
+	r = ipaddr_cmp(net_sad(&observer->addr), (struct net_sockaddr *)&dummy_addr);
 	zassert_true(r, "The address of the observer doesn't match");
 
 	coap_remove_observer(resource, observer);
 }
+static void server_resource_2_callback(struct coap_resource *resource,
+				       struct coap_observer *observer)
+{
+	bool r;
+
+	r = ipaddr_cmp(net_sad(&observer->addr), (const struct net_sockaddr *)&dummy_addr);
+	zassert_true(r, "The address of the observer doesn't match");
+}
 
 static int server_resource_1_get(struct coap_resource *resource,
 				 struct coap_packet *request,
-				 struct sockaddr *addr, socklen_t addr_len)
+				 struct net_sockaddr *addr, net_socklen_t addr_len)
 {
 	struct coap_packet response;
 	struct coap_observer *observer;
@@ -860,7 +880,7 @@ static int server_resource_1_get(struct coap_resource *resource,
 
 	r = coap_packet_init(&response, data, COAP_BUF_SIZE,
 			     COAP_VERSION_1, COAP_TYPE_ACK, tkl, token,
-			     COAP_RESPONSE_CODE_OK, id);
+			     COAP_RESPONSE_CODE_CONTENT, id);
 	zassert_equal(r, 0, "Unable to initialize packet");
 
 	r = coap_append_option_int(&response, COAP_OPTION_OBSERVE,
@@ -891,7 +911,7 @@ ZTEST(coap, test_observer_server)
 		0x45, 0x01, 0x12, 0x34,
 		't', 'o', 'k', 'e', 'n',
 		0x60, /* enable observe option */
-		0x51, 's', 0x01, '2', /* path */
+		0x51, 's', 0x01, '3', /* path */
 	};
 	struct coap_packet req;
 	struct coap_option options[4] = {};
@@ -906,7 +926,7 @@ ZTEST(coap, test_observer_server)
 	zassert_equal(r, 0, "Could not initialize packet");
 
 	r = coap_handle_request(&req, server_resources, options, opt_num,
-				(struct sockaddr *) &dummy_addr,
+				(struct net_sockaddr *) &dummy_addr,
 				sizeof(dummy_addr));
 	zassert_equal(r, 0, "Could not handle packet");
 
@@ -921,7 +941,7 @@ ZTEST(coap, test_observer_server)
 	zassert_equal(r, 0, "Could not initialize packet");
 
 	r = coap_handle_request(&req, server_resources, options, opt_num,
-				(struct sockaddr *) &dummy_addr,
+				(struct net_sockaddr *) &dummy_addr,
 				sizeof(dummy_addr));
 	zassert_equal(r, -ENOENT,
 		      "There should be no handler for this resource");
@@ -929,7 +949,7 @@ ZTEST(coap, test_observer_server)
 
 static int resource_reply_cb(const struct coap_packet *response,
 			     struct coap_reply *reply,
-			     const struct sockaddr *from)
+			     const struct net_sockaddr *from)
 {
 	TC_PRINT("You should see this");
 
@@ -977,7 +997,7 @@ ZTEST(coap, test_observer_client)
 	zassert_equal(r, 0, "Could not parse req packet");
 
 	r = coap_handle_request(&req, server_resources, options, opt_num,
-				(struct sockaddr *) &dummy_addr,
+				(struct net_sockaddr *) &dummy_addr,
 				sizeof(dummy_addr));
 	zassert_equal(r, 0, "Could not handle packet");
 
@@ -990,7 +1010,7 @@ ZTEST(coap, test_observer_client)
 	zassert_equal(r, 0, "Could not parse rsp packet");
 
 	reply = coap_response_received(&rsp,
-				       (const struct sockaddr *) &dummy_addr,
+				       (const struct net_sockaddr *) &dummy_addr,
 				       replies, NUM_REPLIES);
 	zassert_not_null(reply, "Couldn't find a matching waiting reply");
 }
@@ -1019,7 +1039,7 @@ ZTEST(coap, test_handle_invalid_coap_req)
 	zassert_equal(r, 0, "Could not parse req packet");
 
 	r = coap_handle_request(&pkt, server_resources, options, opt_num,
-					(struct sockaddr *) &dummy_addr, sizeof(dummy_addr));
+					(struct net_sockaddr *) &dummy_addr, sizeof(dummy_addr));
 	zassert_equal(r, -ENOTSUP, "Request handling should fail with -ENOTSUP");
 }
 
@@ -1607,6 +1627,60 @@ ZTEST(coap, test_remove_non_existent_coap_option)
 	ASSERT_OPTIONS_AND_PAYLOAD(cpkt, 4, expected_original_msg, 18, 17);
 }
 
+ZTEST(coap, test_coap_packet_options_with_large_values)
+{
+	int r;
+	struct coap_packet cpkt;
+	uint8_t *data = data_buf[0];
+	static const char token[] = "token";
+
+	memset(data_buf[0], 0, ARRAY_SIZE(data_buf[0]));
+
+	r = coap_packet_init(&cpkt, data, COAP_BUF_SIZE, COAP_VERSION_1, COAP_TYPE_CON,
+			     strlen(token), token, COAP_METHOD_POST, 0x1234);
+	zassert_equal(r, 0, "Could not initialize packet");
+
+	r = coap_append_option_int(&cpkt, COAP_OPTION_MAX_AGE, 3600);
+	zassert_equal(r, 0, "Could not append option");
+
+	r = coap_append_option_int(&cpkt, COAP_OPTION_SIZE1, 1048576);
+	zassert_equal(r, 0, "Could not append option");
+
+	static const uint8_t expected_0[] = {0x45, 0x02, 0x12, 0x34, 0x74, 0x6f, 0x6b, 0x65, 0x6e,
+					     0xd2, 0x01, 0x0e, 0x10, 0xd3, 0x21, 0x10, 0x00, 0x00};
+	ASSERT_OPTIONS_AND_PAYLOAD(cpkt, 9, expected_0, 18, 60);
+}
+
+ZTEST(coap, test_coap_packet_options_with_large_delta)
+{
+	int r;
+	struct coap_packet cpkt;
+	uint8_t *data = data_buf[0];
+	static const char token[] = "token";
+	static const uint8_t payload[] = {0xde, 0xad, 0xbe, 0xef};
+
+	memset(data_buf[0], 0, ARRAY_SIZE(data_buf[0]));
+
+	r = coap_packet_init(&cpkt, data, COAP_BUF_SIZE, COAP_VERSION_1, COAP_TYPE_CON,
+			     strlen(token), token, COAP_METHOD_POST, 0x1234);
+	zassert_equal(r, 0, "Could not initialize packet");
+
+	r = coap_append_option_int(&cpkt, 65100, 0x5678);
+	zassert_equal(r, 0, "Could not append option");
+
+	r = coap_packet_append_payload_marker(&cpkt);
+	zassert_equal(r, 0, "Could not append payload marker");
+
+	r = coap_packet_append_payload(&cpkt, payload, ARRAY_SIZE(payload));
+	zassert_equal(r, 0, "Could not append payload");
+
+	static const uint8_t expected_0[] = {0x45, 0x02, 0x12, 0x34, 0x74, 0x6f, 0x6b,
+					     0x65, 0x6e, 0xe2, 0xfd, 0x3f, 0x56, 0x78,
+					     0xff, 0xde, 0xad, 0xbe, 0xef};
+
+	ASSERT_OPTIONS_AND_PAYLOAD(cpkt, 5, expected_0, 19, 65100);
+}
+
 static void assert_coap_packet_set_path_query_options(const char *path,
 						      const char * const *expected,
 						      size_t expected_len, uint16_t code)
@@ -1716,6 +1790,245 @@ ZTEST(coap, test_coap_packet_set_path)
 	assert_coap_packet_set_path_query_options("a/bb/",
 						  (const char *const[]){"a", "bb"}, 2U,
 						  COAP_OPTION_URI_PATH);
+}
+
+ZTEST(coap, test_transmission_parameters)
+{
+	struct coap_packet cpkt;
+	struct coap_pending *pending;
+	struct coap_transmission_parameters params;
+	uint8_t *data = data_buf[0];
+	int r;
+	uint16_t id;
+
+	params = coap_get_transmission_parameters();
+	zassert_equal(params.ack_timeout, CONFIG_COAP_INIT_ACK_TIMEOUT_MS, "Wrong ACK timeout");
+	zassert_equal(params.ack_random_percent, CONFIG_COAP_ACK_RANDOM_PERCENT,
+		      "Wrong ACK random percent");
+	zassert_equal(params.coap_backoff_percent, CONFIG_COAP_BACKOFF_PERCENT,
+		      "Wrong backoff percent");
+	zassert_equal(params.max_retransmission, CONFIG_COAP_MAX_RETRANSMIT,
+		      "Wrong max retransmission value");
+
+	params.ack_timeout = 1000;
+	params.ack_random_percent = 110;
+	params.coap_backoff_percent = 150;
+	params.max_retransmission = 2;
+
+	coap_set_transmission_parameters(&params);
+
+	id = coap_next_id();
+
+	r = coap_packet_init(&cpkt, data, COAP_BUF_SIZE, COAP_VERSION_1,
+			     COAP_TYPE_CON, 0, coap_next_token(),
+			     COAP_METHOD_GET, id);
+	zassert_equal(r, 0, "Could not initialize packet");
+
+	pending = coap_pending_next_unused(pendings, NUM_PENDINGS);
+	zassert_not_null(pending, "No free pending");
+
+	params.ack_timeout = 3000;
+	params.ack_random_percent = 130;
+	params.coap_backoff_percent = 250;
+	params.max_retransmission = 3;
+
+	r = coap_pending_init(pending, &cpkt, (struct net_sockaddr *) &dummy_addr,
+			      &params);
+	zassert_equal(r, 0, "Could not initialize packet");
+
+	zassert_equal(pending->params.ack_timeout, 3000, "Wrong ACK timeout");
+	zassert_equal(pending->params.ack_random_percent, 130, "Wrong ACK random percent");
+	zassert_equal(pending->params.coap_backoff_percent, 250, "Wrong backoff percent");
+	zassert_equal(pending->params.max_retransmission, 3, "Wrong max retransmission value");
+
+	r = coap_pending_init(pending, &cpkt, (struct net_sockaddr *) &dummy_addr,
+			      NULL);
+	zassert_equal(r, 0, "Could not initialize packet");
+
+	zassert_equal(pending->params.ack_timeout, 1000, "Wrong ACK timeout");
+	zassert_equal(pending->params.ack_random_percent, 110, "Wrong ACK random percent");
+	zassert_equal(pending->params.coap_backoff_percent, 150, "Wrong backoff percent");
+	zassert_equal(pending->params.max_retransmission, 2, "Wrong max retransmission value");
+}
+
+ZTEST(coap, test_notify_age)
+{
+	uint8_t valid_request_pdu[] = {
+		0x45, 0x01, 0x12, 0x34, 't', 'o', 'k', 'e', 'n', 0x60, /* enable observe option */
+		0x51, 's',  0x01, '2',                                 /* path */
+	};
+
+	struct coap_packet req;
+	struct coap_option options[4] = {};
+	uint8_t *data = data_buf[0];
+	uint8_t opt_num = ARRAY_SIZE(options) - 1;
+	struct coap_resource *resource = &server_resources[1];
+	int r;
+	struct coap_observer *observer;
+	int last_age;
+
+	memcpy(data, valid_request_pdu, sizeof(valid_request_pdu));
+
+	r = coap_packet_parse(&req, data, sizeof(valid_request_pdu), options, opt_num);
+	zassert_equal(r, 0, "Could not initialize packet");
+
+	r = coap_handle_request(&req, server_resources, options, opt_num,
+				(struct net_sockaddr *)&dummy_addr, sizeof(dummy_addr));
+	zassert_equal(r, 0, "Could not handle packet");
+
+	/* Forward time a bit, as not to run this 8 million time */
+	resource->age = COAP_OBSERVE_MAX_AGE - 10;
+
+	last_age = resource->age;
+
+	for (int i = 0; i < 15; i++) {
+		r = coap_resource_notify(resource);
+		zassert_true(coap_age_is_newer(last_age, resource->age),
+			     "Resource age expected to be newer");
+		last_age = resource->age;
+	}
+
+	observer =
+		CONTAINER_OF(sys_slist_peek_head(&resource->observers), struct coap_observer, list);
+	coap_remove_observer(resource, observer);
+}
+
+ZTEST(coap, test_age_is_newer)
+{
+	for (int i = COAP_FIRST_AGE; i < COAP_MAX_AGE; ++i) {
+		zassert_true(coap_age_is_newer(i, i + 1),
+			     "Resource age expected to be marked as newer");
+	}
+
+	zassert_true(coap_age_is_newer(COAP_MAX_AGE, COAP_FIRST_AGE),
+		     "First age should be marked as newer");
+	zassert_true(coap_age_is_newer(COAP_FIRST_AGE, COAP_ROLLOVER_AGE),
+		     "Rollover age should be marked as newer");
+	zassert_true(coap_age_is_newer(COAP_ROLLOVER_AGE, COAP_MAX_AGE),
+		     "Max age should be marked as newer");
+}
+
+struct test_coap_request {
+	uint16_t id;
+	uint8_t token[COAP_TOKEN_MAX_LEN];
+	uint8_t tkl;
+	uint8_t code;
+	enum coap_msgtype type;
+	struct coap_reply *match;
+};
+
+static int reply_cb(const struct coap_packet *response,
+		    struct coap_reply *reply,
+		    const struct net_sockaddr *from)
+{
+	return 0;
+}
+
+ZTEST(coap, test_response_matching)
+{
+	struct coap_reply matches[] = {
+		{ }, /* Non-initialized (unused) entry. */
+		{ .id = 100, .reply = reply_cb },
+		{ .id = 101, .token = { 1, 2, 3, 4 }, .tkl = 4, .reply = reply_cb },
+	};
+	struct test_coap_request test_responses[] = {
+		/* #0 Piggybacked ACK, empty token */
+		{ .id = 100, .type = COAP_TYPE_ACK, .match = &matches[1],
+		  .code = COAP_RESPONSE_CODE_CONTENT },
+		/* #1 Piggybacked ACK, matching token */
+		{ .id = 101, .type = COAP_TYPE_ACK, .match = &matches[2],
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3, 4 },
+		  .tkl = 4  },
+		/* #2 Piggybacked ACK, token mismatch */
+		{ .id = 101, .type = COAP_TYPE_ACK, .match = NULL,
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3, 3 },
+		  .tkl = 4 },
+		/* #3 Piggybacked ACK, token mismatch 2 */
+		{ .id = 100, .type = COAP_TYPE_ACK, .match = NULL,
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3, 4 },
+		  .tkl = 4 },
+		/* #4 Piggybacked ACK, token mismatch 3 */
+		{ .id = 101, .type = COAP_TYPE_ACK, .match = NULL,
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3 },
+		  .tkl = 3 },
+		/* #5 Piggybacked ACK, token mismatch 4 */
+		{ .id = 101, .type = COAP_TYPE_ACK, .match = NULL,
+		  .code = COAP_RESPONSE_CODE_CONTENT },
+		/* #6 Piggybacked ACK, id mismatch */
+		{ .id = 102, .type = COAP_TYPE_ACK, .match = NULL,
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3, 4 },
+		  .tkl = 4 },
+		/* #7 Separate reply, empty token */
+		{ .id = 101, .type = COAP_TYPE_CON, .match = &matches[1],
+		  .code = COAP_RESPONSE_CODE_CONTENT },
+		/* #8 Separate reply, matching token 1 */
+		{ .id = 101, .type = COAP_TYPE_CON, .match = &matches[2],
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3, 4 },
+		  .tkl = 4 },
+		/* #9 Separate reply, matching token 2 */
+		{ .id = 102, .type = COAP_TYPE_CON, .match = &matches[2],
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3, 4 },
+		  .tkl = 4 },
+		/* #10 Separate reply, token mismatch */
+		{ .id = 101, .type = COAP_TYPE_CON, .match = NULL,
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3, 3 },
+		  .tkl = 4 },
+		/* #11 Separate reply, token mismatch 2 */
+		{ .id = 100, .type = COAP_TYPE_CON, .match = NULL,
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3, 3 },
+		  .tkl = 4 },
+		/* #12 Separate reply, token mismatch 3 */
+		{ .id = 100, .type = COAP_TYPE_CON, .match = NULL,
+		  .code = COAP_RESPONSE_CODE_CONTENT, .token = { 1, 2, 3 },
+		  .tkl = 3 },
+		/* #13 Request, empty token */
+		{ .id = 100, .type = COAP_TYPE_CON, .match = NULL,
+		  .code = COAP_METHOD_GET },
+		/* #14 Request, matching token */
+		{ .id = 101, .type = COAP_TYPE_CON, .match = NULL,
+		  .code = COAP_METHOD_GET, .token = { 1, 2, 3, 4 }, .tkl = 4 },
+		/* #15 Empty ACK */
+		{ .id = 100, .type = COAP_TYPE_ACK, .match = NULL,
+		  .code = COAP_CODE_EMPTY },
+		/* #16 Empty ACK 2 */
+		{ .id = 101, .type = COAP_TYPE_ACK, .match = NULL,
+		  .code = COAP_CODE_EMPTY },
+		/* #17 Empty RESET */
+		{ .id = 100, .type = COAP_TYPE_RESET, .match = &matches[1],
+		  .code = COAP_CODE_EMPTY },
+		/* #18 Empty RESET 2 */
+		{ .id = 101, .type = COAP_TYPE_RESET, .match = &matches[2],
+		  .code = COAP_CODE_EMPTY },
+		/* #19 Empty RESET, id mismatch */
+		{ .id = 102, .type = COAP_TYPE_RESET, .match = NULL,
+		  .code = COAP_CODE_EMPTY },
+	};
+
+	ARRAY_FOR_EACH_PTR(test_responses, response) {
+		struct coap_packet response_pkt = { 0 };
+		struct net_sockaddr from = { 0 };
+		struct coap_reply *match;
+		uint8_t data[64] = { 0 };
+		int ret;
+
+		ret = coap_packet_init(&response_pkt, data, sizeof(data), COAP_VERSION_1,
+				       response->type, response->tkl, response->token,
+				       response->code, response->id);
+		zassert_ok(ret, "Failed to initialize test packet: %d", ret);
+
+		match = coap_response_received(&response_pkt, &from, matches,
+					       ARRAY_SIZE(matches));
+		if (response->match != NULL) {
+			zassert_not_null(match, "Did not found a response match when expected");
+			zassert_equal_ptr(response->match, match,
+					  "Wrong response match, test %td match %td",
+					  response - test_responses, match - matches);
+		} else {
+			zassert_is_null(match,
+					"Found unexpected response match, test %td match %td",
+					response - test_responses, match - matches);
+		}
+	}
 }
 
 ZTEST_SUITE(coap, NULL, NULL, NULL, NULL, NULL);

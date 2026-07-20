@@ -18,7 +18,7 @@ This framework is commonly used as follow:
    the pool with :c:func:`shared_multi_heap_add()`, possibly gathering the
    needed information for the regions from the DT.
 
-2. Each memory region encoded in a :c:type:`shared_multi_heap_region`
+2. Each memory region encoded in a :c:struct:`shared_multi_heap_region`
    structure.  This structure is also carrying an opaque and user-defined
    integer value that is used to define the region capabilities (for example:
    cacheability, cpu affinity, etc...)
@@ -45,7 +45,7 @@ This framework is commonly used as follow:
         .attr = SMH_REG_ATTR_CACHEABLE,
    };
 
-   shared_multi_heap_add(&cacheable_r0, NULL);
+   shared_multi_heap_add(&cacheable_r1, NULL);
 
    // Add a non-cacheable region
    struct shared_multi_heap_region non_cacheable_r2 = {
@@ -76,7 +76,6 @@ Adding new attributes
 *********************
 
 The API does not enforce any attributes, but at least it defines the two most
-common ones: :c:enum:`SMH_REG_ATTR_CACHEABLE` and :c:enum:`SMH_REG_ATTR_NON_CACHEABLE`
+common ones: :c:enumerator:`SMH_REG_ATTR_CACHEABLE` and :c:enumerator:`SMH_REG_ATTR_NON_CACHEABLE`.
 
 .. doxygengroup:: shared_multi_heap
-   :project: Zephyr

@@ -4,11 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <soc.h>
+#include <stddef.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/bluetooth/buf.h>
+#include <zephyr/sys/util_macro.h>
 
 #include "hal/cpu.h"
 #include "hal/ccm.h"
@@ -20,6 +22,8 @@
 #include "util/mfifo.h"
 #include "util/mayfly.h"
 #include "util/dbuf.h"
+
+#include "ticker/ticker.h"
 
 #include "pdu_df.h"
 #include "lll/pdu_vendor.h"
@@ -36,6 +40,7 @@
 #include "lll_conn.h"
 #include "lll_conn_iso.h"
 #include "lll_iso_tx.h"
+#include "lll/lll_vendor.h"
 
 #include "ll_sw/ull_tx_queue.h"
 
@@ -55,6 +60,7 @@
 #include "ull_sync_iso_internal.h"
 #include "ull_conn_iso_internal.h"
 
+#include "ll.h"
 #include "ll_feat.h"
 
 #include "hal/debug.h"
@@ -107,9 +113,21 @@ static struct ll_iso_datapath datapath_pool[BT_CTLR_ISO_STREAMS];
 static void *datapath_free;
 
 #if defined(CONFIG_BT_CTLR_SYNC_ISO) || defined(CONFIG_BT_CTLR_CONN_ISO)
+static void ticker_resume_op_cb(uint32_t status, void *param);
+static void ticker_resume_cb(uint32_t ticks_at_expire, uint32_t ticks_drift,
+			     uint32_t remainder, uint16_t lazy, uint8_t force,
+			     void *param);
+
 #define NODE_RX_HEADER_SIZE (offsetof(struct node_rx_pdu, pdu))
+#define ISO_RX_HEADER_SIZE  (offsetof(struct pdu_bis, payload))
+
+/* Ensure both BIS and CIS PDU headers are of equal size */
+BUILD_ASSERT(ISO_RX_HEADER_SIZE == offsetof(struct pdu_cis, payload));
+
 /* ISO LL conformance tests require a PDU size of maximum 251 bytes + header */
-#define ISO_RX_BUFFER_SIZE (2 + 251)
+#define ISO_RX_BUFFER_SIZE (ISO_RX_HEADER_SIZE + \
+			    MAX(MAX(LL_BIS_OCTETS_RX_MAX, LL_CIS_OCTETS_RX_MAX), \
+				LL_VND_OCTETS_RX_MIN))
 
 /* Declare the ISO rx node RXFIFO. This is a composite pool-backed MFIFO for
  * rx_nodes. The declaration constructs the following data structures:
@@ -133,9 +151,6 @@ static void iso_rx_demux(void *param);
 #define ISO_TEST_PACKET_COUNTER_SIZE 4U
 
 #if defined(CONFIG_BT_CTLR_ADV_ISO) || defined(CONFIG_BT_CTLR_CONN_ISO)
-void ll_iso_link_tx_release(void *link);
-void ll_iso_tx_mem_release(void *node_tx);
-
 #define NODE_TX_BUFFER_SIZE MROUND(offsetof(struct node_tx_iso, pdu) + \
 				   offsetof(struct pdu_iso, payload) + \
 				   MAX(LL_BIS_OCTETS_TX_MAX, \
@@ -145,14 +160,18 @@ void ll_iso_tx_mem_release(void *node_tx);
 
 static struct {
 	void *free;
-	uint8_t pool[NODE_TX_BUFFER_SIZE * BT_CTLR_ISO_TX_BUFFERS];
+	uint8_t pool[NODE_TX_BUFFER_SIZE * BT_CTLR_ISO_TX_PDU_BUFFERS];
 } mem_iso_tx;
 
 static struct {
 	void *free;
-	uint8_t pool[sizeof(memq_link_t) * BT_CTLR_ISO_TX_BUFFERS];
+	uint8_t pool[sizeof(memq_link_t) * BT_CTLR_ISO_TX_PDU_BUFFERS];
 } mem_link_iso_tx;
 
+/* MFIFO for ISO TX acknowledgments from LLL to ULL */
+static MFIFO_DEFINE(iso_ack, sizeof(struct lll_tx), BT_CTLR_ISO_TX_PDU_BUFFERS);
+
+static void ull_iso_tx_ack_sched(void);
 #endif /* CONFIG_BT_CTLR_ADV_ISO || CONFIG_BT_CTLR_CONN_ISO */
 
 uint8_t ll_read_iso_tx_sync(uint16_t handle, uint16_t *seq,
@@ -189,6 +208,9 @@ uint8_t ll_read_iso_tx_sync(uint16_t handle, uint16_t *seq,
 		}
 
 		return BT_HCI_ERR_SUCCESS;
+
+	} else if (IS_SYNC_ISO_HANDLE(handle)) {
+		return BT_HCI_ERR_CMD_DISALLOWED;
 	}
 
 	return BT_HCI_ERR_UNKNOWN_CONN_ID;
@@ -222,10 +244,7 @@ uint8_t ll_setup_iso_path(uint16_t handle, uint8_t path_dir, uint8_t path_id,
 	ARG_UNUSED(controller_delay);
 	ARG_UNUSED(codec_config);
 
-	if (false) {
-
-#if defined(CONFIG_BT_CTLR_CONN_ISO)
-	} else if (IS_CIS_HANDLE(handle)) {
+	if (IS_ENABLED(CONFIG_BT_CTLR_CONN_ISO) && IS_CIS_HANDLE(handle)) {
 		struct ll_conn_iso_group *cig;
 		struct ll_conn *conn;
 
@@ -296,8 +315,6 @@ uint8_t ll_setup_iso_path(uint16_t handle, uint8_t path_dir, uint8_t path_id,
 				sdu_interval = cig->c_sdu_interval;
 			}
 		}
-#endif /* CONFIG_BT_CTLR_CONN_ISO */
-
 #if defined(CONFIG_BT_CTLR_ADV_ISO)
 	} else if (IS_ADV_ISO_HANDLE(handle)) {
 		struct ll_adv_iso_set *adv_iso;
@@ -318,9 +335,12 @@ uint8_t ll_setup_iso_path(uint16_t handle, uint8_t path_dir, uint8_t path_id,
 		sdu_interval = lll_iso->sdu_interval;
 		burst_number = lll_iso->bn;
 		flush_timeout = 0U; /* Not used for Broadcast ISO */
-		group_sync_delay = 0U; /* FIXME: */
-		stream_sync_delay = 0U; /* FIXME: */
-		framed = 0U; /* FIXME: pick the framing value from context */
+		group_sync_delay = ull_iso_big_sync_delay(lll_iso->num_bis, lll_iso->bis_spacing,
+							  lll_iso->nse, lll_iso->sub_interval,
+							  lll_iso->phy, lll_iso->max_pdu,
+							  lll_iso->enc);
+		stream_sync_delay = group_sync_delay - stream_handle * lll_iso->bis_spacing;
+		framed = lll_iso->framing;
 		max_octets = lll_iso->max_pdu;
 #endif /* CONFIG_BT_CTLR_ADV_ISO */
 
@@ -343,11 +363,15 @@ uint8_t ll_setup_iso_path(uint16_t handle, uint8_t path_dir, uint8_t path_id,
 		iso_interval = lll_iso->iso_interval;
 		sdu_interval = lll_iso->sdu_interval;
 		burst_number = lll_iso->bn;
+
+		group_sync_delay = ull_iso_big_sync_delay(lll_iso->num_bis, lll_iso->bis_spacing,
+							  lll_iso->nse, lll_iso->sub_interval,
+							  lll_iso->phy, lll_iso->max_pdu,
+							  lll_iso->enc);
+		stream_sync_delay = group_sync_delay - stream_handle * lll_iso->bis_spacing;
+		framed = lll_iso->framing;
+		max_octets = lll_iso->max_pdu;
 		flush_timeout = 0U; /* Not used for Broadcast ISO */
-		group_sync_delay = 0U; /* FIXME: */
-		stream_sync_delay = 0U; /* FIXME: */
-		framed = 0U; /* FIXME: pick the framing value from context */
-		max_octets = 0U;
 #endif /* CONFIG_BT_CTLR_SYNC_ISO */
 
 	} else {
@@ -432,7 +456,7 @@ uint8_t ll_setup_iso_path(uint16_t handle, uint8_t path_dir, uint8_t path_id,
 		}
 
 		if (!err) {
-			if (cis) {
+			if (IS_ENABLED(CONFIG_BT_CTLR_CONN_ISO) && cis != NULL) {
 				cis->hdr.datapath_out = dp;
 			}
 
@@ -592,7 +616,7 @@ uint8_t ll_remove_iso_path(uint16_t handle, uint8_t path_dir)
 #if defined(CONFIG_BT_CTLR_SYNC_ISO)
 	} else if (IS_SYNC_ISO_HANDLE(handle)) {
 		struct lll_sync_iso_stream *sync_stream;
-			struct ll_iso_datapath *dp;
+		struct ll_iso_datapath *dp;
 		uint16_t stream_handle;
 
 		if (!(path_dir & BIT(BT_HCI_DATAPATH_DIR_CTLR_TO_HOST))) {
@@ -640,15 +664,24 @@ static isoal_status_t ll_iso_test_sdu_alloc(const struct isoal_sink *sink_ctx,
 			struct ll_conn_iso_stream *cis;
 
 			cis = ll_iso_stream_connected_get(sink_ctx->session.handle);
-			LL_ASSERT(cis);
+			LL_ASSERT_DBG(cis);
 
 			/* For unframed, SDU counter is the payload number */
-			cis->hdr.test_mode.rx_sdu_counter =
+			cis->hdr.test_mode.rx.sdu_counter =
 				(uint32_t)valid_pdu->meta->payload_number;
 		}
 	} else if (IS_SYNC_ISO_HANDLE(handle)) {
-		/* FIXME: Implement for sync receiver */
-		LL_ASSERT(false);
+		if (!sink_ctx->session.framed) {
+			struct lll_sync_iso_stream *sync_stream;
+			uint16_t stream_handle;
+
+			stream_handle = LL_BIS_SYNC_IDX_FROM_HANDLE(handle);
+			sync_stream = ull_sync_iso_stream_get(stream_handle);
+			LL_ASSERT_DBG(sync_stream);
+
+			sync_stream->test_mode->sdu_counter =
+				(uint32_t)valid_pdu->meta->payload_number;
+		}
 	}
 
 	return sink_sdu_alloc_hci(sink_ctx, valid_pdu, sdu_buffer);
@@ -662,106 +695,124 @@ static isoal_status_t ll_iso_test_sdu_emit(const struct isoal_sink             *
 					   const struct isoal_emitted_sdu_frag *sdu_frag,
 					   const struct isoal_emitted_sdu      *sdu)
 {
+	struct ll_iso_rx_test_mode *test_mode_rx;
+	isoal_sdu_len_t length;
 	isoal_status_t status;
 	struct net_buf *buf;
+	uint32_t sdu_counter;
+	uint16_t max_sdu;
 	uint16_t handle;
+	uint8_t framed;
 
 	handle = sink_ctx->session.handle;
 	buf = (struct net_buf *)sdu_frag->sdu.contents.dbuf;
 
 	if (IS_CIS_HANDLE(handle)) {
 		struct ll_conn_iso_stream *cis;
-		isoal_sdu_len_t length;
-		uint32_t sdu_counter;
-		uint8_t framed;
 
 		cis = ll_iso_stream_connected_get(sink_ctx->session.handle);
-		LL_ASSERT(cis);
+		LL_ASSERT_DBG(cis);
 
-		length = sink_ctx->sdu_production.sdu_written;
-		framed = sink_ctx->session.framed;
-
-		/* In BT_HCI_ISO_TEST_ZERO_SIZE_SDU mode, all SDUs must have length 0 and there is
-		 * no sdu_counter field. In the other modes, the first 4 bytes must contain a
-		 * packet counter, which is used as SDU counter. The sdu_counter is extracted
-		 * regardless of mode as a sanity check, unless the length does not allow it.
-		 */
-		if (length >= ISO_TEST_PACKET_COUNTER_SIZE) {
-			sdu_counter = sys_get_le32(buf->data);
-		} else {
-			sdu_counter = 0U;
-		}
-
-		switch (sdu_frag->sdu.status) {
-		case ISOAL_SDU_STATUS_VALID:
-			if (framed && cis->hdr.test_mode.rx_sdu_counter == 0U) {
-				/* BT 5.3, Vol 6, Part B, section 7.2:
-				 * When using framed PDUs the expected value of the SDU counter
-				 * shall be initialized with the value of the SDU counter of the
-				 * first valid received SDU.
-				 */
-				cis->hdr.test_mode.rx_sdu_counter = sdu_counter;
-			}
-
-			switch (cis->hdr.test_mode.rx_payload_type) {
-			case BT_HCI_ISO_TEST_ZERO_SIZE_SDU:
-				if (length == 0) {
-					cis->hdr.test_mode.received_cnt++;
-				} else {
-					cis->hdr.test_mode.failed_cnt++;
-				}
-				break;
-
-			case BT_HCI_ISO_TEST_VARIABLE_SIZE_SDU:
-				if ((length >= ISO_TEST_PACKET_COUNTER_SIZE) &&
-				    (length <= cis->c_max_sdu) &&
-				    (sdu_counter == cis->hdr.test_mode.rx_sdu_counter)) {
-					cis->hdr.test_mode.received_cnt++;
-				} else {
-					cis->hdr.test_mode.failed_cnt++;
-				}
-				break;
-
-			case BT_HCI_ISO_TEST_MAX_SIZE_SDU:
-				if ((length == cis->c_max_sdu) &&
-				    (sdu_counter == cis->hdr.test_mode.rx_sdu_counter)) {
-					cis->hdr.test_mode.received_cnt++;
-				} else {
-					cis->hdr.test_mode.failed_cnt++;
-				}
-				break;
-
-			default:
-				LL_ASSERT(0);
-				return ISOAL_STATUS_ERR_SDU_EMIT;
-			}
-			break;
-
-		case ISOAL_SDU_STATUS_ERRORS:
-		case ISOAL_SDU_STATUS_LOST_DATA:
-			cis->hdr.test_mode.missed_cnt++;
-			break;
-		}
-
-		/* In framed mode, we may start incrementing the SDU counter when rx_sdu_counter
-		 * becomes non zero (initial state), or in case of zero-based counting, if zero
-		 * is actually the first valid SDU counter received.
-		 */
-		if (framed && (cis->hdr.test_mode.rx_sdu_counter ||
-			       (sdu_frag->sdu.status == ISOAL_SDU_STATUS_VALID))) {
-			cis->hdr.test_mode.rx_sdu_counter++;
-		}
-
-		status = ISOAL_STATUS_OK;
-
+		test_mode_rx = &cis->hdr.test_mode.rx;
+		max_sdu = cis->c_max_sdu;
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
 	} else if (IS_SYNC_ISO_HANDLE(handle)) {
-		/* FIXME: Implement for sync receiver */
-		status = ISOAL_STATUS_ERR_SDU_EMIT;
+		struct lll_sync_iso_stream *sync_stream;
+		struct ll_sync_iso_set *sync_iso;
+		uint16_t stream_handle;
+
+		stream_handle = LL_BIS_SYNC_IDX_FROM_HANDLE(handle);
+		sync_stream = ull_sync_iso_stream_get(stream_handle);
+		LL_ASSERT_DBG(sync_stream);
+
+		sync_iso = ull_sync_iso_by_stream_get(stream_handle);
+
+		test_mode_rx = sync_stream->test_mode;
+		max_sdu = sync_iso->lll.max_sdu;
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
 	} else {
 		/* Handle is out of range */
 		status = ISOAL_STATUS_ERR_SDU_EMIT;
+		net_buf_unref(buf);
+
+		return status;
 	}
 
+	length = sink_ctx->sdu_production.sdu_written;
+	framed = sink_ctx->session.framed;
+
+	/* In BT_HCI_ISO_TEST_ZERO_SIZE_SDU mode, all SDUs must have length 0 and there is
+	 * no sdu_counter field. In the other modes, the first 4 bytes must contain a
+	 * packet counter, which is used as SDU counter. The sdu_counter is extracted
+	 * regardless of mode as a sanity check, unless the length does not allow it.
+	 */
+	if (length >= ISO_TEST_PACKET_COUNTER_SIZE) {
+		sdu_counter = sys_get_le32(buf->data);
+	} else {
+		sdu_counter = 0U;
+	}
+
+	switch (sdu_frag->sdu.status) {
+	case ISOAL_SDU_STATUS_VALID:
+		if (framed && test_mode_rx->sdu_counter == 0U) {
+			/* BT 5.3, Vol 6, Part B, section 7.2:
+			 * When using framed PDUs the expected value of the SDU counter
+			 * shall be initialized with the value of the SDU counter of the
+			 * first valid received SDU.
+			 */
+			test_mode_rx->sdu_counter = sdu_counter;
+		}
+
+		switch (test_mode_rx->payload_type) {
+		case BT_HCI_ISO_TEST_ZERO_SIZE_SDU:
+			if (length == 0) {
+				test_mode_rx->received_cnt++;
+			} else {
+				test_mode_rx->failed_cnt++;
+			}
+			break;
+
+		case BT_HCI_ISO_TEST_VARIABLE_SIZE_SDU:
+			if ((length >= ISO_TEST_PACKET_COUNTER_SIZE) &&
+			    (length <= max_sdu) &&
+			    (sdu_counter == test_mode_rx->sdu_counter)) {
+				test_mode_rx->received_cnt++;
+			} else {
+				test_mode_rx->failed_cnt++;
+			}
+			break;
+
+		case BT_HCI_ISO_TEST_MAX_SIZE_SDU:
+			if ((length == max_sdu) &&
+			    (sdu_counter == test_mode_rx->sdu_counter)) {
+				test_mode_rx->received_cnt++;
+			} else {
+				test_mode_rx->failed_cnt++;
+			}
+			break;
+
+		default:
+			LL_ASSERT_DBG(0);
+			return ISOAL_STATUS_ERR_SDU_EMIT;
+		}
+		break;
+
+	case ISOAL_SDU_STATUS_ERRORS:
+	case ISOAL_SDU_STATUS_LOST_DATA:
+		test_mode_rx->missed_cnt++;
+		break;
+	}
+
+	/* In framed mode, we may start incrementing the SDU counter when rx_sdu_counter
+	 * becomes non zero (initial state), or in case of zero-based counting, if zero
+	 * is actually the first valid SDU counter received.
+	 */
+	if (framed && (test_mode_rx->sdu_counter ||
+			(sdu_frag->sdu.status == ISOAL_SDU_STATUS_VALID))) {
+		test_mode_rx->sdu_counter++;
+	}
+
+	status = ISOAL_STATUS_OK;
 	net_buf_unref(buf);
 
 	return status;
@@ -769,13 +820,24 @@ static isoal_status_t ll_iso_test_sdu_emit(const struct isoal_sink             *
 
 uint8_t ll_iso_receive_test(uint16_t handle, uint8_t payload_type)
 {
+	struct ll_iso_rx_test_mode *test_mode_rx;
 	isoal_sink_handle_t sink_handle;
 	struct ll_iso_datapath *dp;
 	uint32_t sdu_interval;
 	isoal_status_t err;
-	uint8_t status;
 
-	status = BT_HCI_ERR_SUCCESS;
+	struct ll_iso_datapath **stream_dp;
+
+	uint32_t stream_sync_delay;
+	uint32_t group_sync_delay;
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+	uint16_t stream_handle;
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
+	uint16_t iso_interval;
+	uint8_t framed;
+	uint8_t role;
+	uint8_t ft;
+	uint8_t bn;
 
 	if (IS_CIS_HANDLE(handle)) {
 		struct ll_conn_iso_stream *cis;
@@ -792,25 +854,8 @@ uint8_t ll_iso_receive_test(uint16_t handle, uint8_t payload_type)
 			return BT_HCI_ERR_UNSUPP_FEATURE_PARAM_VAL;
 		}
 
-		if (cis->hdr.datapath_out) {
-			/* Data path already set up */
-			return BT_HCI_ERR_CMD_DISALLOWED;
-		}
-
-		if (payload_type > BT_HCI_ISO_TEST_MAX_SIZE_SDU) {
-			return BT_HCI_ERR_INVALID_LL_PARAM;
-		}
-
-		/* Allocate and configure test datapath */
-		dp = mem_acquire(&datapath_free);
-		if (!dp) {
-			return BT_HCI_ERR_CMD_DISALLOWED;
-		}
-
-		dp->path_dir = BT_HCI_DATAPATH_DIR_CTLR_TO_HOST;
-		dp->path_id  = BT_HCI_DATAPATH_ID_HCI;
-
-		cis->hdr.datapath_out = dp;
+		test_mode_rx = &cis->hdr.test_mode.rx;
+		stream_dp = &cis->hdr.datapath_out;
 		cig = cis->group;
 
 		if (cig->lll.role == BT_HCI_ROLE_PERIPHERAL) {
@@ -821,53 +866,116 @@ uint8_t ll_iso_receive_test(uint16_t handle, uint8_t payload_type)
 			sdu_interval = cig->p_sdu_interval;
 		}
 
-		err = isoal_sink_create(handle, cig->lll.role, cis->framed,
-					cis->lll.rx.bn,	cis->lll.rx.ft,
-					sdu_interval, cig->iso_interval,
-					cis->sync_delay, cig->sync_delay,
-					ll_iso_test_sdu_alloc,
-					ll_iso_test_sdu_emit,
-					sink_sdu_write_hci, &sink_handle);
-		if (err) {
-			/* Error creating test source - cleanup source and
-			 * datapath
-			 */
-			isoal_sink_destroy(sink_handle);
-			ull_iso_datapath_release(dp);
-			cis->hdr.datapath_out = NULL;
+		role = cig->lll.role;
+		framed = cis->framed;
+		bn = cis->lll.rx.bn;
+		ft = cis->lll.rx.ft;
+		iso_interval = cig->iso_interval;
+		stream_sync_delay = cis->sync_delay;
+		group_sync_delay = cig->sync_delay;
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+	} else if (IS_SYNC_ISO_HANDLE(handle)) {
+		/* Get the sync stream from the handle */
+		struct lll_sync_iso_stream *sync_stream;
+		struct ll_sync_iso_set *sync_iso;
+		struct lll_sync_iso *lll_iso;
 
+		stream_handle = LL_BIS_SYNC_IDX_FROM_HANDLE(handle);
+		sync_stream = ull_sync_iso_stream_get(stream_handle);
+		if (!sync_stream) {
+			return BT_HCI_ERR_UNKNOWN_CONN_ID;
+		}
+
+		if (sync_stream->dp) {
+			/* Data path already set up */
 			return BT_HCI_ERR_CMD_DISALLOWED;
 		}
 
-		dp->sink_hdl = sink_handle;
-		isoal_sink_enable(sink_handle);
+		sync_iso = ull_sync_iso_by_stream_get(stream_handle);
+		lll_iso = &sync_iso->lll;
 
-		/* Enable Receive Test Mode */
-		cis->hdr.test_mode.rx_enabled = 1;
-		cis->hdr.test_mode.rx_payload_type = payload_type;
+		test_mode_rx = sync_stream->test_mode;
+		stream_dp = &sync_stream->dp;
 
-	} else if (IS_SYNC_ISO_HANDLE(handle)) {
-		/* FIXME: Implement for sync receiver */
-		status = BT_HCI_ERR_CMD_DISALLOWED;
+		/* BT Core v5.4 - Vol 6, Part B, Section 4.4.6.4:
+		 * BIG_Sync_Delay = (Num_BIS – 1) × BIS_Spacing
+		 *			+ (NSE – 1) × Sub_Interval + MPT.
+		 */
+		group_sync_delay = ull_iso_big_sync_delay(lll_iso->num_bis, lll_iso->bis_spacing,
+							  lll_iso->nse, lll_iso->sub_interval,
+							  lll_iso->phy, lll_iso->max_pdu,
+							  lll_iso->enc);
+		stream_sync_delay = group_sync_delay - stream_handle * lll_iso->bis_spacing;
+
+		role = ISOAL_ROLE_BROADCAST_SINK;
+		framed = lll_iso->framing;
+		bn = lll_iso->bn;
+		ft = 0;
+		sdu_interval = lll_iso->sdu_interval;
+		iso_interval = lll_iso->iso_interval;
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
 	} else {
 		/* Handle is out of range */
-		status = BT_HCI_ERR_UNKNOWN_CONN_ID;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
-	return status;
+	if (*stream_dp) {
+		/* Data path already set up */
+		return BT_HCI_ERR_CMD_DISALLOWED;
+	}
+
+	if (payload_type > BT_HCI_ISO_TEST_MAX_SIZE_SDU) {
+		return BT_HCI_ERR_INVALID_LL_PARAM;
+	}
+
+	/* Allocate and configure test datapath */
+	dp = mem_acquire(&datapath_free);
+	if (!dp) {
+		return BT_HCI_ERR_CMD_DISALLOWED;
+	}
+
+	dp->path_dir = BT_HCI_DATAPATH_DIR_CTLR_TO_HOST;
+	dp->path_id  = BT_HCI_DATAPATH_ID_HCI;
+
+	*stream_dp = dp;
+	memset(test_mode_rx, 0, sizeof(struct ll_iso_rx_test_mode));
+
+	err = isoal_sink_create(handle, role, framed, bn, ft,
+				sdu_interval, iso_interval,
+				stream_sync_delay, group_sync_delay,
+				ll_iso_test_sdu_alloc,
+				ll_iso_test_sdu_emit,
+				sink_sdu_write_hci, &sink_handle);
+	if (err) {
+		/* Error creating test source - cleanup source and
+		 * datapath
+		 */
+		isoal_sink_destroy(sink_handle);
+		ull_iso_datapath_release(dp);
+		*stream_dp = NULL;
+
+		return BT_HCI_ERR_CMD_DISALLOWED;
+	}
+
+	dp->sink_hdl = sink_handle;
+	isoal_sink_enable(sink_handle);
+
+	/* Enable Receive Test Mode */
+	test_mode_rx->enabled = 1;
+	test_mode_rx->payload_type = payload_type;
+
+	return BT_HCI_ERR_SUCCESS;
 }
 
 uint8_t ll_iso_read_test_counters(uint16_t handle, uint32_t *received_cnt,
 				  uint32_t *missed_cnt,
 				  uint32_t *failed_cnt)
 {
-	uint8_t status;
+	struct ll_iso_rx_test_mode *test_mode_rx;
 
 	*received_cnt = 0U;
 	*missed_cnt   = 0U;
 	*failed_cnt   = 0U;
-
-	status = BT_HCI_ERR_SUCCESS;
 
 	if (IS_CIS_HANDLE(handle)) {
 		struct ll_conn_iso_stream *cis;
@@ -878,25 +986,37 @@ uint8_t ll_iso_read_test_counters(uint16_t handle, uint32_t *received_cnt,
 			return BT_HCI_ERR_UNKNOWN_CONN_ID;
 		}
 
-		if (!cis->hdr.test_mode.rx_enabled) {
-			/* ISO receive Test is not active */
-			return BT_HCI_ERR_UNSUPP_FEATURE_PARAM_VAL;
-		}
-
-		/* Return SDU statistics */
-		*received_cnt = cis->hdr.test_mode.received_cnt;
-		*missed_cnt   = cis->hdr.test_mode.missed_cnt;
-		*failed_cnt   = cis->hdr.test_mode.failed_cnt;
+		test_mode_rx = &cis->hdr.test_mode.rx;
 
 	} else if (IS_SYNC_ISO_HANDLE(handle)) {
-		/* FIXME: Implement for sync receiver */
-		status = BT_HCI_ERR_CMD_DISALLOWED;
+		/* Get the sync stream from the handle */
+		struct lll_sync_iso_stream *sync_stream;
+		uint16_t stream_handle;
+
+		stream_handle = LL_BIS_SYNC_IDX_FROM_HANDLE(handle);
+		sync_stream = ull_sync_iso_stream_get(stream_handle);
+		if (!sync_stream) {
+			return BT_HCI_ERR_UNKNOWN_CONN_ID;
+		}
+
+		test_mode_rx = sync_stream->test_mode;
+
 	} else {
 		/* Handle is out of range */
-		status = BT_HCI_ERR_UNKNOWN_CONN_ID;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
-	return status;
+	if (!test_mode_rx->enabled) {
+		/* ISO receive Test is not active */
+		return BT_HCI_ERR_UNSUPP_FEATURE_PARAM_VAL;
+	}
+
+	/* Return SDU statistics */
+	*received_cnt = test_mode_rx->received_cnt;
+	*missed_cnt   = test_mode_rx->missed_cnt;
+	*failed_cnt   = test_mode_rx->failed_cnt;
+
+	return BT_HCI_ERR_SUCCESS;
 }
 
 #if defined(CONFIG_BT_CTLR_READ_ISO_LINK_QUALITY)
@@ -987,9 +1107,9 @@ void ll_iso_transmit_test_send_sdu(uint16_t handle, uint32_t ticks_at_expire)
 		uint8_t rand_8;
 
 		cis = ll_iso_stream_connected_get(handle);
-		LL_ASSERT(cis);
+		LL_ASSERT_DBG(cis);
 
-		if (!cis->hdr.test_mode.tx_enabled) {
+		if (!cis->hdr.test_mode.tx.enabled) {
 			/* Transmit Test Mode not enabled */
 			return;
 		}
@@ -999,7 +1119,7 @@ void ll_iso_transmit_test_send_sdu(uint16_t handle, uint32_t ticks_at_expire)
 
 		max_sdu = IS_PERIPHERAL(cig) ? cis->p_max_sdu : cis->c_max_sdu;
 
-		switch (cis->hdr.test_mode.tx_payload_type) {
+		switch (cis->hdr.test_mode.tx.payload_type) {
 		case BT_HCI_ISO_TEST_ZERO_SIZE_SDU:
 			remaining_tx = 0;
 			break;
@@ -1012,12 +1132,12 @@ void ll_iso_transmit_test_send_sdu(uint16_t handle, uint32_t ticks_at_expire)
 			break;
 
 		case BT_HCI_ISO_TEST_MAX_SIZE_SDU:
-			LL_ASSERT(max_sdu > ISO_TEST_PACKET_COUNTER_SIZE);
+			LL_ASSERT_DBG(max_sdu > ISO_TEST_PACKET_COUNTER_SIZE);
 			remaining_tx = max_sdu;
 			break;
 
 		default:
-			LL_ASSERT(0);
+			LL_ASSERT_DBG(0);
 			return;
 		}
 
@@ -1053,7 +1173,7 @@ void ll_iso_transmit_test_send_sdu(uint16_t handle, uint32_t ticks_at_expire)
 		sdu.grp_ref_point = isoal_get_wrapped_time_us(cig->cig_ref_point,
 						(event_offset * cig->iso_interval *
 							ISO_INT_UNIT_US));
-		sdu.target_event = cis->lll.event_count + event_offset;
+		sdu.target_event = cis->lll.event_count_prepare + event_offset;
 		sdu.iso_sdu_length = remaining_tx;
 
 		/* Send all SDU fragments */
@@ -1069,7 +1189,7 @@ void ll_iso_transmit_test_send_sdu(uint16_t handle, uint32_t ticks_at_expire)
 			if ((sdu.size >= ISO_TEST_PACKET_COUNTER_SIZE) &&
 			    ((sdu.sdu_state == BT_ISO_START) || (sdu.sdu_state == BT_ISO_SINGLE))) {
 				if (cis->framed) {
-					sdu_counter = (uint32_t)cis->hdr.test_mode.tx_sdu_counter;
+					sdu_counter = (uint32_t)cis->hdr.test_mode.tx.sdu_counter;
 				} else {
 					/* Unframed. Get the next payload counter.
 					 *
@@ -1088,7 +1208,7 @@ void ll_iso_transmit_test_send_sdu(uint16_t handle, uint32_t ticks_at_expire)
 
 			/* Send to ISOAL */
 			err = isoal_tx_sdu_fragment(source_handle, &sdu);
-			LL_ASSERT(!err);
+			LL_ASSERT_DBG(!err);
 
 			remaining_tx -= sdu.size;
 
@@ -1099,12 +1219,12 @@ void ll_iso_transmit_test_send_sdu(uint16_t handle, uint32_t ticks_at_expire)
 			}
 		} while (remaining_tx);
 
-		cis->hdr.test_mode.tx_sdu_counter++;
+		cis->hdr.test_mode.tx.sdu_counter++;
 
 	} else if (IS_ADV_ISO_HANDLE(handle)) {
 		/* FIXME: Implement for broadcaster */
 	} else {
-		LL_ASSERT(0);
+		LL_ASSERT_DBG(0);
 	}
 }
 #endif /* CONFIG_BT_CTLR_CONN_ISO */
@@ -1180,8 +1300,8 @@ uint8_t ll_iso_transmit_test(uint16_t handle, uint8_t payload_type)
 		isoal_source_enable(source_handle);
 
 		/* Enable Transmit Test Mode */
-		cis->hdr.test_mode.tx_enabled = 1;
-		cis->hdr.test_mode.tx_payload_type = payload_type;
+		cis->hdr.test_mode.tx.enabled = 1;
+		cis->hdr.test_mode.tx.payload_type = payload_type;
 
 	} else if (IS_ADV_ISO_HANDLE(handle)) {
 		struct lll_adv_iso_stream *stream;
@@ -1209,13 +1329,9 @@ uint8_t ll_iso_transmit_test(uint16_t handle, uint8_t payload_type)
 uint8_t ll_iso_test_end(uint16_t handle, uint32_t *received_cnt,
 			uint32_t *missed_cnt, uint32_t *failed_cnt)
 {
-	uint8_t status;
-
 	*received_cnt = 0U;
 	*missed_cnt   = 0U;
 	*failed_cnt   = 0U;
-
-	status = BT_HCI_ERR_SUCCESS;
 
 	if (IS_CIS_HANDLE(handle)) {
 		struct ll_conn_iso_stream *cis;
@@ -1226,23 +1342,23 @@ uint8_t ll_iso_test_end(uint16_t handle, uint32_t *received_cnt,
 			return BT_HCI_ERR_UNKNOWN_CONN_ID;
 		}
 
-		if (!cis->hdr.test_mode.rx_enabled && !cis->hdr.test_mode.tx_enabled) {
+		if (!cis->hdr.test_mode.rx.enabled && !cis->hdr.test_mode.tx.enabled) {
 			/* Test Mode is not active */
 			return BT_HCI_ERR_UNSUPP_FEATURE_PARAM_VAL;
 		}
 
-		if (cis->hdr.test_mode.rx_enabled) {
+		if (cis->hdr.test_mode.rx.enabled) {
 			isoal_sink_destroy(cis->hdr.datapath_out->sink_hdl);
 			ull_iso_datapath_release(cis->hdr.datapath_out);
 			cis->hdr.datapath_out = NULL;
 
 			/* Return SDU statistics */
-			*received_cnt = cis->hdr.test_mode.received_cnt;
-			*missed_cnt   = cis->hdr.test_mode.missed_cnt;
-			*failed_cnt   = cis->hdr.test_mode.failed_cnt;
+			*received_cnt = cis->hdr.test_mode.rx.received_cnt;
+			*missed_cnt   = cis->hdr.test_mode.rx.missed_cnt;
+			*failed_cnt   = cis->hdr.test_mode.rx.failed_cnt;
 		}
 
-		if (cis->hdr.test_mode.tx_enabled) {
+		if (cis->hdr.test_mode.tx.enabled) {
 			/* Tear down source and datapath */
 			isoal_source_destroy(cis->hdr.datapath_in->source_hdl);
 			ull_iso_datapath_release(cis->hdr.datapath_in);
@@ -1254,16 +1370,40 @@ uint8_t ll_iso_test_end(uint16_t handle, uint32_t *received_cnt,
 
 	} else if (IS_ADV_ISO_HANDLE(handle)) {
 		/* FIXME: Implement for broadcaster */
-		status = BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_CMD_DISALLOWED;
+
 	} else if (IS_SYNC_ISO_HANDLE(handle)) {
-		/* FIXME: Implement for sync receiver */
-		status = BT_HCI_ERR_CMD_DISALLOWED;
+		struct lll_sync_iso_stream *sync_stream;
+		uint16_t stream_handle;
+
+		stream_handle = LL_BIS_SYNC_IDX_FROM_HANDLE(handle);
+		sync_stream = ull_sync_iso_stream_get(stream_handle);
+		if (!sync_stream) {
+			return BT_HCI_ERR_UNKNOWN_CONN_ID;
+		}
+
+		if (!sync_stream->test_mode->enabled || !sync_stream->dp) {
+			/* Test Mode is not active */
+			return BT_HCI_ERR_UNSUPP_FEATURE_PARAM_VAL;
+		}
+
+		isoal_sink_destroy(sync_stream->dp->sink_hdl);
+		ull_iso_datapath_release(sync_stream->dp);
+		sync_stream->dp = NULL;
+
+		/* Return SDU statistics */
+		*received_cnt = sync_stream->test_mode->received_cnt;
+		*missed_cnt   = sync_stream->test_mode->missed_cnt;
+		*failed_cnt   = sync_stream->test_mode->failed_cnt;
+
+		(void)memset(&sync_stream->test_mode, 0U, sizeof(sync_stream->test_mode));
+
 	} else {
 		/* Handle is out of range */
-		status = BT_HCI_ERR_UNKNOWN_CONN_ID;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
-	return status;
+	return BT_HCI_ERR_SUCCESS;
 }
 
 #if defined(CONFIG_BT_CTLR_ADV_ISO) || defined(CONFIG_BT_CTLR_CONN_ISO)
@@ -1330,38 +1470,77 @@ int ull_iso_reset(void)
 #if defined(CONFIG_BT_CTLR_ADV_ISO) || defined(CONFIG_BT_CTLR_CONN_ISO)
 void ull_iso_lll_ack_enqueue(uint16_t handle, struct node_tx_iso *node_tx)
 {
-	struct ll_iso_datapath *dp = NULL;
-
 	if (IS_ENABLED(CONFIG_BT_CTLR_CONN_ISO) && IS_CIS_HANDLE(handle)) {
 		struct ll_conn_iso_stream *cis;
+		struct ll_iso_datapath *dp;
 
 		cis = ll_conn_iso_stream_get(handle);
 		dp  = cis->hdr.datapath_in;
 
 		if (dp) {
 			isoal_tx_pdu_release(dp->source_hdl, node_tx);
-		} else {
-			/* Race with Data Path remove */
-			/* FIXME: ll_tx_ack_put is not LLL callable as it is
-			 * used by ACL connections in ULL context to dispatch
-			 * ack.
-			 */
-			ll_tx_ack_put(handle, (void *)node_tx);
-			ll_rx_sched();
+			return;
 		}
+
+		if (IS_ENABLED(CONFIG_BT_CTLR_ISO_VENDOR_DATA_PATH)) {
+			int err;
+
+			err = ll_data_path_tx_pdu_release(handle, node_tx);
+			if (err == 0) {
+				return;
+			}
+		}
+
+		/* No datapath and no vendor datapath - fall through to MFIFO */
 	} else if (IS_ENABLED(CONFIG_BT_CTLR_ADV_ISO) && IS_ADV_ISO_HANDLE(handle)) {
-		/* Process as TX ack. TODO: Can be unified with CIS and use
-		 * ISOAL.
-		 */
-		/* FIXME: ll_tx_ack_put is not LLL callable as it is
-		 * used by ACL connections in ULL context to dispatch
-		 * ack.
-		 */
-		ll_tx_ack_put(handle, (void *)node_tx);
-		ll_rx_sched();
+		struct lll_adv_iso_stream *stream;
+		struct ll_iso_datapath *dp;
+		uint16_t stream_handle;
+
+		stream_handle = LL_BIS_ADV_IDX_FROM_HANDLE(handle);
+		stream = ull_adv_iso_stream_get(stream_handle);
+		dp = stream->dp;
+
+		if (dp != NULL) {
+			isoal_tx_pdu_release(dp->source_hdl, node_tx);
+			return;
+		}
+
+		if (IS_ENABLED(CONFIG_BT_CTLR_ISO_VENDOR_DATA_PATH)) {
+			int err;
+
+			err = ll_data_path_tx_pdu_release(handle, node_tx);
+			if (err == 0) {
+				return;
+			}
+		}
+
+		/* No datapath and no vendor datapath - fall through to MFIFO */
 	} else {
-		LL_ASSERT(0);
+		LL_ASSERT_DBG(0);
+		return;
 	}
+
+	/* Context-safe fallback: Enqueue to iso_ack MFIFO when no datapath.
+	 * This handles CIS/BIS without datapath and without vendor data path support.
+	 */
+	ull_iso_lll_tx_ack_enqueue(handle, node_tx);
+}
+
+void ull_iso_lll_tx_ack_enqueue(uint16_t handle, struct node_tx_iso *node_tx)
+{
+	struct lll_tx *tx_buf;
+	uint8_t idx;
+
+	idx = MFIFO_ENQUEUE_GET(iso_ack, (void **)&tx_buf);
+	LL_ASSERT_ERR(tx_buf);
+
+	tx_buf->handle = handle;
+	tx_buf->node = node_tx;
+
+	MFIFO_ENQUEUE(iso_ack, idx);
+
+	ull_iso_tx_ack_sched();
 }
 
 void ull_iso_lll_event_prepare(uint16_t handle, uint64_t event_count)
@@ -1380,14 +1559,37 @@ void ull_iso_lll_event_prepare(uint16_t handle, uint64_t event_count)
 			isoal_tx_event_prepare(dp->source_hdl, event_count);
 		}
 	} else if (IS_ADV_ISO_HANDLE(handle)) {
-		/* Send event deadline trigger to ISO-AL.
-		 * TODO: Can be unified with CIS implementation.
-		 */
+		struct ll_iso_datapath *dp = NULL;
+		struct lll_adv_iso_stream *stream;
+		uint16_t stream_handle;
+
+		stream_handle = LL_BIS_ADV_IDX_FROM_HANDLE(handle);
+		stream = ull_adv_iso_stream_get(stream_handle);
+
+		if (stream) {
+			dp = stream->dp;
+		}
+
+		if (dp) {
+			isoal_tx_event_prepare(dp->source_hdl, event_count);
+		}
 	} else {
-		LL_ASSERT(0);
+		LL_ASSERT_DBG(0);
 	}
 }
 #endif /* CONFIG_BT_CTLR_ADV_ISO || CONFIG_BT_CTLR_CONN_ISO */
+
+#if defined(CONFIG_BT_CTLR_ADV_ISO) || defined(CONFIG_BT_CTLR_SYNC_ISO)
+uint32_t ull_iso_big_sync_delay(uint8_t num_bis, uint32_t bis_spacing, uint8_t nse,
+				uint32_t sub_interval, uint8_t phy, uint8_t max_pdu, bool enc)
+{
+	/* BT Core v5.4 - Vol 6, Part B, Section 4.4.6.4:
+	 * BIG_Sync_Delay = (Num_BIS – 1) × BIS_Spacing + (NSE – 1) × Sub_Interval + MPT.
+	 */
+	return (num_bis - 1) * bis_spacing + (nse - 1) * sub_interval +
+	       BYTES2US(PDU_OVERHEAD_SIZE(phy) + max_pdu + (enc ? 4 : 0), phy);
+}
+#endif /* CONFIG_BT_CTLR_ADV_ISO || CONFIG_BT_CTLR_SYNC_ISO */
 
 #if defined(CONFIG_BT_CTLR_SYNC_ISO) || defined(CONFIG_BT_CTLR_CONN_ISO)
 void *ull_iso_pdu_rx_alloc_peek(uint8_t count)
@@ -1435,7 +1637,7 @@ static void iso_rx_cig_ref_point_update(struct ll_conn_iso_group *cig,
 	cig_sync_delay = cig->sync_delay;
 	cis_sync_delay = cis->sync_delay;
 	burst_number = cis->lll.rx.bn;
-	event_count = cis->lll.event_count;
+	event_count = cis->lll.event_count_prepare;
 
 	if (role) {
 		/* Peripheral */
@@ -1456,14 +1658,14 @@ static void iso_rx_cig_ref_point_update(struct ll_conn_iso_group *cig,
 
 static void iso_rx_demux(void *param)
 {
-#if defined(CONFIG_BT_CTLR_CONN_ISO)
-	struct ll_conn_iso_stream *cis;
-	struct ll_conn_iso_group *cig;
+#if defined(CONFIG_BT_CTLR_CONN_ISO) || \
+	defined(CONFIG_BT_CTLR_SYNC_ISO)
 	struct ll_iso_datapath *dp;
+#endif  /* CONFIG_BT_CTLR_CONN_ISO || CONFIG_BT_CTLR_SYNC_ISO */
 	struct node_rx_pdu *rx_pdu;
-#endif /* CONFIG_BT_CTLR_CONN_ISO */
 	struct node_rx_hdr *rx;
 	memq_link_t *link;
+	uint16_t handle;
 
 	do {
 		link = memq_peek(memq_ull_iso_rx.head, memq_ull_iso_rx.tail,
@@ -1483,21 +1685,42 @@ static void iso_rx_demux(void *param)
 				(void)memq_dequeue(memq_ull_iso_rx.tail, &memq_ull_iso_rx.head,
 						   NULL);
 
-#if defined(CONFIG_BT_CTLR_CONN_ISO)
 				rx_pdu = (struct node_rx_pdu *)rx;
-				cis = ll_conn_iso_stream_get(rx_pdu->hdr.handle);
-				cig = cis->group;
-				dp  = cis->hdr.datapath_out;
+				handle = rx_pdu->hdr.handle;
+				dp = NULL;
 
-				iso_rx_cig_ref_point_update(cig, cis, &rx_pdu->hdr.rx_iso_meta);
+				if (false) {
+#if defined(CONFIG_BT_CTLR_CONN_ISO)
+				} else if (IS_CIS_HANDLE(handle)) {
+					struct ll_conn_iso_stream *cis;
+					struct ll_conn_iso_group *cig;
 
+					cis = ll_conn_iso_stream_get(handle);
+					cig = cis->group;
+					dp  = cis->hdr.datapath_out;
+
+					iso_rx_cig_ref_point_update(cig, cis,
+								    &rx_pdu->hdr.rx_iso_meta);
+#endif /* CONFIG_BT_CTLR_CONN_ISO */
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+				} else if (IS_SYNC_ISO_HANDLE(handle)) {
+					struct lll_sync_iso_stream *sync_stream;
+					uint16_t stream_handle;
+
+					stream_handle = LL_BIS_SYNC_IDX_FROM_HANDLE(handle);
+					sync_stream = ull_sync_iso_stream_get(stream_handle);
+					dp = sync_stream ? sync_stream->dp : NULL;
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
+				}
+
+#if defined(CONFIG_BT_CTLR_CONN_ISO) || defined(CONFIG_BT_CTLR_SYNC_ISO)
 				if (dp && dp->path_id != BT_HCI_DATAPATH_ID_HCI) {
 					/* If vendor specific datapath pass to ISO AL here,
 					 * in case of HCI destination it will be passed in
 					 * HCI context.
 					 */
 					struct isoal_pdu_rx pckt_meta = {
-						.meta = &rx_pdu->hdr.rx_iso_meta,
+						.meta = &rx_pdu->rx_iso_meta,
 						.pdu  = (struct pdu_iso *)&rx_pdu->pdu[0]
 					};
 
@@ -1505,9 +1728,9 @@ static void iso_rx_demux(void *param)
 					const isoal_status_t err =
 						isoal_rx_pdu_recombine(dp->sink_hdl, &pckt_meta);
 
-					LL_ASSERT(err == ISOAL_STATUS_OK); /* TODO handle err */
+					LL_ASSERT_ERR(err == ISOAL_STATUS_OK); /* TODO handle err */
 				}
-#endif /* CONFIG_BT_CTLR_CONN_ISO */
+#endif /* CONFIG_BT_CTLR_CONN_ISO || CONFIG_BT_CTLR_SYNC_ISO */
 
 				/* Let ISO PDU start its long journey upwards */
 				ll_iso_rx_put(link, rx);
@@ -1515,7 +1738,7 @@ static void iso_rx_demux(void *param)
 				break;
 
 			default:
-				LL_ASSERT(0);
+				LL_ASSERT_DBG(0);
 				break;
 			}
 		}
@@ -1543,7 +1766,7 @@ void *ll_iso_rx_get(void)
 			(void)memq_dequeue(memq_ll_iso_rx.tail,
 						&memq_ll_iso_rx.head, NULL);
 			mem_release(link, &mem_link_iso_rx.free);
-			mem_release(rx, &mem_iso_rx.free);
+			mem_release(rx, &mem_pool_iso_rx.free);
 			RXFIFO_ALLOC(iso_rx, 1);
 
 			link = memq_peek(memq_ll_iso_rx.head, memq_ll_iso_rx.tail, (void **)&rx);
@@ -1562,7 +1785,7 @@ void ll_iso_rx_dequeue(void)
 
 	link = memq_dequeue(memq_ll_iso_rx.tail, &memq_ll_iso_rx.head,
 			    (void **)&rx);
-	LL_ASSERT(link);
+	LL_ASSERT_DBG(link);
 
 	mem_release(link, &mem_link_iso_rx.free);
 
@@ -1571,7 +1794,7 @@ void ll_iso_rx_dequeue(void)
 	case NODE_RX_TYPE_ISO_PDU:
 		break;
 	default:
-		LL_ASSERT(0);
+		LL_ASSERT_DBG(0);
 		break;
 	}
 }
@@ -1589,7 +1812,7 @@ void ll_iso_rx_mem_release(void **node_rx)
 
 		switch (rx_free->type) {
 		case NODE_RX_TYPE_ISO_PDU:
-			mem_release(rx_free, &mem_iso_rx.free);
+			mem_release(rx_free, &mem_pool_iso_rx.free);
 			break;
 		default:
 			/* Ignore other types as node may have been initialized due to
@@ -1638,7 +1861,7 @@ static isoal_status_t ll_iso_pdu_alloc(struct isoal_pdu_buffer *pdu_buffer)
 		/* TODO: Report overflow to HCI and remove assert
 		 * data_buf_overflow(evt, BT_OVERFLOW_LINK_ISO)
 		 */
-		LL_ASSERT(0);
+		LL_ASSERT_ERR(0);
 		return ISOAL_STATUS_ERR_PDU_ALLOC;
 	}
 
@@ -1673,9 +1896,9 @@ static isoal_status_t ll_iso_pdu_write(struct isoal_pdu_buffer *pdu_buffer,
 	ARG_UNUSED(pdu_offset);
 	ARG_UNUSED(consume_len);
 
-	LL_ASSERT(pdu_buffer);
-	LL_ASSERT(pdu_buffer->pdu);
-	LL_ASSERT(sdu_payload);
+	LL_ASSERT_DBG(pdu_buffer);
+	LL_ASSERT_DBG(pdu_buffer->pdu);
+	LL_ASSERT_DBG(sdu_payload);
 
 	if ((pdu_offset + consume_len) > pdu_buffer->size) {
 		/* Exceeded PDU buffer */
@@ -1700,7 +1923,7 @@ static isoal_status_t ll_iso_pdu_emit(struct node_tx_iso *node_tx,
 	memq_link_t *link;
 
 	link = mem_acquire(&mem_link_iso_tx.free);
-	LL_ASSERT(link);
+	LL_ASSERT_ERR(link);
 
 	if (ll_iso_tx_mem_enqueue(handle, node_tx, link)) {
 		return ISOAL_STATUS_ERR_PDU_EMIT;
@@ -1728,12 +1951,10 @@ static isoal_status_t ll_iso_pdu_release(struct node_tx_iso *node_tx,
 		 * Call Path:
 		 *   ull_iso_lll_ack_enqueue() --> isoal_tx_pdu_release() -->
 		 *   pdu_release() == ll_iso_pdu_release() (this function).
+		 *
+		 * Use MFIFO to safely transition from LLL to ULL context.
 		 */
-		/* FIXME: ll_tx_ack_put is not LLL callable as it is used by
-		 * ACL connections in ULL context to dispatch ack.
-		 */
-		ll_tx_ack_put(handle, (void *)node_tx);
-		ll_rx_sched();
+		ull_iso_lll_tx_ack_enqueue(handle, node_tx);
 	} else {
 		/* Release back to memory pool, we are in Thread context
 		 * Callers:
@@ -1749,6 +1970,49 @@ static isoal_status_t ll_iso_pdu_release(struct node_tx_iso *node_tx,
 	return ISOAL_STATUS_OK;
 }
 #endif /* CONFIG_BT_CTLR_CONN_ISO */
+
+/**
+ * @brief Process ISO TX acknowledgments independently
+ * @details Processes iso_ack MFIFO without serialization with RX
+ */
+static void iso_tx_ack_demux(void *param)
+{
+	struct lll_tx *tx_buf;
+
+	/* Peek from iso_ack MFIFO */
+	tx_buf = MFIFO_DEQUEUE_GET(iso_ack);
+	if (tx_buf == NULL) {
+		return;
+	}
+
+	/* Process all pending ISO TX acks */
+	do {
+		MFIFO_DEQUEUE(iso_ack);
+
+		/* Now safely call ll_tx_ack_put in ULL context */
+		ll_tx_ack_put(tx_buf->handle, (void *)tx_buf->node);
+
+		/* Peek from iso_ack MFIFO */
+		tx_buf = MFIFO_DEQUEUE_GET(iso_ack);
+	} while (tx_buf != NULL);
+
+	/* Trigger thread to call ll_rx_get() */
+	ll_rx_sched();
+}
+
+/**
+ * @brief Schedule ISO TX ack processing
+ */
+static void ull_iso_tx_ack_sched(void)
+{
+	static memq_link_t link;
+	static struct mayfly mfy = {0U, 0U, &link, NULL, iso_tx_ack_demux};
+
+	/* Kick the ULL (using the mayfly, tailchain it), already being enqueued is ok, hence ignore
+	 * the return value.
+	 */
+	(void)mayfly_enqueue(TICKER_USER_ID_LLL, TICKER_USER_ID_ULL_HIGH, 1U, &mfy);
+}
 #endif /* CONFIG_BT_CTLR_ADV_ISO || CONFIG_BT_CTLR_CONN_ISO */
 
 static int init_reset(void)
@@ -1760,7 +2024,7 @@ static int init_reset(void)
 
 	/* Acquire a link to initialize ull rx memq */
 	link = mem_acquire(&mem_link_iso_rx.free);
-	LL_ASSERT(link);
+	LL_ASSERT_DBG(link);
 
 #if defined(CONFIG_BT_CTLR_ISO_VENDOR_DATA_PATH)
 	/* Initialize ull rx memq */
@@ -1769,7 +2033,7 @@ static int init_reset(void)
 
 	/* Acquire a link to initialize ll_iso_rx memq */
 	link = mem_acquire(&mem_link_iso_rx.free);
-	LL_ASSERT(link);
+	LL_ASSERT_DBG(link);
 
 	/* Initialize ll_iso_rx memq */
 	MEMQ_INIT(ll_iso_rx, link);
@@ -1779,12 +2043,15 @@ static int init_reset(void)
 
 #if defined(CONFIG_BT_CTLR_ADV_ISO) || defined(CONFIG_BT_CTLR_CONN_ISO)
 	/* Initialize tx pool. */
-	mem_init(mem_iso_tx.pool, NODE_TX_BUFFER_SIZE, BT_CTLR_ISO_TX_BUFFERS,
+	mem_init(mem_iso_tx.pool, NODE_TX_BUFFER_SIZE, BT_CTLR_ISO_TX_PDU_BUFFERS,
 		 &mem_iso_tx.free);
 
 	/* Initialize tx link pool. */
-	mem_init(mem_link_iso_tx.pool, sizeof(memq_link_t),
-		 BT_CTLR_ISO_TX_BUFFERS, &mem_link_iso_tx.free);
+	mem_init(mem_link_iso_tx.pool, sizeof(memq_link_t), BT_CTLR_ISO_TX_PDU_BUFFERS,
+		 &mem_link_iso_tx.free);
+
+	/* Initialize iso_ack MFIFO */
+	MFIFO_INIT(iso_ack);
 #endif /* CONFIG_BT_CTLR_ADV_ISO || CONFIG_BT_CTLR_CONN_ISO */
 
 #if BT_CTLR_ISO_STREAMS
@@ -1798,3 +2065,130 @@ static int init_reset(void)
 
 	return 0;
 }
+
+#if defined(CONFIG_BT_CTLR_CONN_ISO) || defined(CONFIG_BT_CTLR_SYNC_ISO)
+void ull_iso_resume_ticker_start(struct lll_event *resume_event,
+				 uint16_t group_handle,
+				 uint16_t stream_handle,
+				 uint8_t  role,
+				 uint32_t ticks_anchor,
+				 uint32_t resume_timeout)
+{
+	uint32_t resume_delay_us;
+	int32_t resume_offset_us;
+	uint8_t ticker_id = 0;
+	uint32_t ret;
+
+	resume_delay_us  = EVENT_OVERHEAD_START_US;
+	resume_delay_us += EVENT_TICKER_RES_MARGIN_US;
+
+	if (0) {
+#if defined(CONFIG_BT_CTLR_CONN_ISO)
+	} else if (IS_CIS_HANDLE(stream_handle)) {
+		ticker_id = TICKER_ID_CONN_ISO_RESUME_BASE + group_handle;
+#endif /* CONFIG_BT_CTLR_CONN_ISO */
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+	} else if (IS_SYNC_ISO_HANDLE(stream_handle)) {
+		ticker_id = TICKER_ID_SCAN_SYNC_ISO_RESUME_BASE + group_handle;
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
+	} else {
+		LL_ASSERT_DBG(0);
+	}
+
+	if (role == BT_HCI_ROLE_PERIPHERAL) {
+		/* Add peripheral specific delay */
+		if (0) {
+#if defined(CONFIG_BT_CTLR_PHY)
+		} else {
+			uint8_t phy = 0;
+
+			if (0) {
+#if defined(CONFIG_BT_CTLR_CONN_ISO)
+			} else if (IS_CIS_HANDLE(stream_handle)) {
+				struct ll_conn_iso_stream *cis;
+				struct ll_conn *conn;
+
+				cis = ll_conn_iso_stream_get(stream_handle);
+
+				conn = ll_conn_get(cis->lll.acl_handle);
+				LL_ASSERT_DBG(conn != NULL);
+
+				phy = conn->lll.phy_rx;
+#endif /* CONFIG_BT_CTLR_CONN_ISO */
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+			} else if (IS_SYNC_ISO_HANDLE(stream_handle)) {
+				struct ll_sync_iso_set *sync_iso;
+				uint16_t stream_idx;
+
+				stream_idx = LL_BIS_SYNC_IDX_FROM_HANDLE(stream_handle);
+				sync_iso = ull_sync_iso_by_stream_get(stream_idx);
+				phy = sync_iso->lll.phy;
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
+			} else {
+				LL_ASSERT_DBG(0);
+			}
+
+			resume_delay_us +=
+				lll_radio_rx_ready_delay_get(phy, PHY_FLAGS_S8);
+#else
+		} else {
+			resume_delay_us += lll_radio_rx_ready_delay_get(0, 0);
+#endif /* CONFIG_BT_CTLR_PHY */
+		}
+	}
+
+	resume_offset_us = (int32_t)(resume_timeout - resume_delay_us);
+	LL_ASSERT_DBG(resume_offset_us >= 0);
+
+	/* Setup resume timeout as single-shot */
+	ret = ticker_start(TICKER_INSTANCE_ID_CTLR,
+			   TICKER_USER_ID_LLL,
+			   ticker_id,
+			   ticks_anchor,
+			   HAL_TICKER_US_TO_TICKS(resume_offset_us),
+			   TICKER_NULL_PERIOD,
+			   TICKER_NULL_REMAINDER,
+			   TICKER_NULL_LAZY,
+			   TICKER_NULL_SLOT,
+			   ticker_resume_cb, resume_event,
+			   ticker_resume_op_cb, NULL);
+
+	LL_ASSERT_ERR((ret == TICKER_STATUS_SUCCESS) ||
+		      (ret == TICKER_STATUS_BUSY));
+}
+
+static void ticker_resume_op_cb(uint32_t status, void *param)
+{
+	ARG_UNUSED(param);
+
+	LL_ASSERT_ERR(status == TICKER_STATUS_SUCCESS);
+}
+
+static void ticker_resume_cb(uint32_t ticks_at_expire, uint32_t ticks_drift,
+			     uint32_t remainder, uint16_t lazy, uint8_t force,
+			     void *param)
+{
+	static memq_link_t link;
+	static struct mayfly mfy = {0, 0, &link, NULL, lll_resume};
+	struct lll_event *resume_event;
+	uint32_t ret;
+
+	ARG_UNUSED(ticks_drift);
+	LL_ASSERT_DBG(lazy == 0);
+
+	resume_event = param;
+
+	/* Append timing parameters */
+	resume_event->prepare_param.ticks_at_expire = ticks_at_expire;
+	resume_event->prepare_param.remainder = remainder;
+	resume_event->prepare_param.lazy = 0;
+	resume_event->prepare_param.force = force;
+	mfy.param = resume_event;
+
+	/* Kick LLL resume */
+	ret = mayfly_enqueue(TICKER_USER_ID_ULL_HIGH, TICKER_USER_ID_LLL,
+			     0, &mfy);
+
+	LL_ASSERT_ERR(!ret);
+}
+#endif /* CONFIG_BT_CTLR_CONN_ISO || CONFIG_BT_CTLR_SYNC_ISO */

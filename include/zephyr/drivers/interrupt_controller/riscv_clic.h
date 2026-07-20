@@ -9,8 +9,8 @@
  * @brief Driver for Core-Local Interrupt Controller (CLIC)
  */
 
-#ifndef ZEPHYR_INCLUDE_DRIVERS_RISCV_CLIC_H_
-#define ZEPHYR_INCLUDE_DRIVERS_RISCV_CLIC_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_RISCV_CLIC_H_
+#define ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_RISCV_CLIC_H_
 
 /**
  * @brief Enable interrupt
@@ -43,4 +43,11 @@ int riscv_clic_irq_is_enabled(uint32_t irq);
  */
 void riscv_clic_irq_priority_set(uint32_t irq, uint32_t prio, uint32_t flags);
 
-#endif /* ZEPHYR_INCLUDE_DRIVERS_RISCV_CLIC_H_ */
+/**
+ * @brief Set vector mode of interrupt
+ *
+ * @param irq interrupt ID
+ */
+void riscv_clic_irq_vector_set(uint32_t irq);
+
+#endif /* ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_RISCV_CLIC_H_ */

@@ -3,7 +3,7 @@
  *
  * Based on the i2c_mcux_lpi2c.c driver, which is:
  * Copyright (c) 2016 Freescale Semiconductor, Inc.
- * Copyright (c) 2019, NXP
+ * Copyright (c) 2019, 2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,6 +15,7 @@
 #include <zephyr/irq.h>
 #include <fsl_lpi2c.h>
 #include <zephyr/logging/log.h>
+#include <soc.h>
 #include <zephyr/drivers/pinctrl.h>
 
 LOG_MODULE_REGISTER(rv32m1_lpi2c);
@@ -113,10 +114,6 @@ static uint32_t rv32m1_lpi2c_convert_flags(int msg_flags)
 
 	if (!(msg_flags & I2C_MSG_STOP)) {
 		flags |= kLPI2C_TransferNoStopFlag;
-	}
-
-	if (msg_flags & I2C_MSG_RESTART) {
-		flags |= kLPI2C_TransferRepeatedStartFlag;
 	}
 
 	return flags;
@@ -254,9 +251,12 @@ static int rv32m1_lpi2c_init(const struct device *dev)
 	return 0;
 }
 
-static const struct i2c_driver_api rv32m1_lpi2c_driver_api = {
+static DEVICE_API(i2c, rv32m1_lpi2c_driver_api) = {
 	.configure = rv32m1_lpi2c_configure,
-	.transfer  = rv32m1_lpi2c_transfer,
+	.transfer = rv32m1_lpi2c_transfer,
+#ifdef CONFIG_I2C_RTIO
+	.iodev_submit = i2c_iodev_submit_fallback,
+#endif
 };
 
 #define RV32M1_LPI2C_DEVICE(id)                                                \

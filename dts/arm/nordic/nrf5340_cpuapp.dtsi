@@ -5,7 +5,8 @@
  */
 
 #include <arm/armv8-m.dtsi>
-#include "nrf_common.dtsi"
+#include <nordic/nrf_common.dtsi>
+#include <zephyr/dt-bindings/adc/nrf-saadc.h>
 
 / {
 	cpus {
@@ -38,31 +39,58 @@
 	};
 
 	soc {
+		compatible = "simple-bus";
+
 		ficr: ficr@ff0000 {
 			compatible = "nordic,nrf-ficr";
 			reg = <0xff0000 0x1000>;
+			#nordic,ficr-cells = <1>;
 			status = "okay";
 		};
 
 		uicr: uicr@ff8000 {
 			compatible = "nordic,nrf-uicr";
 			reg = <0xff8000 0x1000>;
+			ranges = <0x0 0xff8000 0x1000>;
 			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <1>;
 		};
 
 		sram0: memory@20000000 {
 			compatible = "mmio-sram";
+			#address-cells = <1>;
+			#size-cells = <1>;
 		};
 
 		peripheral@50000000 {
+			reg = <0x50000000 0x10000000>;
 			#address-cells = <1>;
 			#size-cells = <1>;
-			ranges = <0x0 0x50000000 0x10000000>;
+			ranges = <0x0 0x50000000 0x10000000>,
+				 <0x10000000 0x10000000 0x10000000>;
 
-			/* Common nRF5340 Application MCU
-			 * peripheral description
-			 */
-			#include "nrf5340_cpuapp_peripherals.dtsi"
+#include "nrf5340_cpuapp_peripherals.dtsi"
+		};
+
+		flash_controller: flash-controller@50039000 {
+			compatible = "nordic,nrf53-flash-controller";
+			reg = <0x50039000 0x1000>;
+			ranges;
+			partial-erase;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			flash0: flash@0 {
+				compatible = "soc-nv-flash";
+				erase-block-size = <4096>;
+				write-block-size = <4>;
+				reg = <0x0 DT_SIZE_K(1024)>;
+				ranges = <0x0 0x0 DT_SIZE_K(1024)>;
+				status = "okay";
+				#address-cells = <1>;
+				#size-cells = <1>;
+			};
 		};
 
 		/* Additional Secure peripherals */
@@ -84,10 +112,20 @@
 			reg = <0x5000d000 0x1000>;
 			interrupts = <13 5>;
 			status = "disabled";
+			instance = <0>;
+		};
+
+		/* Additional Non-Secure GPIOTE instance */
+		gpiote1: gpiote@4002f000 {
+			compatible = "nordic,nrf-gpiote";
+			reg = <0x4002f000 0x1000>;
+			interrupts = <47 5>;
+			status = "disabled";
+			instance = <1>;
 		};
 
 		cryptocell: crypto@50844000 {
-			compatible = "nordic,cryptocell", "arm,cryptocell-312";
+			compatible = "arm,cryptocell-312";
 			reg = <0x50844000 0x1000>, <0x50845000 0x1000>;
 			reg-names = "wrapper", "core";
 			interrupts = <68 NRF_DEFAULT_IRQ_PRIORITY>;
@@ -97,17 +135,20 @@
 
 	/* Default IPC description */
 	ipc {
-		#include "nrf5340_cpuapp_ipc.dtsi"
+#include "nrf5340_cpuapp_ipc.dtsi"
 	};
+};
+
+&rng_hci {
+	/* Application core has no accessible RNG peripheral */
+	status = "okay";
 };
 
 &nvic {
 	arm,num-irq-priority-bits = <3>;
 };
 
-/*
- * Include the non-secure peripherals file here since
- * it expects to be at the root level. This provides
- * a node for GPIOTE1.
- */
-#include "nrf5340_cpuapp_peripherals_ns.dtsi"
+&systick {
+	/* Use RTC for system clock, instead of SysTick. */
+	status = "disabled";
+};

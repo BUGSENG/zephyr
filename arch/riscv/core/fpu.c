@@ -6,7 +6,6 @@
  */
 
 #include <zephyr/kernel.h>
-#include <zephyr/kernel_structs.h>
 #include <kernel_arch_interface.h>
 #include <zephyr/sys/atomic.h>
 
@@ -62,12 +61,12 @@ static inline void DBG(char *msg, struct k_thread *t) { }
 
 static void z_riscv_fpu_disable(void)
 {
-	unsigned long status = csr_read(mstatus);
+	unsigned long status = z_riscv_status_read();
 
-	__ASSERT((status & MSTATUS_IEN) == 0, "must be called with IRQs disabled");
+	__ASSERT((status & RV_STATUS_IE) == 0, "must be called with IRQs disabled");
 
 	if ((status & MSTATUS_FS) != 0) {
-		csr_clear(mstatus, MSTATUS_FS);
+		z_riscv_status_clear(MSTATUS_FS);
 
 		/* remember its clean/dirty state */
 		_current_cpu->arch.fpu_state = (status & MSTATUS_FS);
@@ -76,16 +75,16 @@ static void z_riscv_fpu_disable(void)
 
 static void z_riscv_fpu_load(void)
 {
-	__ASSERT((csr_read(mstatus) & MSTATUS_IEN) == 0,
+	__ASSERT((z_riscv_status_read() & RV_STATUS_IE) == 0,
 		 "must be called with IRQs disabled");
-	__ASSERT((csr_read(mstatus) & MSTATUS_FS) == 0,
+	__ASSERT((z_riscv_status_read() & MSTATUS_FS) == 0,
 		 "must be called with FPU access disabled");
 
 	/* become new owner */
 	atomic_ptr_set(&_current_cpu->arch.fpu_owner, _current);
 
 	/* restore our content */
-	csr_set(mstatus, MSTATUS_FS_INIT);
+	z_riscv_status_set(MSTATUS_FS_INIT);
 	z_riscv_fpu_restore(&_current->arch.saved_fp_context);
 	DBG("restore", _current);
 }
@@ -98,11 +97,11 @@ static void z_riscv_fpu_load(void)
  *
  * This is called locally and also from flush_fpu_ipi_handler().
  */
-void z_riscv_flush_local_fpu(void)
+void arch_flush_local_fpu(void)
 {
-	__ASSERT((csr_read(mstatus) & MSTATUS_IEN) == 0,
+	__ASSERT((z_riscv_status_read() & RV_STATUS_IE) == 0,
 		 "must be called with IRQs disabled");
-	__ASSERT((csr_read(mstatus) & MSTATUS_FS) == 0,
+	__ASSERT((z_riscv_status_read() & MSTATUS_FS) == 0,
 		 "must be called with FPU access disabled");
 
 	struct k_thread *owner = atomic_ptr_get(&_current_cpu->arch.fpu_owner);
@@ -112,7 +111,7 @@ void z_riscv_flush_local_fpu(void)
 
 		if (dirty) {
 			/* turn on FPU access */
-			csr_set(mstatus, MSTATUS_FS_CLEAN);
+			z_riscv_status_set(MSTATUS_FS_CLEAN);
 			/* save current owner's content */
 			z_riscv_fpu_save(&owner->arch.saved_fp_context);
 		}
@@ -121,7 +120,7 @@ void z_riscv_flush_local_fpu(void)
 		owner->arch.fpu_recently_used = dirty;
 
 		/* disable FPU access */
-		csr_clear(mstatus, MSTATUS_FS);
+		z_riscv_status_clear(MSTATUS_FS);
 
 		/* release ownership */
 		atomic_ptr_clear(&_current_cpu->arch.fpu_owner);
@@ -132,7 +131,7 @@ void z_riscv_flush_local_fpu(void)
 #ifdef CONFIG_SMP
 static void flush_owned_fpu(struct k_thread *thread)
 {
-	__ASSERT((csr_read(mstatus) & MSTATUS_IEN) == 0,
+	__ASSERT((z_riscv_status_read() & RV_STATUS_IE) == 0,
 		 "must be called with IRQs disabled");
 
 	int i;
@@ -149,11 +148,11 @@ static void flush_owned_fpu(struct k_thread *thread)
 		/* we found it live on CPU i */
 		if (i == _current_cpu->id) {
 			z_riscv_fpu_disable();
-			z_riscv_flush_local_fpu();
+			arch_flush_local_fpu();
 			break;
 		}
 		/* the FPU context is live on another CPU */
-		z_riscv_flush_fpu_ipi(i);
+		arch_flush_fpu_ipi(i);
 
 		/*
 		 * Wait for it only if this is about the thread
@@ -170,7 +169,7 @@ static void flush_owned_fpu(struct k_thread *thread)
 		 */
 		if (thread == _current) {
 			z_riscv_fpu_disable();
-			z_riscv_flush_local_fpu();
+			arch_flush_local_fpu();
 			do {
 				arch_nop();
 				owner = atomic_ptr_get(&_kernel.cpus[i].arch.fpu_owner);
@@ -204,14 +203,14 @@ void z_riscv_fpu_enter_exc(void)
  * Note that the exception depth count was not incremented before this call
  * as no further exceptions are expected before returning to normal mode.
  */
-void z_riscv_fpu_trap(z_arch_esf_t *esf)
+void z_riscv_fpu_trap(struct arch_esf *esf)
 {
 	__ASSERT((esf->mstatus & MSTATUS_FS) == 0 &&
-		 (csr_read(mstatus) & MSTATUS_FS) == 0,
+		 (z_riscv_status_read() & MSTATUS_FS) == 0,
 		 "called despite FPU being accessible");
 
 	/* save current owner's content  if any */
-	z_riscv_flush_local_fpu();
+	arch_flush_local_fpu();
 
 	if (_current->arch.exception_depth > 0) {
 		/*
@@ -220,7 +219,7 @@ void z_riscv_fpu_trap(z_arch_esf_t *esf)
 		 * by disabling IRQs as we wouldn't be able to preserve the
 		 * interrupted exception's FPU context.
 		 */
-		esf->mstatus &= ~MSTATUS_MPIE_EN;
+		esf->mstatus &= ~RV_STATUS_PIE;
 
 		/* make it accessible to the returning context */
 		esf->mstatus |= MSTATUS_FS_INIT;
@@ -253,7 +252,7 @@ void z_riscv_fpu_trap(z_arch_esf_t *esf)
  */
 static bool fpu_access_allowed(unsigned int exc_update_level)
 {
-	__ASSERT((csr_read(mstatus) & MSTATUS_IEN) == 0,
+	__ASSERT((z_riscv_status_read() & RV_STATUS_IE) == 0,
 		 "must be called with IRQs disabled");
 
 	if (_current->arch.exception_depth == exc_update_level) {
@@ -271,7 +270,7 @@ static bool fpu_access_allowed(unsigned int exc_update_level)
 			 * to come otherwise.
 			 */
 			z_riscv_fpu_disable();
-			z_riscv_flush_local_fpu();
+			arch_flush_local_fpu();
 #ifdef CONFIG_SMP
 			flush_owned_fpu(_current);
 #endif
@@ -293,7 +292,7 @@ static bool fpu_access_allowed(unsigned int exc_update_level)
  * This is called on every exception exit except for z_riscv_fpu_trap().
  * In that case the exception level of interest is 1 (soon to be 0).
  */
-void z_riscv_fpu_exit_exc(z_arch_esf_t *esf)
+void z_riscv_fpu_exit_exc(struct arch_esf *esf)
 {
 	if (fpu_access_allowed(1)) {
 		esf->mstatus &= ~MSTATUS_FS;
@@ -312,12 +311,30 @@ void z_riscv_fpu_exit_exc(z_arch_esf_t *esf)
 void z_riscv_fpu_thread_context_switch(void)
 {
 	if (fpu_access_allowed(0)) {
-		csr_clear(mstatus, MSTATUS_FS);
-		csr_set(mstatus, _current_cpu->arch.fpu_state);
+		z_riscv_status_clear(MSTATUS_FS);
+		z_riscv_status_set(_current_cpu->arch.fpu_state);
 	} else {
 		z_riscv_fpu_disable();
 	}
 }
+
+#ifdef CONFIG_RISCV_S_MODE
+/*
+ * Called from arch_irq_offload() in S-mode to restore FPU state after the
+ * simulated ISR returns.  Mirrors z_riscv_fpu_exit_exc() but applies the
+ * FS bits directly to the live status register instead of to a saved ESF,
+ * because the S-mode irq_offload path has no real exception frame.
+ */
+void z_riscv_fpu_irq_offload_exit(void)
+{
+	if (fpu_access_allowed(1)) {
+		z_riscv_status_clear(MSTATUS_FS);
+		z_riscv_status_set(_current_cpu->arch.fpu_state);
+	} else {
+		z_riscv_status_clear(MSTATUS_FS);
+	}
+}
+#endif /* CONFIG_RISCV_S_MODE */
 
 int arch_float_disable(struct k_thread *thread)
 {
@@ -329,7 +346,7 @@ int arch_float_disable(struct k_thread *thread)
 #else
 		if (thread == _current_cpu->arch.fpu_owner) {
 			z_riscv_fpu_disable();
-			z_riscv_flush_local_fpu();
+			arch_flush_local_fpu();
 		}
 #endif
 
@@ -341,6 +358,9 @@ int arch_float_disable(struct k_thread *thread)
 
 int arch_float_enable(struct k_thread *thread, unsigned int options)
 {
+	ARG_UNUSED(thread);
+	ARG_UNUSED(options);
+
 	/* floats always gets enabled automatically at the moment */
 	return 0;
 }

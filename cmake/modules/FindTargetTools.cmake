@@ -21,6 +21,12 @@
 # 'TargetTools_FOUND', 'TARGETTOOLS_FOUND'
 # True if all required host tools were found.
 
+if(NOT DEFINED ENV{CCACHE_IGNOREOPTIONS})
+  # ccache <4.12 are unable to handle `-specs` correctly
+  # https://github.com/ccache/ccache/issues/1625
+  set(ccache_minimum_version 4.12)
+endif()
+find_package(Ccache ${ccache_minimum_version})
 find_package(HostTools)
 
 if(TargetTools_FOUND)
@@ -31,7 +37,15 @@ endif()
 set(CMAKE_C_COMPILER_FORCED   1)
 set(CMAKE_CXX_COMPILER_FORCED 1)
 
-# No official documentation exists for the "Generic" value, except their wiki.
+if(Ccache_FOUND)
+  set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE})
+  set(CMAKE_C_LINKER_LAUNCHER     ${CCACHE})
+  set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE})
+  set(CMAKE_CXX_LINKER_LAUNCHER   ${CCACHE})
+endif()
+
+# https://cmake.org/cmake/help/latest/variable/CMAKE_SYSTEM_NAME.html:
+#   The name of the operating system for which CMake is to build.
 #
 # https://gitlab.kitware.com/cmake/community/wikis/doc/cmake/CrossCompiling:
 #   CMAKE_SYSTEM_NAME : this one is mandatory, it is the name of the target
@@ -74,7 +88,7 @@ else()
   set(CMAKE_CXX_BYTE_ORDER LITTLE_ENDIAN)
 endif()
 
-# We are not building dynamically loadable libraries
+# Do not build dynamically loadable libraries by default
 set(BUILD_SHARED_LIBS OFF)
 
 # Custom targets for compiler and linker flags.
@@ -103,6 +117,9 @@ include(${TOOLCHAIN_ROOT}/cmake/compiler/${COMPILER}/target.cmake OPTIONAL)
 include(${TOOLCHAIN_ROOT}/cmake/linker/${LINKER}/target.cmake OPTIONAL)
 include(${ZEPHYR_BASE}/cmake/bintools/bintools_template.cmake)
 include(${TOOLCHAIN_ROOT}/cmake/bintools/${BINTOOLS}/target.cmake OPTIONAL)
+
+include(${TOOLCHAIN_ROOT}/cmake/linker/target_template.cmake)
+include(${TOOLCHAIN_ROOT}/cmake/compiler/target_template.cmake)
 
 set(TargetTools_FOUND TRUE)
 set(TARGETTOOLS_FOUND TRUE)

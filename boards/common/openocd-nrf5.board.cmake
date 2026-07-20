@@ -6,16 +6,21 @@
 #
 # Boards which don't meet this convention can set this variable before
 # including this script.
-if (NOT DEFINED OPENOCD_NRF5_SUBFAMILY)
+if(NOT DEFINED OPENOCD_NRF5_SUBFAMILY)
   string(REGEX MATCH nrf5. OPENOCD_NRF5_SUBFAMILY "${BOARD}")
+
+  if("${OPENOCD_NRF5_SUBFAMILY}" STREQUAL "")
+    string(REGEX MATCH nrf5. OPENOCD_NRF5_SUBFAMILY "${BOARD_QUALIFIERS}")
+  endif()
 endif()
+
 if("${OPENOCD_NRF5_SUBFAMILY}" STREQUAL "")
   message(FATAL_ERROR
     "Can't match nrf5 subfamily from BOARD name. "
     "To fix, set CMake variable OPENOCD_NRF5_SUBFAMILY.")
 endif()
 
-if (NOT DEFINED OPENOCD_NRF5_INTERFACE)
+if(NOT DEFINED OPENOCD_NRF5_INTERFACE)
   set(OPENOCD_NRF5_INTERFACE "jlink")
 endif()
 

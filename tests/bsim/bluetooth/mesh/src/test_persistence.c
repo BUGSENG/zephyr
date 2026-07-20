@@ -12,6 +12,9 @@
 #include "mesh/keys.h"
 #include <bs_cmd_line.h>
 
+#include <zephyr/psa/key_ids.h>
+#include <psa/crypto.h>
+
 #define LOG_MODULE_NAME test_persistence
 
 #include <zephyr/logging/log.h>
@@ -247,6 +250,7 @@ static const struct stack_cfg {
 	},
 };
 static const struct stack_cfg *current_stack_cfg;
+static bool persist_stuck_key;
 
 static void test_args_parse(int argc, char *argv[])
 {
@@ -267,6 +271,13 @@ static void test_args_parse(int argc, char *argv[])
 			.name = "{0, 1}",
 			.option = "stack-cfg",
 			.descript = ""
+		},
+		{
+			.dest = &persist_stuck_key,
+			.type = 'b',
+			.name = "{0, 1}",
+			.option = "persist-stuck-key",
+			.descript = "PSA ITS has a gotten stuck key"
 		}
 	};
 
@@ -338,7 +349,7 @@ static void check_mod_pub_params(const struct bt_mesh_cfg_cli_mod_pub *expected,
 	ASSERT_EQUAL(expected->transmit, got->transmit);
 }
 
-int test_model_settings_set(struct bt_mesh_model *model,
+int test_model_settings_set(const struct bt_mesh_model *model,
 			    const char *name, size_t len_rd,
 			    settings_read_cb read_cb, void *cb_arg)
 {
@@ -364,12 +375,12 @@ int test_model_settings_set(struct bt_mesh_model *model,
 	return 0;
 }
 
-void test_model_reset(struct bt_mesh_model *model)
+void test_model_reset(const struct bt_mesh_model *model)
 {
 	ASSERT_OK(bt_mesh_model_data_store(test_model, false, TEST_MOD_DATA_NAME, NULL, 0));
 }
 
-int test_vnd_model_settings_set(struct bt_mesh_model *model,
+int test_vnd_model_settings_set(const struct bt_mesh_model *model,
 				const char *name, size_t len_rd,
 				settings_read_cb read_cb, void *cb_arg)
 {
@@ -395,7 +406,7 @@ int test_vnd_model_settings_set(struct bt_mesh_model *model,
 	return 0;
 }
 
-void test_vnd_model_reset(struct bt_mesh_model *model)
+void test_vnd_model_reset(const struct bt_mesh_model *model)
 {
 	ASSERT_OK(bt_mesh_model_data_store(test_vnd_model, true, TEST_VND_MOD_DATA_NAME, NULL, 0));
 }
@@ -429,7 +440,6 @@ static void provisioner_setup(void)
 		.node_added = prov_node_added,
 	};
 	uint8_t primary_netkey[16] = { 0xad, 0xde, 0xfa, 0x32 };
-	struct bt_mesh_cdb_subnet *subnet;
 	uint8_t status;
 	int err;
 
@@ -441,15 +451,6 @@ static void provisioner_setup(void)
 	ASSERT_OK(bt_mesh_provision(primary_netkey, 0, test_flags, test_ividx, TEST_PROV_ADDR,
 				    test_prov_devkey));
 
-	/* Adding a subnet for test_netkey as it is not primary. */
-	subnet = bt_mesh_cdb_subnet_alloc(test_netkey_idx);
-	ASSERT_TRUE(subnet != NULL);
-	err = bt_mesh_cdb_subnet_key_import(subnet, 0, test_netkey);
-	if (err) {
-		FAIL("Unable to import test_netkey (err: %d)", err);
-	}
-	bt_mesh_cdb_subnet_store(subnet);
-
 	err = bt_mesh_cfg_cli_net_key_add(0, TEST_PROV_ADDR, test_netkey_idx, test_netkey, &status);
 	if (err || status) {
 		FAIL("Failed to add test_netkey (err: %d, status: %d)", err, status);
@@ -458,9 +459,67 @@ static void provisioner_setup(void)
 	provisioner_ready = true;
 }
 
+static void fake_key_setup(void)
+{
+	psa_key_attributes_t key_attributes = PSA_KEY_ATTRIBUTES_INIT;
+	psa_status_t status;
+	psa_key_id_t key_id = ZEPHYR_PSA_BT_MESH_KEY_ID_RANGE_BEGIN;
+	psa_key_id_t key_id_imported;
+	const uint8_t in[16] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+						0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10};
+	uint8_t out[16] = {0};
+	size_t out_len;
+
+	psa_set_key_lifetime(&key_attributes, PSA_KEY_LIFETIME_PERSISTENT);
+	psa_set_key_id(&key_attributes, key_id);
+	psa_set_key_usage_flags(&key_attributes, PSA_KEY_USAGE_EXPORT);
+	psa_set_key_type(&key_attributes, PSA_KEY_TYPE_AES);
+	psa_set_key_bits(&key_attributes, 128);
+
+	status = psa_import_key(&key_attributes, in, 16, &key_id_imported);
+	psa_reset_key_attributes(&key_attributes);
+	if (status != PSA_SUCCESS) {
+		FAIL("Failed to import fake key");
+	}
+
+	if (key_id_imported != key_id) {
+		FAIL("Imported key ID does not match expected key ID");
+	}
+
+	status = psa_export_key(key_id_imported, out, sizeof(out), &out_len);
+	if (status != PSA_SUCCESS) {
+		FAIL("Failed to export fake key");
+	}
+
+	if (memcmp(out, in, sizeof(in)) != 0 || out_len != sizeof(in)) {
+		FAIL("Exported key does not match imported key");
+	}
+}
+
+static void fake_key_destruction_check(void)
+{
+	psa_status_t status;
+	psa_key_id_t key_id = ZEPHYR_PSA_BT_MESH_KEY_ID_RANGE_BEGIN;
+	uint8_t out[16] = {0};
+	size_t out_len;
+
+	status = psa_export_key(key_id, out, sizeof(out), &out_len);
+	if (status != PSA_SUCCESS) {
+		FAIL("Failed to export former fake key ID");
+	}
+
+	if (memcmp(out, test_devkey, sizeof(out)) != 0 || out_len != sizeof(test_devkey)) {
+		FAIL("Exported fake key does not match test device key");
+	}
+}
+
 static void test_provisioning_data_save(void)
 {
 	bt_mesh_test_cfg_set(NULL, WAIT_TIME);
+
+	if (persist_stuck_key) {
+		fake_key_setup();
+	}
 
 	if (device_setup_and_self_provision()) {
 		FAIL("Mesh setup failed. Settings should not be loaded.");
@@ -475,6 +534,10 @@ static void test_provisioning_data_load(void)
 {
 	/* In this test stack should boot as provisioned */
 	bt_mesh_test_cfg_set(NULL, WAIT_TIME);
+
+	if (persist_stuck_key) {
+		fake_key_destruction_check();
+	}
 
 	if (device_setup_and_self_provision() != -EALREADY) {
 		FAIL("Device should boot up as already provisioned");
@@ -549,7 +612,7 @@ static void node_configure(void)
 	 */
 	uint8_t net_transmit;
 
-	net_transmit = BT_MESH_TRANSMIT(3, 20);
+	net_transmit = BT_MESH_TRANSMIT(3, 50);
 	err = bt_mesh_cfg_cli_net_transmit_set(test_netkey_idx, TEST_ADDR, net_transmit, &status);
 	if (err || status != net_transmit) {
 		FAIL("Net transmit set failed (err %d, transmit %x)", err, status);
@@ -953,14 +1016,16 @@ static void test_cfg_save(void)
 		.rand_interval = current_stack_cfg->priv_beacon_int,
 	};
 
-	err = bt_mesh_priv_beacon_cli_set(test_netkey_idx, TEST_ADDR, &priv_beacon_state);
+	err = bt_mesh_priv_beacon_cli_set(test_netkey_idx, TEST_ADDR, &priv_beacon_state,
+					  &priv_beacon_state);
 	if (err) {
 		FAIL("Failed to enable Private Beacon (err %d)", err);
 	}
 
 	uint8_t priv_beacon_gatt = current_stack_cfg->priv_beacon_gatt;
 
-	err = bt_mesh_priv_beacon_cli_gatt_proxy_set(test_netkey_idx, TEST_ADDR, &priv_beacon_gatt);
+	err = bt_mesh_priv_beacon_cli_gatt_proxy_set(test_netkey_idx, TEST_ADDR, priv_beacon_gatt,
+						     &priv_beacon_gatt);
 	if (err) {
 		FAIL("Failed to enable Private Beacon GATT proxy (err %d)", err);
 	}

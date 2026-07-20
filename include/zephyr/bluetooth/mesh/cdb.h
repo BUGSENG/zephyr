@@ -3,6 +3,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+/**
+ * @file
+ * @brief Header file for the Bluetooth Mesh Configuration Database (CDB) API.
+ * @ingroup bt_mesh
+ */
+
 #ifndef ZEPHYR_INCLUDE_BLUETOOTH_MESH_CDB_H_
 #define ZEPHYR_INCLUDE_BLUETOOTH_MESH_CDB_H_
 
@@ -32,34 +39,48 @@ enum {
 	BT_MESH_CDB_NODE_FLAG_COUNT
 };
 
+/* doc string cdb node start */
 struct bt_mesh_cdb_node {
+	/** Node UUID */
 	uint8_t  uuid[16];
+	/** Primary element address */
 	uint16_t addr;
+	/** Network key index used during provisioning */
 	uint16_t net_idx;
+	/** Number of elements */
 	uint8_t  num_elem;
+	/** Device key */
 	struct bt_mesh_key dev_key;
-
+	/** Node flags */
 	ATOMIC_DEFINE(flags, BT_MESH_CDB_NODE_FLAG_COUNT);
 };
+/* doc string cdb node end */
 
+/* doc string cdb subnet start */
 struct bt_mesh_cdb_subnet {
+	/** Network key index */
 	uint16_t net_idx;
-
+	/** Key Refresh phase */
 	uint8_t kr_phase;
-
+	/** Old and new keys for Key Refresh */
 	struct {
 		struct bt_mesh_key net_key;
 	} keys[2];
 };
+/* doc string cdb subnet end */
 
+/* doc string cdb app key start */
 struct bt_mesh_cdb_app_key {
+	/** Bound network key index */
 	uint16_t net_idx;
+	/** Application key index */
 	uint16_t app_idx;
-
+	/** Old and new keys for Key Refresh */
 	struct {
 		struct bt_mesh_key app_key;
 	} keys[2];
 };
+/* doc string cdb app key end */
 
 enum {
 	BT_MESH_CDB_VALID,
@@ -71,18 +92,25 @@ enum {
 	BT_MESH_CDB_FLAG_COUNT,
 };
 
+/* doc string cdb start */
 struct bt_mesh_cdb {
+	/** Network IV Index */
 	uint32_t iv_index;
+	/** Lowest available unicast address for provisioning */
 	uint16_t lowest_avail_addr;
-
+	/** Flags for CDB state (private) */
 	ATOMIC_DEFINE(flags, BT_MESH_CDB_FLAG_COUNT);
-
+	/** Nodes in the mesh network */
 	struct bt_mesh_cdb_node nodes[NODE_COUNT];
+	/** Subnets in the mesh network */
 	struct bt_mesh_cdb_subnet subnets[SUBNET_COUNT];
+	/** Application keys in the mesh network */
 	struct bt_mesh_cdb_app_key app_keys[APP_KEY_COUNT];
 };
 
+/** The global CDB instance is accessible through this variable. */
 extern struct bt_mesh_cdb bt_mesh_cdb;
+/* doc string cdb end */
 
 /** @brief Create the Mesh Configuration Database.
  *
@@ -231,7 +259,7 @@ enum {
  *          or BT_MESH_CDB_ITER_STOP to stop.
  */
 typedef uint8_t (*bt_mesh_cdb_node_func_t)(struct bt_mesh_cdb_node *node,
-					void *user_data);
+					   void *user_data);
 
 /** @brief Node iterator.
  *
@@ -249,7 +277,8 @@ void bt_mesh_cdb_node_foreach(bt_mesh_cdb_node_func_t func, void *user_data);
  *
  *  @param net_idx NetIdx of the subnet.
  *
- *  @return The new subnet or NULL if it cannot be allocated.
+ *  @return The new subnet or NULL if it cannot be allocated due to
+ *          lack of resources or the subnet has been already allocated.
  */
 struct bt_mesh_cdb_subnet *bt_mesh_cdb_subnet_alloc(uint16_t net_idx);
 
@@ -328,7 +357,8 @@ int bt_mesh_cdb_subnet_key_export(const struct bt_mesh_cdb_subnet *sub, int key_
  *  @param net_idx NetIdx of NetKey that the application key is bound to.
  *  @param app_idx AppIdx of the application key.
  *
- *  @return The new application key or NULL if it cannot be allocated.
+ *  @return The new application key or NULL if it cannot be allocated due to
+ *          lack of resources or the key has been already allocated.
  */
 struct bt_mesh_cdb_app_key *bt_mesh_cdb_app_key_alloc(uint16_t net_idx,
 						      uint16_t app_idx);

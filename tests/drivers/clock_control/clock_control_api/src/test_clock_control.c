@@ -3,58 +3,25 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+
 #include <zephyr/ztest.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(test);
 
 #if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_clock)
-#include <zephyr/drivers/clock_control/nrf_clock_control.h>
+#include "nrf_device_subsys.h"
+#elif DT_HAS_COMPAT_STATUS_OKAY(espressif_esp32_clock)
+#include "esp32_device_subsys.h"
+#elif DT_HAS_COMPAT_STATUS_OKAY(silabs_series_clock)
+#include "silabs_device_subsys.h"
+#elif DT_HAS_COMPAT_STATUS_OKAY(microchip_sam_d5x_e5x_clock) || \
+	DT_HAS_COMPAT_STATUS_OKAY(microchip_pic32cm_jh_clock)
+#include "mchp_device_subsys.h"
+#else
+#error "Unsupported board"
 #endif
-
-struct device_subsys_data {
-	clock_control_subsys_t subsys;
-	uint32_t startup_us;
-};
-
-struct device_data {
-	const struct device *dev;
-	const struct device_subsys_data *subsys_data;
-	uint32_t subsys_cnt;
-};
-
-#if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_clock)
-static const struct device_subsys_data subsys_data[] = {
-	{
-		.subsys = CLOCK_CONTROL_NRF_SUBSYS_HF,
-		.startup_us =
-			IS_ENABLED(CONFIG_SOC_SERIES_NRF91X) ?
-				3000 : 500
-	},
-#ifndef CONFIG_SOC_NRF52832
-	/* On nrf52832 LF clock cannot be stopped because it leads
-	 * to RTC COUNTER register reset and that is unexpected by
-	 * system clock which is disrupted and may hang in the test.
-	 */
-	{
-		.subsys = CLOCK_CONTROL_NRF_SUBSYS_LF,
-		.startup_us = (CLOCK_CONTROL_NRF_K32SRC ==
-			NRF_CLOCK_LFCLK_RC) ? 1000 : 500000
-	}
-#endif /* !CONFIG_SOC_NRF52832 */
-};
-#endif /* DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_clock) */
-
-static const struct device_data devices[] = {
-#if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_clock)
-	{
-		.dev = DEVICE_DT_GET_ONE(nordic_nrf_clock),
-		.subsys_data =  subsys_data,
-		.subsys_cnt = ARRAY_SIZE(subsys_data)
-	}
-#endif
-};
-
 
 typedef void (*test_func_t)(const struct device *dev,
 			    clock_control_subsys_t subsys,
@@ -194,7 +161,9 @@ static bool async_capable(const struct device *dev, clock_control_subsys_t subsy
 	int err;
 
 	err = clock_control_async_on(dev, subsys, async_capable_callback, NULL);
-	if (err < 0) {
+	if (err == -ENOSYS) {
+		ztest_test_skip();
+	} else if (err < 0) {
 		printk("failed %d", err);
 		return false;
 	}
@@ -294,7 +263,7 @@ ZTEST(clock_control, test_async_on_stopped)
 }
 
 /*
- * Test checks that that second start returns error.
+ * Second clock_control_on may return success or -EALREADY; clock must stay on.
  */
 static void test_double_start_on_instance(const struct device *dev,
 						clock_control_subsys_t subsys,
@@ -311,7 +280,12 @@ static void test_double_start_on_instance(const struct device *dev,
 	zassert_equal(0, err, "%s: Unexpected err (%d)", dev->name, err);
 
 	err = clock_control_on(dev, subsys);
-	zassert_true(err < 0, "%s: Unexpected return value:%d", dev->name, err);
+	zassert_true(err == 0 || err == -EALREADY,
+		     "%s: Unexpected return value:%d", dev->name, err);
+
+	status = clock_control_get_status(dev, subsys);
+	zassert_equal(CLOCK_CONTROL_STATUS_ON, status,
+		      "%s: Clock should still be on (%d)", dev->name, status);
 }
 
 ZTEST(clock_control, test_double_start)
@@ -320,7 +294,7 @@ ZTEST(clock_control, test_double_start)
 }
 
 /*
- * Test checks that that second stop returns 0.
+ * Test checks that the second stop returns 0.
  * Test precondition: clock is stopped.
  */
 static void test_double_stop_on_instance(const struct device *dev,

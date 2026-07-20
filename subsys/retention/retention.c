@@ -96,7 +96,7 @@ static int retention_checksum(const struct device *dev, uint32_t *output)
 		*output = 0;
 
 		while (pos < end) {
-			uint8_t read_size = MIN((end - pos), sizeof(buffer));
+			uint16_t read_size = MIN((end - pos), sizeof(buffer));
 
 			rc = retained_mem_read(config->parent, pos, buffer, read_size);
 
@@ -188,7 +188,7 @@ int retention_is_valid(const struct device *dev)
 		off_t pos = 0;
 
 		while (pos < config->prefix_len) {
-			uint8_t read_size = MIN((config->prefix_len - pos), sizeof(buffer));
+			uint16_t read_size = MIN((config->prefix_len - pos), sizeof(buffer));
 
 			rc = retained_mem_read(config->parent, (config->offset + pos), buffer,
 					       read_size);
@@ -392,14 +392,6 @@ finish:
 	return rc;
 }
 
-static const struct retention_api retention_api = {
-	.size = retention_size,
-	.is_valid = retention_is_valid,
-	.read = retention_read,
-	.write = retention_write,
-	.clear = retention_clear,
-};
-
 #define RETENTION_DEVICE(inst)									\
 	static struct retention_data								\
 		retention_data_##inst = {							\
@@ -409,7 +401,7 @@ static const struct retention_api retention_api = {
 		retention_config_##inst = {							\
 		.parent = DEVICE_DT_GET(DT_PARENT(DT_INST(inst, DT_DRV_COMPAT))),		\
 		.checksum_size = DT_INST_PROP(inst, checksum),					\
-		.offset = DT_INST_REG_ADDR(inst),						\
+		.offset = DT_INST_PROP_BY_IDX(inst, reg, 0),					\
 		.size = DT_INST_REG_SIZE(inst),							\
 		.reserved_size = (COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, prefix),		\
 					      (DT_INST_PROP_LEN(inst, prefix)), (0)) +		\
@@ -425,6 +417,6 @@ static const struct retention_api retention_api = {
 			      &retention_config_##inst,						\
 			      POST_KERNEL,							\
 			      CONFIG_RETENTION_INIT_PRIORITY,					\
-			      &retention_api);
+			      NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(RETENTION_DEVICE)

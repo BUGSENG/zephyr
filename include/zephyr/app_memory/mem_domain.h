@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef INCLUDE_APP_MEMORY_MEM_DOMAIN_H
-#define INCLUDE_APP_MEMORY_MEM_DOMAIN_H
+#ifndef ZEPHYR_INCLUDE_APP_MEMORY_MEM_DOMAIN_H_
+#define ZEPHYR_INCLUDE_APP_MEMORY_MEM_DOMAIN_H_
 
 #include <stdint.h>
 #include <stddef.h>
@@ -83,11 +83,18 @@ struct k_mem_domain {
 #endif /* CONFIG_ARCH_MEM_DOMAIN_DATA */
 	/** partitions in the domain */
 	struct k_mem_partition partitions[CONFIG_MAX_DOMAIN_PARTITIONS];
-	/** Doubly linked list of member threads */
-	sys_dlist_t mem_domain_q;
+#ifdef CONFIG_MEM_DOMAIN_HAS_THREAD_LIST
+	/** Doubly linked list of member threads,
+	 * pointer to the thread_mem_domain_node inside
+	 * each thread's memory domain info struct.
+	 */
+	sys_dlist_t thread_mem_domain_list;
+#endif /* CONFIG_MEM_DOMAIN_HAS_THREAD_LIST */
 	/** number of active partitions in the domain */
 	uint8_t num_partitions;
 };
+
+typedef struct k_mem_domain k_mem_domain_t;
 
 /**
  * Default memory domain
@@ -126,8 +133,19 @@ struct k_mem_partition;
  * @retval -EINVAL if invalid parameters supplied
  * @retval -ENOMEM if insufficient memory
  */
-extern int k_mem_domain_init(struct k_mem_domain *domain, uint8_t num_parts,
+int k_mem_domain_init(struct k_mem_domain *domain, uint8_t num_parts,
 			     struct k_mem_partition *parts[]);
+
+/**
+ * @brief De-initialize a memory domain.
+ *
+ * @param domain The memory domain to be de-initialized.
+ *
+ * @retval 0 if successful
+ * @retval -EBUSY if there are still threads associated with this memory domain.
+ * @retval -EINVAL if invalid parameter supplied
+ */
+int k_mem_domain_deinit(struct k_mem_domain *domain);
 
 /**
  * @brief Add a memory partition into a memory domain.
@@ -156,7 +174,7 @@ extern int k_mem_domain_init(struct k_mem_domain *domain, uint8_t num_parts,
  * @retval -EINVAL if invalid parameters supplied
  * @retval -ENOSPC if no free partition slots available
  */
-extern int k_mem_domain_add_partition(struct k_mem_domain *domain,
+int k_mem_domain_add_partition(struct k_mem_domain *domain,
 				      struct k_mem_partition *part);
 
 /**
@@ -171,7 +189,7 @@ extern int k_mem_domain_add_partition(struct k_mem_domain *domain,
  * @retval -EINVAL if invalid parameters supplied
  * @retval -ENOENT if no matching partition found
  */
-extern int k_mem_domain_remove_partition(struct k_mem_domain *domain,
+int k_mem_domain_remove_partition(struct k_mem_domain *domain,
 					 struct k_mem_partition *part);
 
 /**
@@ -185,7 +203,7 @@ extern int k_mem_domain_remove_partition(struct k_mem_domain *domain,
  *
  * @return 0 if successful, fails otherwise.
  */
-extern int k_mem_domain_add_thread(struct k_mem_domain *domain,
+int k_mem_domain_add_thread(struct k_mem_domain *domain,
 				   k_tid_t thread);
 
 #ifdef __cplusplus
@@ -193,4 +211,4 @@ extern int k_mem_domain_add_thread(struct k_mem_domain *domain,
 #endif
 
 /** @} */
-#endif /* INCLUDE_APP_MEMORY_MEM_DOMAIN_H */
+#endif /* ZEPHYR_INCLUDE_APP_MEMORY_MEM_DOMAIN_H_ */

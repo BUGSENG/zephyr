@@ -77,7 +77,7 @@ extern void z_irq_priority_set(unsigned int irq, unsigned int prio,
  */
 #define ARCH_IRQ_DIRECT_CONNECT(irq_p, priority_p, isr_p, flags_p) \
 { \
-	Z_ISR_DECLARE(irq_p, ISR_FLAG_DIRECT, isr_p, NULL); \
+	Z_ISR_DECLARE_DIRECT(irq_p, ISR_FLAG_DIRECT, isr_p); \
 	BUILD_ASSERT(priority_p || !IS_ENABLED(CONFIG_ARC_FIRQ) || \
 	(IS_ENABLED(CONFIG_ARC_FIRQ_STACK) && \
 	!IS_ENABLED(CONFIG_ARC_STACK_CHECKING)), \
@@ -185,6 +185,16 @@ static ALWAYS_INLINE bool arch_irq_unlocked(unsigned int key)
 	 * bit4 is used to record IE (Interrupt Enable) bit
 	 */
 	return (key & 0x10)  ==  0x10;
+}
+
+/** Implementation of @ref arch_cpu_irqs_are_enabled. */
+static ALWAYS_INLINE bool arch_cpu_irqs_are_enabled(void)
+{
+	/* Probe the live STATUS32 register. IE lives at bit 31 there,
+	 * unlike the bit 4 position used in the packed value returned
+	 * by "clri" above.
+	 */
+	return (z_arc_v2_aux_reg_read(_ARC_V2_STATUS32) & _ARC_V2_STATUS32_IE) != 0;
 }
 
 #endif /* _ASMLANGUAGE */

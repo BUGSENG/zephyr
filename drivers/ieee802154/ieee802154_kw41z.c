@@ -513,7 +513,7 @@ static inline void kw41z_rx(struct kw41z_context *kw41z, uint8_t len)
 #endif
 
 	pkt = net_pkt_rx_alloc_with_buffer(kw41z->iface, pkt_len,
-					   AF_UNSPEC, 0, K_NO_WAIT);
+					   NET_AF_UNSPEC, 0, K_NO_WAIT);
 	if (!pkt) {
 		LOG_ERR("No buf available");
 		goto out;
@@ -581,7 +581,7 @@ static void handle_ack(struct kw41z_context *kw41z, uint8_t seq_number)
 	uint8_t ack_psdu[ACK_FRAME_LEN];
 
 	ack_pkt = net_pkt_rx_alloc_with_buffer(kw41z->iface, ACK_FRAME_LEN,
-					       AF_UNSPEC, 0, K_NO_WAIT);
+					       NET_AF_UNSPEC, 0, K_NO_WAIT);
 	if (!ack_pkt) {
 		LOG_ERR("No free packet available.");
 		return;
@@ -622,7 +622,7 @@ static int kw41z_tx(const struct device *dev, enum ieee802154_tx_mode mode,
 	unsigned int key;
 
 	if (mode != IEEE802154_TX_MODE_DIRECT) {
-		NET_ERR("TX mode %d not supported", mode);
+		LOG_ERR("TX mode %d not supported", mode);
 		return -ENOTSUP;
 	}
 
@@ -935,11 +935,7 @@ static inline uint8_t *get_mac(const struct device *dev)
 	 *       and how to allow for a OUI portion?
 	 */
 
-	uint32_t *ptr = (uint32_t *)(kw41z->mac_addr);
-
-	UNALIGNED_PUT(sys_rand32_get(), ptr);
-	ptr = (uint32_t *)(kw41z->mac_addr + 4);
-	UNALIGNED_PUT(sys_rand32_get(), ptr);
+	sys_rand_get(kw41z->mac_addr, sizeof(kw41z->mac_addr));
 
 	/*
 	 * Clear bit 0 to ensure it isn't a multicast address and set
@@ -1091,7 +1087,7 @@ static int kw41z_attr_get(const struct device *dev, enum ieee802154_attr attr,
 		&drv_attr.phy_supported_channels, value);
 }
 
-static struct ieee802154_radio_api kw41z_radio_api = {
+static const struct ieee802154_radio_api kw41z_radio_api = {
 	.iface_api.init	= kw41z_iface_init,
 
 	.get_capabilities	= kw41z_get_capabilities,

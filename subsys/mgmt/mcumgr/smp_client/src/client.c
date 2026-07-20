@@ -13,7 +13,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/init.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 
 #include <zephyr/mgmt/mcumgr/mgmt/mgmt.h>
 #include <zephyr/mgmt/mcumgr/smp/smp.h>
@@ -58,7 +58,7 @@ static void smp_client_handle_reqs(struct k_work *work)
 	smp_client = (void *)work;
 	smpt = smp_client->smpt;
 
-	while ((nb = net_buf_get(&smp_client->tx_fifo, K_NO_WAIT)) != NULL) {
+	while ((nb = k_fifo_get(&smp_client->tx_fifo, K_NO_WAIT)) != NULL) {
 		smpt->functions.output(nb);
 	}
 }
@@ -102,7 +102,7 @@ static void smp_client_transport_work_fn(struct k_work *work)
 			time_stamp_cmp = entry->timestamp - time_stamp_ref;
 			if (time_stamp_cmp < CONFIG_SMP_CMD_RETRY_TIME &&
 			    time_stamp_cmp < backoff_ms) {
-				/* Update new shorter shedule */
+				/* Update new shorter schedule */
 				backoff_ms = time_stamp_cmp;
 			}
 			continue;
@@ -111,8 +111,8 @@ static void smp_client_transport_work_fn(struct k_work *work)
 			entry->nb = net_buf_ref(entry->nb);
 			entry->retry_cnt--;
 			entry->timestamp = time_stamp_ref + CONFIG_SMP_CMD_RETRY_TIME;
-			net_buf_put(&entry->smp_client->tx_fifo, entry->nb);
-			smp_tx_req(&entry->smp_client->work);
+			k_fifo_put(&entry->smp_client->tx_fifo, entry->nb);
+			k_work_submit_to_queue(smp_get_wq(), &entry->smp_client->work);
 			continue;
 		}
 
@@ -126,7 +126,8 @@ static void smp_client_transport_work_fn(struct k_work *work)
 
 	if (!sys_slist_is_empty(&smp_client_data.cmd_list)) {
 		/* Re-schedule new timeout to next */
-		k_work_reschedule(&smp_client_data.work_delay, K_MSEC(backoff_ms));
+		k_work_reschedule_for_queue(smp_get_wq(), &smp_client_data.work_delay,
+					    K_MSEC(backoff_ms));
 	}
 }
 
@@ -160,7 +161,8 @@ static void smp_cmd_add_to_list(struct smp_client_cmd_req *cmd_req)
 {
 	if (sys_slist_is_empty(&smp_client_data.cmd_list)) {
 		/* Enable timer */
-		k_work_reschedule(&smp_client_data.work_delay, K_MSEC(CONFIG_SMP_CMD_RETRY_TIME));
+		k_work_reschedule_for_queue(smp_get_wq(), &smp_client_data.work_delay,
+					    K_MSEC(CONFIG_SMP_CMD_RETRY_TIME));
 	}
 	sys_slist_append(&smp_client_data.cmd_list, &cmd_req->node);
 }
@@ -254,7 +256,7 @@ struct net_buf *smp_client_buf_allocation(struct smp_client_object *smp_client, 
 	struct net_buf *nb;
 	struct smp_hdr smp_header;
 
-	nb = smp_packet_alloc();
+	nb = smp_alloc_req(smp_client->smpt, smp_client_object_get_data(smp_client));
 
 	if (nb) {
 		/* Write SMP header with payload length 0 */
@@ -319,8 +321,8 @@ int smp_client_send_cmd(struct smp_client_object *smp_client, struct net_buf *nb
 	/* Increment reference for re-transmission and read smp header */
 	nb = net_buf_ref(nb);
 	smp_cmd_add_to_list(cmd_req);
-	net_buf_put(&smp_client->tx_fifo, nb);
-	smp_tx_req(&smp_client->work);
+	k_fifo_put(&smp_client->tx_fifo, nb);
+	k_work_submit_to_queue(smp_get_wq(), &smp_client->work);
 	return MGMT_ERR_EOK;
 }
 

@@ -19,6 +19,7 @@ extern "C" {
 /**
  * @defgroup devicetree-spi Devicetree SPI API
  * @ingroup devicetree
+ * @ingroup spi_interface
  * @{
  */
 
@@ -114,7 +115,8 @@ extern "C" {
  * @return 1 if spi_dev's bus node DT_BUS(spi_dev) has a chip select
  *         pin at index DT_REG_ADDR(spi_dev), 0 otherwise
  */
-#define DT_SPI_DEV_HAS_CS_GPIOS(spi_dev) DT_SPI_HAS_CS_GPIOS(DT_BUS(spi_dev))
+#define DT_SPI_DEV_HAS_CS_GPIOS(spi_dev)                                                           \
+	DT_PROP_HAS_IDX(DT_BUS(spi_dev), cs_gpios, DT_REG_ADDR_RAW(spi_dev))
 
 /**
  * @brief Get a SPI device's chip select GPIO controller's node identifier
@@ -148,48 +150,7 @@ extern "C" {
  * @return node identifier for spi_dev's chip select GPIO controller
  */
 #define DT_SPI_DEV_CS_GPIOS_CTLR(spi_dev) \
-	DT_GPIO_CTLR_BY_IDX(DT_BUS(spi_dev), cs_gpios, DT_REG_ADDR(spi_dev))
-
-/**
- * @deprecated If used to obtain a device instance with device_get_binding,
- * consider using @c DEVICE_DT_GET(DT_SPI_DEV_CS_GPIOS_CTLR(node)).
- *
- * @brief Get a SPI device's chip select GPIO controller's label property
- *
- * Example devicetree fragment:
- *
- *     gpio1: gpio@... {
- *             label = "GPIO_1";
- *     };
- *
- *     gpio2: gpio@... {
- *             label = "GPIO_2";
- *     };
- *
- *     spi1: spi@... {
- *             compatible = "vnd,spi";
- *             cs-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>,
- *                        <&gpio2 20 GPIO_ACTIVE_LOW>;
- *
- *             a: spi-dev-a@0 {
- *                     reg = <0>;
- *             };
- *
- *             b: spi-dev-b@1 {
- *                     reg = <1>;
- *             };
- *     };
- *
- * Example usage:
- *
- *     DT_SPI_DEV_CS_GPIOS_LABEL(DT_NODELABEL(a)) // "GPIO_1"
- *     DT_SPI_DEV_CS_GPIOS_LABEL(DT_NODELABEL(b)) // "GPIO_2"
- *
- * @param spi_dev a SPI device node identifier
- * @return label property of spi_dev's chip select GPIO controller
- */
-#define DT_SPI_DEV_CS_GPIOS_LABEL(spi_dev) \
-	DT_GPIO_LABEL_BY_IDX(DT_BUS(spi_dev), cs_gpios, DT_REG_ADDR(spi_dev)) __DEPRECATED_MACRO
+	DT_GPIO_CTLR_BY_IDX(DT_BUS(spi_dev), cs_gpios, DT_REG_ADDR_RAW(spi_dev))
 
 /**
  * @brief Get a SPI device's chip select GPIO pin number
@@ -222,7 +183,7 @@ extern "C" {
  * @return pin number of spi_dev's chip select GPIO
  */
 #define DT_SPI_DEV_CS_GPIOS_PIN(spi_dev) \
-	DT_GPIO_PIN_BY_IDX(DT_BUS(spi_dev), cs_gpios, DT_REG_ADDR(spi_dev))
+	DT_GPIO_PIN_BY_IDX(DT_BUS(spi_dev), cs_gpios, DT_REG_ADDR_RAW(spi_dev))
 
 /**
  * @brief Get a SPI device's chip select GPIO flags
@@ -250,11 +211,11 @@ extern "C" {
  *         zero if there is none
  */
 #define DT_SPI_DEV_CS_GPIOS_FLAGS(spi_dev) \
-	DT_GPIO_FLAGS_BY_IDX(DT_BUS(spi_dev), cs_gpios, DT_REG_ADDR(spi_dev))
+	DT_GPIO_FLAGS_BY_IDX(DT_BUS(spi_dev), cs_gpios, DT_REG_ADDR_RAW(spi_dev))
 
 /**
  * @brief Equivalent to DT_SPI_DEV_HAS_CS_GPIOS(DT_DRV_INST(inst)).
- * @param inst DT_DRV_COMPAT instance number
+ * @param inst @c DT_DRV_COMPAT instance number
  * @return 1 if the instance's bus has a CS pin at index
  *         DT_INST_REG_ADDR(inst), 0 otherwise
  * @see DT_SPI_DEV_HAS_CS_GPIOS()
@@ -265,7 +226,7 @@ extern "C" {
 /**
  * @brief Get GPIO controller node identifier for a SPI device instance
  * This is equivalent to DT_SPI_DEV_CS_GPIOS_CTLR(DT_DRV_INST(inst)).
- * @param inst DT_DRV_COMPAT instance number
+ * @param inst @c DT_DRV_COMPAT instance number
  * @return node identifier for instance's chip select GPIO controller
  * @see DT_SPI_DEV_CS_GPIOS_CTLR()
  */
@@ -273,21 +234,8 @@ extern "C" {
 	DT_SPI_DEV_CS_GPIOS_CTLR(DT_DRV_INST(inst))
 
 /**
- * @deprecated If used to obtain a device instance with device_get_binding,
- * consider using @c DEVICE_DT_GET(DT_INST_SPI_DEV_CS_GPIOS_CTLR(node)).
- *
- * @brief Get GPIO controller name for a SPI device instance
- * This is equivalent to DT_SPI_DEV_CS_GPIOS_LABEL(DT_DRV_INST(inst)).
- * @param inst DT_DRV_COMPAT instance number
- * @return label property of the instance's chip select GPIO controller
- * @see DT_SPI_DEV_CS_GPIOS_LABEL()
- */
-#define DT_INST_SPI_DEV_CS_GPIOS_LABEL(inst) \
-	DT_SPI_DEV_CS_GPIOS_LABEL(DT_DRV_INST(inst)) __DEPRECATED_MACRO
-
-/**
  * @brief Equivalent to DT_SPI_DEV_CS_GPIOS_PIN(DT_DRV_INST(inst)).
- * @param inst DT_DRV_COMPAT instance number
+ * @param inst @c DT_DRV_COMPAT instance number
  * @return pin number of the instance's chip select GPIO
  * @see DT_SPI_DEV_CS_GPIOS_PIN()
  */
@@ -296,7 +244,7 @@ extern "C" {
 
 /**
  * @brief DT_SPI_DEV_CS_GPIOS_FLAGS(DT_DRV_INST(inst)).
- * @param inst DT_DRV_COMPAT instance number
+ * @param inst @c DT_DRV_COMPAT instance number
  * @return flags value of the instance's chip select GPIO specifier,
  *         or zero if there is none
  * @see DT_SPI_DEV_CS_GPIOS_FLAGS()

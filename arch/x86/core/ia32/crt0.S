@@ -21,16 +21,17 @@
 #include <zephyr/arch/cpu.h>
 #include <zephyr/arch/x86/multiboot.h>
 #include <x86_mmu.h>
-#include <zephyr/sys/mem_manage.h>
+#include <zephyr/kernel/mm.h>
+#include <zephyr/arch/common/xip.h>
 
 	/* exports (private APIs) */
 
 	GTEXT(__start)
 
 	/* externs */
-	GTEXT(z_x86_prep_c)
-	GTEXT(z_bss_zero)
-	GTEXT(z_data_copy)
+	GTEXT(z_prep_c)
+	GTEXT(arch_bss_zero)
+	GTEXT(arch_data_copy)
 
 	GDATA(_idt_base_address)
 	GDATA(z_interrupt_stacks)
@@ -60,7 +61,7 @@
 	 * Until we enable these page tables, only physical memory addresses
 	 * work.
 	 */
-	movl	$Z_MEM_PHYS_ADDR(z_x86_kernel_ptables), %eax
+	movl	$K_MEM_PHYS_ADDR(z_x86_kernel_ptables), %eax
 	movl	%eax, %cr3
 
 #ifdef CONFIG_X86_PAE
@@ -89,7 +90,7 @@
 	orl	$(CR0_PG | CR0_WP), %eax
 	movl	%eax, %cr0
 
-#ifdef Z_VM_KERNEL
+#ifdef K_MEM_IS_VM_KERNEL
 	/* Jump to a virtual address, which works because the identity and
 	 * virtual mappings both are to the same physical address.
 	 */
@@ -98,7 +99,7 @@ vm_enter:
 	/* We are now executing in virtual memory. We'll un-map the identity
 	 * mappings later once we are in the C domain
 	 */
-#endif /* Z_VM_KERNEL */
+#endif /* K_MEM_IS_VM_KERNEL */
 
 #endif /* CONFIG_X86_MMU */
 .endm
@@ -126,7 +127,7 @@ SECTION_FUNC(BOOT_TEXT, __start)
 	 */
 #if CONFIG_SET_GDT
 	/* load 32-bit operand size GDT */
-	lgdt	Z_MEM_PHYS_ADDR(_gdt_rom)
+	lgdt	K_MEM_PHYS_ADDR(_gdt_rom)
 
 	/* If we set our own GDT, update the segment registers as well.
 	 */
@@ -138,7 +139,7 @@ SECTION_FUNC(BOOT_TEXT, __start)
 	movw	%ax, %fs	/* Zero FS */
 	movw	%ax, %gs	/* Zero GS */
 
-	ljmp	$CODE_SEG, $Z_MEM_PHYS_ADDR(__csSet)	/* set CS = 0x08 */
+	ljmp	$CODE_SEG, $K_MEM_PHYS_ADDR(__csSet)	/* set CS = 0x08 */
 
 __csSet:
 #endif /* CONFIG_SET_GDT */
@@ -180,7 +181,8 @@ __csSet:
 	andl	$~0x400, %eax		/* CR4[OSXMMEXCPT] = 0 */
 	movl	%eax, %cr4		/* move EAX to CR4 */
 
-	ldmxcsr Z_MEM_PHYS_ADDR(_sse_mxcsr_default_value)   /* initialize SSE control/status reg */
+	/* initialize SSE control/status reg */
+	ldmxcsr K_MEM_PHYS_ADDR(_sse_mxcsr_default_value)
 
   #endif /* CONFIG_X86_SSE */
 
@@ -199,7 +201,7 @@ __csSet:
 	 */
 #ifdef CONFIG_INIT_STACKS
 	movl $0xAAAAAAAA, %eax
-	leal Z_MEM_PHYS_ADDR(z_interrupt_stacks), %edi
+	leal K_MEM_PHYS_ADDR(z_interrupt_stacks), %edi
 #ifdef CONFIG_X86_STACK_PROTECTION
 	addl $4096, %edi
 #endif
@@ -208,7 +210,7 @@ __csSet:
 	rep  stosl
 #endif
 
-	movl	$Z_MEM_PHYS_ADDR(z_interrupt_stacks), %esp
+	movl	$K_MEM_PHYS_ADDR(z_interrupt_stacks), %esp
 #ifdef CONFIG_X86_STACK_PROTECTION
 	/* In this configuration, all stacks, including IRQ stack, are declared
 	 * with a 4K non-present guard page preceding the stack buffer
@@ -224,11 +226,11 @@ __csSet:
 	 * This is a must is CONFIG_GDT_DYNAMIC is enabled,
 	 * as _gdt needs to be in RAM.
 	 */
-	call	z_data_copy
+	call	arch_data_copy
 #endif
 
 	/* Note that installing page tables must be done after
-	 * z_data_copy() as the page tables are being copied into
+	 * arch_data_copy() as the page tables are being copied into
 	 * RAM there.
 	 */
 	install_page_tables
@@ -243,7 +245,7 @@ __csSet:
 	ltr %ax
 #endif
 
-#ifdef Z_VM_KERNEL
+#ifdef K_MEM_IS_VM_KERNEL
 	/* Need to reset the stack to virtual address after
 	 * page table is loaded.
 	 */
@@ -254,7 +256,7 @@ __csSet:
 #else
 	addl	$CONFIG_ISR_STACK_SIZE, %esp
 #endif
-#endif /* Z_VM_KERNEL */
+#endif /* K_MEM_IS_VM_KERNEL */
 
 #ifdef CONFIG_THREAD_LOCAL_STORAGE
 	pushl %esp
@@ -263,18 +265,18 @@ __csSet:
 #endif
 	/* Clear BSS */
 #ifdef CONFIG_LINKER_USE_BOOT_SECTION
-	call	z_bss_zero_boot
+	call	arch_bss_zero_boot
 #endif
-#ifdef CONFIG_LINKER_USE_PINNED_SECTION
-	call	z_bss_zero_pinned
+	call	arch_bss_zero
+
+#ifdef CONFIG_X86_CET
+	call z_x86_cet_enable
+#ifdef CONFIG_X86_CET_IBT
+	call z_x86_ibt_enable
 #endif
-#ifdef CONFIG_LINKER_GENERIC_SECTIONS_PRESENT_AT_BOOT
-	/* Don't clear BSS if the section is not present
-	 * in memory at boot. Or else it would cause page
-	 * faults. Zeroing BSS will be done later once the
-	 * the paging mechanism has been initialized.
-	 */
-	call	z_bss_zero
+#ifdef CONFIG_HW_SHADOW_STACK
+	call z_x86_set_irq_shadow_stack
+#endif
 #endif
 
 	/* load 32-bit operand size IDT */
@@ -287,7 +289,7 @@ __csSet:
 	/* pointer to multiboot info, or NULL */
 	movl	%ebx, __x86_boot_arg_t_arg_OFFSET(%ebp)
 	pushl	$x86_cpu_boot_arg
-	call	z_x86_prep_c	/* enter kernel; never returns */
+	call	z_prep_c	/* enter kernel; never returns */
 
 #if defined(CONFIG_X86_SSE)
 
@@ -330,7 +332,7 @@ z_x86_idt:
 	 * and fails to set it.
 	 */
 
-SECTION_VAR(PINNED_RODATA, _gdt_rom)
+SECTION_VAR(RODATA, _gdt_rom)
 #ifndef CONFIG_GDT_DYNAMIC
 _gdt:
 #endif
@@ -347,9 +349,9 @@ _gdt:
 	 * descriptor here */
 
 	/* Limit on GDT */
-	.word Z_MEM_PHYS_ADDR(_gdt_rom_end) - Z_MEM_PHYS_ADDR(_gdt_rom) - 1
+	.word K_MEM_PHYS_ADDR(_gdt_rom_end) - K_MEM_PHYS_ADDR(_gdt_rom) - 1
 	/* table address: _gdt_rom */
-	.long Z_MEM_PHYS_ADDR(_gdt_rom)
+	.long K_MEM_PHYS_ADDR(_gdt_rom)
 	.word   0x0000
 
 	/* Entry 1 (selector=0x0008): Code descriptor: DPL0 */

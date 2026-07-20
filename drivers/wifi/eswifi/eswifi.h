@@ -9,14 +9,11 @@
 
 #include <zephyr/kernel.h>
 #include <stdio.h>
-#include <zephyr/kernel_structs.h>
 #include <zephyr/drivers/gpio.h>
 
 #include <zephyr/net/wifi_mgmt.h>
 
 #include "eswifi_offload.h"
-
-#define MAX_DATA_SIZE 1600
 
 #define AT_OK_STR "\r\nOK\r\n> "
 #define AT_OK_STR_LEN 8
@@ -71,7 +68,7 @@ struct eswifi_dev {
 	enum eswifi_request req;
 	enum eswifi_role role;
 	uint8_t mac[6];
-	char buf[MAX_DATA_SIZE];
+	char buf[CONFIG_WIFI_ESWIFI_MAX_DATA_SIZE];
 	struct k_mutex mutex;
 	atomic_val_t mutex_owner;
 	unsigned int mutex_depth;
@@ -143,7 +140,7 @@ int __eswifi_off_start_client(struct eswifi_dev *eswifi,
 int __eswifi_listen(struct eswifi_dev *eswifi, struct eswifi_off_socket *socket, int backlog);
 int __eswifi_accept(struct eswifi_dev *eswifi, struct eswifi_off_socket *socket);
 int __eswifi_bind(struct eswifi_dev *eswifi, struct eswifi_off_socket *socket,
-		  const struct sockaddr *addr, socklen_t addrlen);
+		  const struct net_sockaddr *addr, net_socklen_t addrlen);
 #if defined(CONFIG_NET_SOCKETS_OFFLOAD)
 int eswifi_socket_offload_init(struct eswifi_dev *leswifi);
 #endif

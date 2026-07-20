@@ -63,11 +63,12 @@ static inline int net_udp_create(struct net_pkt *pkt,
  * @return 0 on success, negative errno otherwise.
  */
 #if defined(CONFIG_NET_NATIVE_UDP)
-int net_udp_finalize(struct net_pkt *pkt);
+int net_udp_finalize(struct net_pkt *pkt, bool force_chksum);
 #else
-static inline int net_udp_finalize(struct net_pkt *pkt)
+static inline int net_udp_finalize(struct net_pkt *pkt, bool force_chksum)
 {
 	ARG_UNUSED(pkt);
+	ARG_UNUSED(force_chksum);
 
 	return 0;
 }
@@ -113,8 +114,8 @@ struct net_udp_hdr *net_udp_input(struct net_pkt *pkt,
  * @return Return 0 if the registration succeed, <0 otherwise.
  */
 int net_udp_register(uint8_t family,
-		     const struct sockaddr *remote_addr,
-		     const struct sockaddr *local_addr,
+		     const struct net_sockaddr *remote_addr,
+		     const struct net_sockaddr *local_addr,
 		     uint16_t remote_port,
 		     uint16_t local_port,
 		     struct net_context *context,

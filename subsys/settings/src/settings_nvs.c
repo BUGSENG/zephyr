@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include <zephyr/settings/settings.h>
-#include "settings/settings_nvs.h"
+#include <settings/settings_nvs.h>
 #include <zephyr/sys/crc.h>
 #include "settings_priv.h"
 #include <zephyr/storage/flash_map.h>
@@ -18,9 +18,9 @@
 LOG_MODULE_DECLARE(settings, CONFIG_SETTINGS_LOG_LEVEL);
 
 #if DT_HAS_CHOSEN(zephyr_settings_partition)
-#define SETTINGS_PARTITION DT_FIXED_PARTITION_ID(DT_CHOSEN(zephyr_settings_partition))
+#define SETTINGS_PARTITION DT_PARTITION_ID(DT_CHOSEN(zephyr_settings_partition))
 #else
-#define SETTINGS_PARTITION FIXED_PARTITION_ID(storage_partition)
+#define SETTINGS_PARTITION PARTITION_ID(storage_partition)
 #endif
 
 struct settings_nvs_read_fn_arg {
@@ -34,7 +34,7 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 			     const char *value, size_t val_len);
 static void *settings_nvs_storage_get(struct settings_store *cs);
 
-static struct settings_store_itf settings_nvs_itf = {
+static const struct settings_store_itf settings_nvs_itf = {
 	.csi_load = settings_nvs_load,
 	.csi_save = settings_nvs_save,
 	.csi_storage_get = settings_nvs_storage_get
@@ -74,6 +74,8 @@ int settings_nvs_dst(struct settings_nvs *cf)
 }
 
 #if CONFIG_SETTINGS_NVS_NAME_CACHE
+#define SETTINGS_NVS_CACHE_OVFL(cf) ((cf)->cache_total > ARRAY_SIZE((cf)->cache))
+
 static void settings_nvs_cache_add(struct settings_nvs *cf, const char *name,
 				   uint16_t name_id)
 {
@@ -105,6 +107,10 @@ static uint16_t settings_nvs_cache_match(struct settings_nvs *cf, const char *na
 			continue;
 		}
 
+		if ((size_t)rc >= len) {
+			continue;
+		}
+
 		rdname[rc] = '\0';
 
 		if (strcmp(name, rdname)) {
@@ -129,12 +135,22 @@ static int settings_nvs_load(struct settings_store *cs,
 	ssize_t rc1, rc2;
 	uint16_t name_id = NVS_NAMECNT_ID;
 
+#if CONFIG_SETTINGS_NVS_NAME_CACHE
+	uint16_t cached = 0;
+
+	cf->loaded = false;
+#endif
+
 	name_id = cf->last_name_id + 1;
 
 	while (1) {
 
 		name_id--;
 		if (name_id == NVS_NAMECNT_ID) {
+#if CONFIG_SETTINGS_NVS_NAME_CACHE
+			cf->loaded = true;
+			cf->cache_total = cached;
+#endif
 			break;
 		}
 
@@ -147,6 +163,17 @@ static int settings_nvs_load(struct settings_store *cs,
 			       &buf, sizeof(buf));
 
 		if ((rc1 <= 0) && (rc2 <= 0)) {
+			/* Settings largest ID in use is invalid due to
+			 * reset, power failure or partition overflow.
+			 * Decrement it and check the next ID in subsequent
+			 * iteration.
+			 */
+			if (name_id == cf->last_name_id) {
+				cf->last_name_id--;
+				nvs_write(&cf->cf_nvs, NVS_NAMECNT_ID,
+					  &cf->last_name_id, sizeof(uint16_t));
+			}
+
 			continue;
 		}
 
@@ -156,13 +183,19 @@ static int settings_nvs_load(struct settings_store *cs,
 			 * or deleted. Clean dirty entries to make space for
 			 * future settings item.
 			 */
+			nvs_delete(&cf->cf_nvs, name_id);
+			nvs_delete(&cf->cf_nvs, name_id + NVS_NAME_ID_OFFSET);
+
 			if (name_id == cf->last_name_id) {
 				cf->last_name_id--;
 				nvs_write(&cf->cf_nvs, NVS_NAMECNT_ID,
 					  &cf->last_name_id, sizeof(uint16_t));
 			}
-			nvs_delete(&cf->cf_nvs, name_id);
-			nvs_delete(&cf->cf_nvs, name_id + NVS_NAME_ID_OFFSET);
+
+			continue;
+		}
+
+		if ((size_t)rc1 >= sizeof(name)) {
 			continue;
 		}
 
@@ -173,6 +206,7 @@ static int settings_nvs_load(struct settings_store *cs,
 
 #if CONFIG_SETTINGS_NVS_NAME_CACHE
 		settings_nvs_cache_add(cf, name, name_id);
+		cached++;
 #endif
 
 		ret = settings_call_set_handler(
@@ -203,10 +237,13 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 	delete = ((value == NULL) || (val_len == 0));
 
 #if CONFIG_SETTINGS_NVS_NAME_CACHE
+	bool name_in_cache = false;
+
 	name_id = settings_nvs_cache_match(cf, name, rdname, sizeof(rdname));
 	if (name_id != NVS_NAMECNT_ID) {
 		write_name_id = name_id;
 		write_name = false;
+		name_in_cache = true;
 		goto found;
 	}
 #endif
@@ -214,6 +251,13 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 	name_id = cf->last_name_id + 1;
 	write_name_id = cf->last_name_id + 1;
 	write_name = true;
+
+#if CONFIG_SETTINGS_NVS_NAME_CACHE
+	/* We can skip reading NVS if we know that the cache wasn't overflowed. */
+	if (cf->loaded && !SETTINGS_NVS_CACHE_OVFL(cf)) {
+		goto found;
+	}
+#endif
 
 	while (1) {
 		name_id--;
@@ -231,6 +275,10 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 			continue;
 		}
 
+		if ((size_t)rc >= sizeof(rdname)) {
+			continue;
+		}
+
 		rdname[rc] = '\0';
 
 		if (strcmp(name, rdname)) {
@@ -238,9 +286,6 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 		}
 
 		if (!delete) {
-#if CONFIG_SETTINGS_NVS_NAME_CACHE
-			settings_nvs_cache_add(cf, name, name_id);
-#endif
 			write_name_id = name_id;
 			write_name = false;
 		}
@@ -252,6 +297,16 @@ found:
 	if (delete) {
 		if (name_id == NVS_NAMECNT_ID) {
 			return 0;
+		}
+
+		rc = nvs_delete(&cf->cf_nvs, name_id);
+		if (rc >= 0) {
+			rc = nvs_delete(&cf->cf_nvs, name_id +
+					NVS_NAME_ID_OFFSET);
+		}
+
+		if (rc < 0) {
+			return rc;
 		}
 
 		if (name_id == cf->last_name_id) {
@@ -266,23 +321,22 @@ found:
 			}
 		}
 
-		rc = nvs_delete(&cf->cf_nvs, name_id);
-
-		if (rc >= 0) {
-			rc = nvs_delete(&cf->cf_nvs, name_id +
-					NVS_NAME_ID_OFFSET);
-		}
-
-		if (rc < 0) {
-			return rc;
-		}
-
 		return 0;
 	}
 
 	/* No free IDs left. */
 	if (write_name_id == NVS_NAMECNT_ID + NVS_NAME_ID_OFFSET) {
 		return -ENOMEM;
+	}
+
+	/* update the last_name_id and write to flash if required*/
+	if (write_name_id > cf->last_name_id) {
+		cf->last_name_id = write_name_id;
+		rc = nvs_write(&cf->cf_nvs, NVS_NAMECNT_ID, &cf->last_name_id,
+			       sizeof(uint16_t));
+		if (rc < 0) {
+			return rc;
+		}
 	}
 
 	/* write the value */
@@ -300,16 +354,14 @@ found:
 		}
 	}
 
-	/* update the last_name_id and write to flash if required*/
-	if (write_name_id > cf->last_name_id) {
-		cf->last_name_id = write_name_id;
-		rc = nvs_write(&cf->cf_nvs, NVS_NAMECNT_ID, &cf->last_name_id,
-			       sizeof(uint16_t));
+#if CONFIG_SETTINGS_NVS_NAME_CACHE
+	if (!name_in_cache) {
+		settings_nvs_cache_add(cf, name, write_name_id);
+		if (cf->loaded && !SETTINGS_NVS_CACHE_OVFL(cf)) {
+			cf->cache_total++;
+		}
 	}
-
-	if (rc < 0) {
-		return rc;
-	}
+#endif
 
 	return 0;
 }

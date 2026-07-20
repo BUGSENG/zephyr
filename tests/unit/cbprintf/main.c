@@ -93,6 +93,8 @@
 #define PKG_ALIGN_OFFSET (size_t)0
 #endif
 
+static const char *utf8_str = "\xF0\x9F\xAA\x81";
+
 /* We can't determine at build-time whether int is 64-bit, so assume
  * it is.  If not the values are truncated at build time, and the str
  * pointers will be updated during test initialization.
@@ -153,20 +155,20 @@ static inline void reset_out(void)
 	outbuf.idx = 0;
 }
 
-static void outbuf_null_terminate(struct out_buffer *outbuf)
+static void outbuf_null_terminate(struct out_buffer *out_buf)
 {
-	int idx = outbuf->idx - ((outbuf->idx == outbuf->size) ? 1 : 0);
+	int idx = out_buf->idx - ((out_buf->idx == out_buf->size) ? 1 : 0);
 
-	outbuf->buf[idx] = 0;
+	out_buf->buf[idx] = 0;
 }
 
 static int out(int c, void *dest)
 {
 	int rv = EOF;
-	struct out_buffer *buf = dest;
+	struct out_buffer *out_buf = dest;
 
-	if (buf->idx < buf->size) {
-		buf->buf[buf->idx++] = (char)(unsigned char)c;
+	if (out_buf->idx < out_buf->size) {
+		out_buf->buf[out_buf->idx++] = (char)(unsigned char)c;
 		rv = (int)(unsigned char)c;
 	}
 	return rv;
@@ -358,9 +360,7 @@ static inline bool prf_check(const char *expected,
 	return true;
 }
 
-#define PRF_CHECK(expected, rv)	\
-	zassert_true(prf_check(expected, rv, __FILE__, __LINE__), \
-		     NULL)
+#define PRF_CHECK(expected, rv)	zassert_true(prf_check(expected, rv, __FILE__, __LINE__))
 
 ZTEST(prf, test_pct)
 {
@@ -410,7 +410,6 @@ ZTEST(prf, test_c)
 ZTEST(prf, test_s)
 {
 	const char *s = "123";
-	static wchar_t ws[] = L"abc";
 	int rc;
 
 	TEST_PRF(&rc, "/%s/", s);
@@ -427,12 +426,16 @@ ZTEST(prf, test_s)
 		return;
 	}
 
+#if __SIZEOF_WCHAR_T__ != 4
+	static wchar_t ws[] = L"abc";
+
 	TEST_PRF(&rc, "%ls", ws);
 	if (ENABLED_USE_LIBC) {
 		PRF_CHECK("abc", rc);
 	} else {
 		PRF_CHECK("%ls", rc);
 	}
+#endif
 }
 
 ZTEST(prf, test_v_c)
@@ -445,7 +448,7 @@ ZTEST(prf, test_v_c)
 	zassert_equal(rc, 1);
 	zassert_equal(buf[0], 'a');
 	if (!ENABLED_USE_LIBC) {
-		zassert_equal(buf[1], 'b', "wth %x", buf[1]);
+		zassert_equal(buf[1], 'b', "with %x", buf[1]);
 	}
 }
 
@@ -574,8 +577,7 @@ ZTEST(prf, test_d_flags)
 	reset_out();
 	rc = rawprf("/%#d/% +d/%-04d/%06.4d/", sv, sv, sv, sv);
 	zassert_equal(rc, 22, "rc %d", rc);
-	zassert_equal(strncmp("/123/+123/123 /  0123/",
-			      buf, rc), 0, NULL);
+	zassert_equal(strncmp("/123/+123/123 /  0123/", buf, rc), 0);
 }
 
 ZTEST(prf, test_x_length)
@@ -634,11 +636,11 @@ ZTEST(prf, test_x_length)
 
 	if (IS_ENABLED(CONFIG_CBPRINTF_FULL_INTEGRAL)
 	    && (sizeof(long long) > sizeof(int))) {
-		unsigned long long min = 0x8c7c6c5c4c3c2c1cULL;
-		unsigned long long max = 0x8d7d6d5d4d3d2d1dULL;
+		unsigned long long ull_min = 0x8c7c6c5c4c3c2c1cULL;
+		unsigned long long ull_max = 0x8d7d6d5d4d3d2d1dULL;
 
-		TEST_PRF(&rc, "%llx/%llX", (unsigned long long)min,
-			      (unsigned long long)max);
+		TEST_PRF(&rc, "%llx/%llX", (unsigned long long)ull_min,
+			      (unsigned long long)ull_max);
 		PRF_CHECK("8c7c6c5c4c3c2c1c/8D7D6D5D4D3D2D1D", rc);
 	}
 }
@@ -1132,6 +1134,12 @@ ZTEST(prf, test_libc_substs)
 	zassert_equal(lbuf[7], full_flag);
 	zassert_equal(strncmp("000000", lbuf, rc), 0);
 
+	memset(lbuf, full_flag, sizeof(lbuf));
+	rc = snprintfcb(lbuf, len, "%s", utf8_str);
+	zassert_equal(rc, strlen(utf8_str));
+	zassert_equal(lbuf[rc + 1], full_flag);
+	zassert_equal(strncmp(utf8_str, lbuf, rc), 0);
+
 	rc = cbprintf(out_counter, &count, "%020d", 1);
 	zassert_equal(rc, 20, "rc %d", rc);
 	zassert_equal(count, 20);
@@ -1159,17 +1167,17 @@ ZTEST(prf, test_cbprintf_package)
 	/* Capture the base package information for future tests. */
 	size_t len = rc;
 	/* Create a buffer aligned to max argument. */
-	uint8_t __aligned(CBPRINTF_PACKAGE_ALIGNMENT) buf[len + PKG_ALIGN_OFFSET];
+	uint8_t __aligned(CBPRINTF_PACKAGE_ALIGNMENT) out_buf[len + PKG_ALIGN_OFFSET];
 
 	/* Verify we get same length when storing. Pass buffer which may be
 	 * unaligned. Same alignment offset was used for space calculation.
 	 */
-	rc = cbprintf_package(&buf[PKG_ALIGN_OFFSET], len, PACKAGE_FLAGS, fmt, 3);
+	rc = cbprintf_package(&out_buf[PKG_ALIGN_OFFSET], len, PACKAGE_FLAGS, fmt, 3);
 	zassert_equal(rc, len);
 
 	/* Verify we get an error if can't store */
 	len -= 1;
-	rc = cbprintf_package(&buf[PKG_ALIGN_OFFSET], len, PACKAGE_FLAGS, fmt, 3);
+	rc = cbprintf_package(&out_buf[PKG_ALIGN_OFFSET], len, PACKAGE_FLAGS, fmt, 3);
 	zassert_equal(rc, -ENOSPC);
 }
 
@@ -1306,14 +1314,14 @@ ZTEST(prf, test_cbprintf_fsc_package)
 	cbpprintf(fsc_package_cb, &pout, package);
 	*pout = '\0';
 
-	zassert_equal(strcmp(out_str, exp_str1), 0);
+	zassert_str_equal(out_str, exp_str1);
 	zassert_true(strcmp(exp_str0, exp_str1) != 0);
 
 	/* FSC package contains original content. */
 	pout = out_str;
 	cbpprintf(fsc_package_cb, &pout, fsc_package);
 	*pout = '\0';
-	zassert_equal(strcmp(out_str, exp_str0), 0);
+	zassert_str_equal(out_str, exp_str0);
 }
 
 ZTEST(prf, test_cbpprintf)
@@ -1336,6 +1344,103 @@ ZTEST(prf, test_cbpprintf)
 
 ZTEST(prf, test_nop)
 {
+}
+
+ZTEST(prf, test_is_none_char_ptr)
+{
+	char c = 0;
+	const char cc = 0;
+	volatile char vc = 0;
+	volatile const char vcc = 0;
+
+	unsigned char uc = 0;
+	const unsigned char cuc = 0;
+	volatile unsigned char vuc = 0;
+	volatile const unsigned char vcuc = 0;
+
+	short s = 0;
+	unsigned short us = 0;
+
+	int i = 0;
+	unsigned int ui = 0;
+
+	long l = 0;
+	unsigned long ul = 0;
+
+	long long ll = 0;
+	unsigned long long ull = 0;
+
+	float f = 0.1;
+	double d = 0.1;
+
+	TOOLCHAIN_DISABLE_GCC_WARNING(TOOLCHAIN_WARNING_POINTER_ARITH);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(c), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(cc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(vc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(vcc), 0);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&c), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&cc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&vc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&vcc), 0);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(uc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(cuc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(vuc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(vcuc), 0);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&uc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&cuc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&vuc), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&vcuc), 0);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(s), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(us), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&s), 1);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&us), 1);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(i), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(ui), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&i), 1);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&ui), 1);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(l), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(ul), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&l), 1);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&ul), 1);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(ll), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(ull), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&ll), 1);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&ull), 1);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(f), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(d), 0);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&f), 1);
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR(&d), 1);
+
+	zassert_equal(Z_CBPRINTF_IS_NONE_CHAR_PTR((void *)&c), 1);
+
+	TOOLCHAIN_ENABLE_GCC_WARNING(TOOLCHAIN_WARNING_POINTER_ARITH);
+}
+
+ZTEST(prf, test_p_count)
+{
+	zassert_equal(Z_CBPRINTF_P_COUNT("no pointers"), 0);
+	zassert_equal(Z_CBPRINTF_P_COUNT("no %%p pointers"), 0);
+
+	zassert_equal(Z_CBPRINTF_P_COUNT("%d %%p %x %s %p %f"), 1);
+	zassert_equal(Z_CBPRINTF_P_COUNT("%p %p %llx %p "), 3);
+}
+
+ZTEST(prf, test_pointers_validate)
+{
+	TOOLCHAIN_DISABLE_GCC_WARNING(TOOLCHAIN_WARNING_POINTER_ARITH);
+	zassert_equal(Z_CBPRINTF_POINTERS_VALIDATE("no arguments"), true);
+	/* const char fails validation */
+	zassert_equal(Z_CBPRINTF_POINTERS_VALIDATE("%p", "string"), false);
+	zassert_equal(Z_CBPRINTF_POINTERS_VALIDATE("%p", (void *)"string"), true);
+	TOOLCHAIN_ENABLE_GCC_WARNING(TOOLCHAIN_WARNING_POINTER_ARITH);
 }
 
 static void *cbprintf_setup(void)

@@ -11,6 +11,7 @@
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include <zephyr/net/tftp.h>
+#include <zephyr/posix/netdb.h>
 
 #define APP_BANNER		"Run TFTP client"
 #define TFTP_SAMPLE_DATA	"Lorem ipsum dolor sit amet, consectetur adipiscing elit"
@@ -37,13 +38,13 @@ static void tftp_event_callback(const struct tftp_evt *evt)
 static int tftp_init(const char *hostname)
 {
 	struct sockaddr remote_addr;
-	struct zsock_addrinfo *res, hints = {0};
+	struct addrinfo *res, hints = {0};
 	int ret;
 
 	/* Setup TFTP server address */
 	hints.ai_socktype = SOCK_DGRAM;
 
-	ret = zsock_getaddrinfo(hostname, CONFIG_TFTP_APP_PORT, &hints, &res);
+	ret = getaddrinfo(hostname, CONFIG_TFTP_APP_PORT, &hints, &res);
 	if (ret != 0) {
 		LOG_ERR("Unable to resolve address");
 		/* DNS error codes don't align with normal errors */
@@ -51,7 +52,7 @@ static int tftp_init(const char *hostname)
 	}
 
 	memcpy(&remote_addr, res->ai_addr, sizeof(remote_addr));
-	zsock_freeaddrinfo(res);
+	freeaddrinfo(res);
 
 	/* Save sockaddr into TFTP client handler */
 	memcpy(&client.server, &remote_addr, sizeof(client.server));

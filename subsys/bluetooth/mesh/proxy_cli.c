@@ -7,7 +7,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
 
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/uuid.h>
@@ -15,8 +15,6 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/mesh.h>
 
-#include "mesh.h"
-#include "adv.h"
 #include "net.h"
 #include "rpl.h"
 #include "transport.h"
@@ -79,7 +77,7 @@ static struct bt_mesh_proxy_server *find_proxy_srv_by_conn(struct bt_conn *conn)
 	return NULL;
 }
 
-bool bt_mesh_proxy_cli_relay(struct net_buf *buf)
+bool bt_mesh_proxy_cli_relay(struct bt_mesh_adv *adv)
 {
 	bool relayed = false;
 	int i;
@@ -91,7 +89,7 @@ bool bt_mesh_proxy_cli_relay(struct net_buf *buf)
 			continue;
 		}
 
-		if (bt_mesh_proxy_relay_send(server->role->conn, buf)) {
+		if (bt_mesh_proxy_relay_send(server->role->conn, adv)) {
 			continue;
 		}
 

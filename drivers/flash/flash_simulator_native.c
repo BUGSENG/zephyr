@@ -9,6 +9,12 @@
  * native simulator runner/host context, and not in Zephyr/embedded context.
  */
 
+#undef _POSIX_C_SOURCE
+/* Note: This is used only for interaction with the host C library, and is therefore exempt of
+ * coding guidelines rule A.4&5 which applies to the embedded code using embedded libraries
+ */
+#define _POSIX_C_SOURCE 200809L
+
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -24,7 +30,7 @@
 
 /*
  * Initialize the flash buffer.
- * And, if the content is to be kept on disk map it to the the buffer to the file.
+ * And, if the content is to be kept on disk map it to the buffer to the file.
  *
  * Returns -1 on failure
  *	    0 on success
@@ -44,7 +50,7 @@ int flash_mock_init_native(bool flash_in_ram, uint8_t **mock_flash, unsigned int
 			return -1;
 		}
 	} else {
-		*flash_fd = open(flash_file_path, O_RDWR | O_CREAT, (mode_t)0600);
+		*flash_fd = open(flash_file_path, O_RDWR | O_CREAT | O_CLOEXEC, (mode_t)0600);
 		if (*flash_fd == -1) {
 			nsi_print_warning("Failed to open flash device file "
 					"%s: %s\n",

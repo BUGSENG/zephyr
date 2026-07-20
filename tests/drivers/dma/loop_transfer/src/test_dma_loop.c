@@ -32,17 +32,11 @@
 #define SLEEPTIME 250
 
 #define TRANSFER_LOOPS (4)
+#define DMA_DATA_ALIGNMENT DT_PROP_OR(DT_NODELABEL(tst_dma0), dma_buf_addr_alignment, 32)
 
-#if CONFIG_NOCACHE_MEMORY
-static __aligned(32) uint8_t tx_data[CONFIG_DMA_LOOP_TRANSFER_SIZE] __used
-	__attribute__((__section__(CONFIG_DMA_LOOP_TRANSFER_SRAM_SECTION)));
-static __aligned(32) uint8_t rx_data[TRANSFER_LOOPS][CONFIG_DMA_LOOP_TRANSFER_SIZE] __used
-	__attribute__((__section__(CONFIG_DMA_LOOP_TRANSFER_SRAM_SECTION".dma")));
-#else
-/* this src memory shall be in RAM to support usingas a DMA source pointer.*/
-static uint8_t tx_data[CONFIG_DMA_LOOP_TRANSFER_SIZE];
-static __aligned(16) uint8_t rx_data[TRANSFER_LOOPS][CONFIG_DMA_LOOP_TRANSFER_SIZE] = { { 0 } };
-#endif
+static __aligned(DMA_DATA_ALIGNMENT) uint8_t tx_data[CONFIG_DMA_LOOP_TRANSFER_SIZE];
+static __aligned(DMA_DATA_ALIGNMENT) uint8_t
+	rx_data[TRANSFER_LOOPS][CONFIG_DMA_LOOP_TRANSFER_SIZE] = { { 0 } };
 
 volatile uint32_t transfer_count;
 volatile uint32_t done;
@@ -63,12 +57,10 @@ static void test_transfer(const struct device *dev, uint32_t id)
 		dma_block_cfg.dest_address = (uint32_t)rx_data[transfer_count];
 #endif
 
-		zassert_false(dma_config(dev, id, &dma_cfg),
-					"Not able to config transfer %d",
-					transfer_count + 1);
-		zassert_false(dma_start(dev, id),
-					"Not able to start next transfer %d",
-					transfer_count + 1);
+		zassert_ok(dma_config(dev, id, &dma_cfg), "Not able to config transfer %d",
+			   transfer_count + 1);
+		zassert_ok(dma_start(dev, id), "Not able to start next transfer %d",
+			   transfer_count + 1);
 	}
 }
 
@@ -179,6 +171,8 @@ static int test_loop(const struct device *dma)
 		}
 	}
 
+	dma_release_channel(dma, chan_id);
+
 	TC_PRINT("Finished DMA: %s\n", dma->name);
 	return TC_PASS;
 }
@@ -262,7 +256,8 @@ static int test_loop_suspend_resume(const struct device *dma)
 			done = 1;
 			TC_PRINT("suspend not supported\n");
 			dma_stop(dma, chan_id);
-			return TC_PASS;
+			ztest_test_skip();
+			return TC_SKIP;
 		}
 		tc = transfer_count;
 		irq_unlock(irq_key);
@@ -323,6 +318,8 @@ static int test_loop_suspend_resume(const struct device *dma)
 		}
 	}
 
+	dma_release_channel(dma, chan_id);
+
 	TC_PRINT("Finished DMA: %s\n", dma->name);
 	return TC_PASS;
 }
@@ -363,8 +360,12 @@ static bool check_dev_power_state(const struct device *dev, enum pm_device_state
 static int test_loop_repeated_start_stop(const struct device *dma)
 {
 	static int chan_id;
-	enum pm_device_state init_state = pm_device_on_power_domain(dma) ?
-					  PM_DEVICE_STATE_OFF : PM_DEVICE_STATE_SUSPENDED;
+
+	if (!check_dev_power_state(dma, PM_DEVICE_STATE_SUSPENDED) &&
+	    !check_dev_power_state(dma, PM_DEVICE_STATE_OFF)) {
+		TC_PRINT("ERROR: device %s is not in the correct init power state", dma->name);
+		return TC_FAIL;
+	}
 
 	test_case_id = 0;
 	TC_PRINT("DMA memory to memory transfer started\n");
@@ -397,10 +398,6 @@ static int test_loop_repeated_start_stop(const struct device *dma)
 	dma_cfg.dma_slot = CONFIG_DMA_MCUX_TEST_SLOT_START;
 #endif
 
-	if (!check_dev_power_state(dma, PM_DEVICE_STATE_OFF)) {
-		return TC_FAIL;
-	}
-
 	chan_id = dma_request_channel(dma, NULL);
 	if (chan_id < 0) {
 		TC_PRINT("this platform do not support the dma channel\n");
@@ -423,12 +420,20 @@ static int test_loop_repeated_start_stop(const struct device *dma)
 		return TC_FAIL;
 	}
 
-	if (dma_stop(dma, chan_id)) {
+	int res = dma_stop(dma, chan_id);
+
+	if (res == -ENOSYS) {
+		TC_PRINT("Stop not supported.\n");
+		ztest_test_skip();
+	}
+	if (res) {
 		TC_PRINT("ERROR: transfer stop on stopped channel (%d)\n", chan_id);
 		return TC_FAIL;
 	}
 
-	if (!check_dev_power_state(dma, init_state)) {
+	if (!check_dev_power_state(dma, PM_DEVICE_STATE_SUSPENDED) &&
+	    !check_dev_power_state(dma, PM_DEVICE_STATE_OFF)) {
+		TC_PRINT("ERROR: device %s is not in the correct power state", dma->name);
 		return TC_FAIL;
 	}
 
@@ -468,7 +473,9 @@ static int test_loop_repeated_start_stop(const struct device *dma)
 		return TC_FAIL;
 	}
 
-	if (!check_dev_power_state(dma, init_state)) {
+	if (!check_dev_power_state(dma, PM_DEVICE_STATE_SUSPENDED) &&
+	    !check_dev_power_state(dma, PM_DEVICE_STATE_OFF)) {
+		TC_PRINT("ERROR: device %s is not in the correct power state", dma->name);
 		return TC_FAIL;
 	}
 
@@ -477,10 +484,12 @@ static int test_loop_repeated_start_stop(const struct device *dma)
 		return TC_FAIL;
 	}
 
+	dma_release_channel(dma, chan_id);
+
 	return TC_PASS;
 }
 
-#define DMA_NAME(i, _)	test_dma ## i
+#define DMA_NAME(i, _)	tst_dma ## i
 #define DMA_LIST	LISTIFY(CONFIG_DMA_LOOP_TRANSFER_NUMBER_OF_DMAS, DMA_NAME, (,))
 
 #define TEST_LOOP(dma_name)                                                                        \

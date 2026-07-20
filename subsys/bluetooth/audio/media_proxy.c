@@ -6,18 +6,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/sys/check.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <zephyr/bluetooth/services/ots.h>
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/audio/media_proxy.h>
 #include <zephyr/bluetooth/audio/mcc.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/services/ots.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/sys/check.h>
+#include <zephyr/toolchain.h>
 
 #include "media_proxy_internal.h"
 #include "mcs_internal.h"
 
-#include <zephyr/logging/log.h>
-
-LOG_MODULE_REGISTER(media_proxy, CONFIG_MCTL_LOG_LEVEL);
+LOG_MODULE_REGISTER(bt_media_proxy, CONFIG_MCTL_LOG_LEVEL);
 
 /* Media player */
 struct media_player {
@@ -232,11 +238,13 @@ uint8_t media_proxy_sctrl_get_content_ctrl_id(void)
 
 static void mcc_discover_mcs_cb(struct bt_conn *conn, int err)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Discovery failed (%d)", err);
 	}
 
-	LOG_DBG("Disovered player");
+	LOG_DBG("Discovered player");
 
 	if (mprx.ctrlr.cbs && mprx.ctrlr.cbs->discover_player) {
 		mprx.ctrlr.cbs->discover_player(&mprx.remote_player, err);
@@ -247,10 +255,12 @@ static void mcc_discover_mcs_cb(struct bt_conn *conn, int err)
 
 static void mcc_read_player_name_cb(struct bt_conn *conn, int err, const char *name)
 {
+	ARG_UNUSED(conn);
+
 	/* Debug statements for at least a couple of the callbacks, to show flow */
 	LOG_DBG("MCC player name callback");
 
-	if (err) {
+	if (err != 0) {
 		LOG_ERR("Player name failed");
 	}
 
@@ -264,9 +274,11 @@ static void mcc_read_player_name_cb(struct bt_conn *conn, int err, const char *n
 #ifdef CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS
 static void mcc_read_icon_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 {
+	ARG_UNUSED(conn);
+
 	LOG_DBG("Icon Object ID callback");
 
-	if (err) {
+	if (err != 0) {
 		LOG_ERR("Icon Object ID read failed (%d)", err);
 	}
 
@@ -278,9 +290,12 @@ static void mcc_read_icon_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 }
 #endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS */
 
+#if defined(CONFIG_BT_MCC_READ_MEDIA_PLAYER_ICON_URL)
 static void mcc_read_icon_url_cb(struct bt_conn *conn, int err, const char *url)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Icon URL read failed (%d)", err);
 	}
 
@@ -290,10 +305,13 @@ static void mcc_read_icon_url_cb(struct bt_conn *conn, int err, const char *url)
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_MEDIA_PLAYER_ICON_URL) */
 
 static void mcc_track_changed_ntf_cb(struct bt_conn *conn, int err)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Track change notification failed (%d)", err);
 		return;
 	}
@@ -305,9 +323,12 @@ static void mcc_track_changed_ntf_cb(struct bt_conn *conn, int err)
 	}
 }
 
+#if defined(CONFIG_BT_MCC_READ_TRACK_TITLE)
 static void mcc_read_track_title_cb(struct bt_conn *conn, int err, const char *title)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Track title read failed (%d)", err);
 	}
 
@@ -317,10 +338,14 @@ static void mcc_read_track_title_cb(struct bt_conn *conn, int err, const char *t
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_TRACK_TITLE) */
 
+#if defined(CONFIG_BT_MCC_READ_TRACK_DURATION)
 static void mcc_read_track_duration_cb(struct bt_conn *conn, int err, int32_t dur)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Track duration read failed (%d)", err);
 	}
 
@@ -330,10 +355,14 @@ static void mcc_read_track_duration_cb(struct bt_conn *conn, int err, int32_t du
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_TRACK_DURATION) */
 
+#if defined(CONFIG_BT_MCC_READ_TRACK_POSITION)
 static void mcc_read_track_position_cb(struct bt_conn *conn, int err, int32_t pos)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Track position read failed (%d)", err);
 	}
 
@@ -343,10 +372,14 @@ static void mcc_read_track_position_cb(struct bt_conn *conn, int err, int32_t po
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_TRACK_POSITION) */
 
+#if defined(CONFIG_BT_MCC_SET_TRACK_POSITION)
 static void mcc_set_track_position_cb(struct bt_conn *conn, int err, int32_t pos)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Track Position set failed (%d)", err);
 	}
 
@@ -356,10 +389,14 @@ static void mcc_set_track_position_cb(struct bt_conn *conn, int err, int32_t pos
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_SET_TRACK_POSITION) */
 
+#if defined(CONFIG_BT_MCC_READ_PLAYBACK_SPEED)
 static void mcc_read_playback_speed_cb(struct bt_conn *conn, int err, int8_t speed)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Playback speed read failed (%d)", err);
 	}
 
@@ -369,10 +406,14 @@ static void mcc_read_playback_speed_cb(struct bt_conn *conn, int err, int8_t spe
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined (CONFIG_BT_MCC_READ_PLAYBACK_SPEED) */
 
+#if defined(CONFIG_BT_MCC_SET_PLAYBACK_SPEED)
 static void mcc_set_playback_speed_cb(struct bt_conn *conn, int err, int8_t speed)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Playback speed set failed (%d)", err);
 	}
 
@@ -382,10 +423,14 @@ static void mcc_set_playback_speed_cb(struct bt_conn *conn, int err, int8_t spee
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined (CONFIG_BT_MCC_SET_PLAYBACK_SPEED) */
 
+#if defined(CONFIG_BT_MCC_READ_SEEKING_SPEED)
 static void mcc_read_seeking_speed_cb(struct bt_conn *conn, int err, int8_t speed)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Seeking speed read failed (%d)", err);
 	}
 
@@ -395,11 +440,14 @@ static void mcc_read_seeking_speed_cb(struct bt_conn *conn, int err, int8_t spee
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined (CONFIG_BT_MCC_READ_SEEKING_SPEED) */
 
 #ifdef CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS
 static void mcc_read_segments_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Track Segments Object ID read failed (%d)", err);
 	}
 
@@ -412,7 +460,9 @@ static void mcc_read_segments_obj_id_cb(struct bt_conn *conn, int err, uint64_t 
 
 static void mcc_read_current_track_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Current Track Object ID read failed (%d)", err);
 	}
 
@@ -427,7 +477,9 @@ static void mcc_read_current_track_obj_id_cb(struct bt_conn *conn, int err, uint
 
 static void mcc_read_next_track_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Next Track Object ID read failed (%d)", err);
 	}
 
@@ -442,7 +494,9 @@ static void mcc_read_next_track_obj_id_cb(struct bt_conn *conn, int err, uint64_
 
 static void mcc_read_parent_group_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Parent Group Object ID read failed (%d)", err);
 	}
 
@@ -455,7 +509,9 @@ static void mcc_read_parent_group_obj_id_cb(struct bt_conn *conn, int err, uint6
 
 static void mcc_read_current_group_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Current Group Object ID read failed (%d)", err);
 	}
 
@@ -470,9 +526,12 @@ static void mcc_read_current_group_obj_id_cb(struct bt_conn *conn, int err, uint
 
 #endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS */
 
+#if defined(CONFIG_BT_MCC_READ_PLAYING_ORDER)
 static void mcc_read_playing_order_cb(struct bt_conn *conn, int err, uint8_t order)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Playing order read failed (%d)", err);
 	}
 
@@ -482,10 +541,14 @@ static void mcc_read_playing_order_cb(struct bt_conn *conn, int err, uint8_t ord
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_PLAYING_ORDER) */
 
+#if defined(CONFIG_BT_MCC_SET_PLAYING_ORDER)
 static void mcc_set_playing_order_cb(struct bt_conn *conn, int err, uint8_t order)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Playing order set failed (%d)", err);
 	}
 
@@ -495,10 +558,14 @@ static void mcc_set_playing_order_cb(struct bt_conn *conn, int err, uint8_t orde
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_SET_PLAYING_ORDER) */
 
+#if defined(CONFIG_BT_MCC_READ_PLAYING_ORDER_SUPPORTED)
 static void mcc_read_playing_orders_supported_cb(struct bt_conn *conn, int err, uint16_t orders)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Playing orders supported read failed (%d)", err);
 	}
 
@@ -508,10 +575,14 @@ static void mcc_read_playing_orders_supported_cb(struct bt_conn *conn, int err, 
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_PLAYING_ORDER_SUPPORTED) */
 
+#if defined(CONFIG_BT_MCC_READ_MEDIA_STATE)
 static void mcc_read_media_state_cb(struct bt_conn *conn, int err, uint8_t state)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Media State read failed (%d)", err);
 	}
 
@@ -521,10 +592,14 @@ static void mcc_read_media_state_cb(struct bt_conn *conn, int err, uint8_t state
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_MEDIA_STATE) */
 
+#if defined(CONFIG_BT_MCC_SET_MEDIA_CONTROL_POINT)
 static void mcc_send_cmd_cb(struct bt_conn *conn, int err, const struct mpl_cmd *cmd)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Command send failed (%d) - opcode: %d, param: %d", err, cmd->opcode,
 			cmd->param);
 	}
@@ -535,11 +610,14 @@ static void mcc_send_cmd_cb(struct bt_conn *conn, int err, const struct mpl_cmd 
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_SET_MEDIA_CONTROL_POINT) */
 
 static void mcc_cmd_ntf_cb(struct bt_conn *conn, int err,
 			   const struct mpl_cmd_ntf *ntf)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Command notification error (%d) - command opcode: %d, result: %d", err,
 			ntf->requested_opcode, ntf->result_code);
 	}
@@ -551,9 +629,12 @@ static void mcc_cmd_ntf_cb(struct bt_conn *conn, int err,
 	}
 }
 
+#if defined(CONFIG_BT_MCC_READ_MEDIA_CONTROL_POINT_OPCODES_SUPPORTED)
 static void mcc_read_opcodes_supported_cb(struct bt_conn *conn, int err, uint32_t opcodes)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Opcodes supported read failed (%d)", err);
 	}
 
@@ -563,11 +644,14 @@ static void mcc_read_opcodes_supported_cb(struct bt_conn *conn, int err, uint32_
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_MEDIA_CONTROL_POINT_OPCODES_SUPPORTED) */
 
 #ifdef CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS
 static void mcc_send_search_cb(struct bt_conn *conn, int err, const struct mpl_search *search)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Search send failed (%d)", err);
 	}
 
@@ -580,7 +664,9 @@ static void mcc_send_search_cb(struct bt_conn *conn, int err, const struct mpl_s
 
 static void mcc_search_ntf_cb(struct bt_conn *conn, int err, uint8_t result_code)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Search notification error (%d), result code: %d", err, result_code);
 	}
 
@@ -593,7 +679,9 @@ static void mcc_search_ntf_cb(struct bt_conn *conn, int err, uint8_t result_code
 
 static void mcc_read_search_results_obj_id_cb(struct bt_conn *conn, int err, uint64_t id)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Search Results Object ID read failed (%d)", err);
 	}
 
@@ -605,9 +693,12 @@ static void mcc_read_search_results_obj_id_cb(struct bt_conn *conn, int err, uin
 }
 #endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS */
 
+#if defined(CONFIG_BT_MCC_READ_CONTENT_CONTROL_ID)
 static void mcc_read_content_control_id_cb(struct bt_conn *conn, int err, uint8_t ccid)
 {
-	if (err) {
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
 		LOG_ERR("Content Control ID read failed (%d)", err);
 	}
 
@@ -617,6 +708,7 @@ static void mcc_read_content_control_id_cb(struct bt_conn *conn, int err, uint8_
 		LOG_DBG("No callback");
 	}
 }
+#endif /* defined(CONFIG_BT_MCC_READ_CONTENT_CONTROL_ID) */
 
 #endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
 
@@ -647,9 +739,10 @@ int media_proxy_ctrl_register(struct media_proxy_ctrl_cbs *ctrl_cbs)
 #ifdef CONFIG_MCTL_REMOTE_PLAYER_CONTROL
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
+	ARG_UNUSED(reason);
+
 	if (mprx.remote_player.conn == conn) {
-		bt_conn_unref(mprx.remote_player.conn);
-		mprx.remote_player.conn = NULL;
+		bt_conn_drop(&mprx.remote_player.conn);
 	}
 }
 
@@ -659,6 +752,7 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 
 int media_proxy_ctrl_discover_player(struct bt_conn *conn)
 {
+	struct bt_conn *ref;
 	int err;
 
 	CHECKIF(!conn) {
@@ -672,15 +766,31 @@ int media_proxy_ctrl_discover_player(struct bt_conn *conn)
 #ifdef CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS
 	mprx.mcc_cbs.read_icon_obj_id              = mcc_read_icon_obj_id_cb;
 #endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS */
+#if defined(CONFIG_BT_MCC_READ_MEDIA_PLAYER_ICON_URL)
 	mprx.mcc_cbs.read_icon_url                 = mcc_read_icon_url_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_MEDIA_PLAYER_ICON_URL) */
 	mprx.mcc_cbs.track_changed_ntf             = mcc_track_changed_ntf_cb;
+#if defined(CONFIG_BT_MCC_READ_TRACK_TITLE)
 	mprx.mcc_cbs.read_track_title              = mcc_read_track_title_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_TRACK_TITLE) */
+#if defined(CONFIG_BT_MCC_READ_TRACK_DURATION)
 	mprx.mcc_cbs.read_track_duration           = mcc_read_track_duration_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_TRACK_DURATION) */
+#if defined(CONFIG_BT_MCC_READ_TRACK_POSITION)
 	mprx.mcc_cbs.read_track_position           = mcc_read_track_position_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_TRACK_POSITION) */
+#if defined(CONFIG_BT_MCC_SET_TRACK_POSITION)
 	mprx.mcc_cbs.set_track_position            = mcc_set_track_position_cb;
+#endif /* defined(CONFIG_BT_MCC_SET_TRACK_POSITION) */
+#if defined(CONFIG_BT_MCC_READ_PLAYBACK_SPEED)
 	mprx.mcc_cbs.read_playback_speed           = mcc_read_playback_speed_cb;
+#endif /* defined (CONFIG_BT_MCC_READ_PLAYBACK_SPEED) */
+#if defined(CONFIG_BT_MCC_SET_PLAYBACK_SPEED)
 	mprx.mcc_cbs.set_playback_speed            = mcc_set_playback_speed_cb;
+#endif /* defined (CONFIG_BT_MCC_SET_PLAYBACK_SPEED) */
+#if defined(CONFIG_BT_MCC_READ_SEEKING_SPEED)
 	mprx.mcc_cbs.read_seeking_speed            = mcc_read_seeking_speed_cb;
+#endif /* defined (CONFIG_BT_MCC_READ_SEEKING_SPEED) */
 #ifdef CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS
 	mprx.mcc_cbs.read_segments_obj_id          = mcc_read_segments_obj_id_cb;
 	mprx.mcc_cbs.read_current_track_obj_id     = mcc_read_current_track_obj_id_cb;
@@ -688,37 +798,57 @@ int media_proxy_ctrl_discover_player(struct bt_conn *conn)
 	mprx.mcc_cbs.read_parent_group_obj_id      = mcc_read_parent_group_obj_id_cb;
 	mprx.mcc_cbs.read_current_group_obj_id     = mcc_read_current_group_obj_id_cb;
 #endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS */
+#if defined(CONFIG_BT_MCC_READ_PLAYING_ORDER)
 	mprx.mcc_cbs.read_playing_order	      = mcc_read_playing_order_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_PLAYING_ORDER) */
+#if defined(CONFIG_BT_MCC_SET_PLAYING_ORDER)
 	mprx.mcc_cbs.set_playing_order             = mcc_set_playing_order_cb;
+#endif /* defined(CONFIG_BT_MCC_SET_PLAYING_ORDER) */
+#if defined(CONFIG_BT_MCC_READ_PLAYING_ORDER_SUPPORTED)
 	mprx.mcc_cbs.read_playing_orders_supported = mcc_read_playing_orders_supported_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_PLAYING_ORDER_SUPPORTED) */
+#if defined(CONFIG_BT_MCC_READ_MEDIA_STATE)
 	mprx.mcc_cbs.read_media_state              = mcc_read_media_state_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_MEDIA_STATE) */
+#if defined(CONFIG_BT_MCC_SET_MEDIA_CONTROL_POINT)
 	mprx.mcc_cbs.send_cmd                      = mcc_send_cmd_cb;
+#endif /* defined(CONFIG_BT_MCC_SET_MEDIA_CONTROL_POINT) */
 	mprx.mcc_cbs.cmd_ntf                       = mcc_cmd_ntf_cb;
+#if defined(CONFIG_BT_MCC_READ_MEDIA_CONTROL_POINT_OPCODES_SUPPORTED)
 	mprx.mcc_cbs.read_opcodes_supported        = mcc_read_opcodes_supported_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_MEDIA_CONTROL_POINT_OPCODES_SUPPORTED) */
 #ifdef CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS
 	mprx.mcc_cbs.send_search                   = mcc_send_search_cb;
 	mprx.mcc_cbs.search_ntf                    = mcc_search_ntf_cb;
 	mprx.mcc_cbs.read_search_results_obj_id    = mcc_read_search_results_obj_id_cb;
 #endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL_OBJECTS */
+#if defined(CONFIG_BT_MCC_READ_CONTENT_CONTROL_ID)
 	mprx.mcc_cbs.read_content_control_id       = mcc_read_content_control_id_cb;
+#endif /* defined(CONFIG_BT_MCC_READ_CONTENT_CONTROL_ID) */
 
 	err = bt_mcc_init(&mprx.mcc_cbs);
-	if (err) {
+	if (err != 0) {
 		LOG_ERR("Failed to initialize MCC");
 		return err;
 	}
 
+	ref = bt_conn_ref(conn);
+	if (ref == NULL) {
+		return -ENOTCONN;
+	}
+
 	/* Start discovery of remote MCS, subscribe to notifications */
 	err = bt_mcc_discover_mcs(conn, 1);
-	if (err) {
+	if (err != 0) {
 		LOG_ERR("Discovery failed");
+		bt_conn_unref(ref);
 		return err;
 	}
 
 	if (mprx.remote_player.conn != NULL) {
 		bt_conn_unref(mprx.remote_player.conn);
 	}
-	mprx.remote_player.conn = bt_conn_ref(conn);
+	mprx.remote_player.conn = ref;
 	mprx.remote_player.registered = true;  /* TODO: Do MCC init and "registration" at startup */
 
 	return 0;
@@ -825,11 +955,11 @@ int media_proxy_ctrl_get_icon_url(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_MEDIA_PLAYER_ICON_URL)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_icon_url(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_MEDIA_PLAYER_ICON_URL */
 
 	return -EINVAL;
 }
@@ -860,11 +990,11 @@ int media_proxy_ctrl_get_track_title(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_TRACK_TITLE)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_track_title(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_TRACK_TITLE */
 
 	return -EINVAL;
 }
@@ -896,11 +1026,11 @@ int media_proxy_ctrl_get_track_duration(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_TRACK_DURATION)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_track_duration(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_TRACK_DURATION */
 
 	return -EINVAL;
 }
@@ -932,11 +1062,11 @@ int media_proxy_ctrl_get_track_position(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_TRACK_POSITION)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_track_position(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_TRACK_POSITION */
 
 	return -EINVAL;
 }
@@ -967,11 +1097,11 @@ int media_proxy_ctrl_set_track_position(struct media_player *player, int32_t pos
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && CONFIG_BT_MCC_SET_TRACK_POSITION
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_set_track_position(mprx.remote_player.conn, position);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_SET_TRACK_POSITION */
 
 	return -EINVAL;
 }
@@ -1002,11 +1132,11 @@ int media_proxy_ctrl_get_playback_speed(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_PLAYBACK_SPEED)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_playback_speed(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_PLAYBACK_SPEED */
 
 	return -EINVAL;
 }
@@ -1037,11 +1167,11 @@ int media_proxy_ctrl_set_playback_speed(struct media_player *player, int8_t spee
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_SET_PLAYBACK_SPEED)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_set_playback_speed(mprx.remote_player.conn, speed);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_SET_PLAYBACK_SPEED */
 
 	return -EINVAL;
 }
@@ -1072,11 +1202,11 @@ int media_proxy_ctrl_get_seeking_speed(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_SEEKING_SPEED)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_seeking_speed(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_SEEKING_SPEED */
 
 	return -EINVAL;
 }
@@ -1409,12 +1539,12 @@ int media_proxy_ctrl_get_playing_order(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_PLAYING_ORDER)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		LOG_DBG("Remote player");
 		return bt_mcc_read_playing_order(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_PLAYING_ORDER */
 
 	return -EINVAL;
 }
@@ -1445,11 +1575,11 @@ int media_proxy_ctrl_set_playing_order(struct media_player *player, uint8_t orde
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_SET_PLAYING_ORDER)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_set_playing_order(mprx.remote_player.conn, order);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_SET_PLAYING_ORDER */
 
 	return -EINVAL;
 }
@@ -1481,11 +1611,12 @@ int media_proxy_ctrl_get_playing_orders_supported(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && \
+	defined(CONFIG_BT_MCC_READ_PLAYING_ORDER_SUPPORTED)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_playing_orders_supported(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_PLAYING_ORDER_SUPPORTED */
 
 	return -EINVAL;
 }
@@ -1516,11 +1647,11 @@ int media_proxy_ctrl_get_media_state(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_MEDIA_STATE)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_media_state(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_MEDIA_STATE */
 
 	return -EINVAL;
 }
@@ -1551,11 +1682,11 @@ int media_proxy_ctrl_send_command(struct media_player *player, const struct mpl_
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_SET_MEDIA_CONTROL_POINT)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_send_cmd(mprx.remote_player.conn, cmd);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_SET_MEDIA_CONTROL_POINT */
 
 	return -EINVAL;
 }
@@ -1587,11 +1718,14 @@ int media_proxy_ctrl_get_commands_supported(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && \
+	defined(CONFIG_BT_MCC_READ_MEDIA_CONTROL_POINT_OPCODES_SUPPORTED)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_opcodes_supported(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif	/* CONFIG_MCTL_REMOTE_PLAYER_CONTROL &&
+	 * CONFIG_BT_MCC_READ_MEDIA_CONTROL_POINT_OPCODES_SUPPORTED
+	 */
 
 	return -EINVAL;
 }
@@ -1693,11 +1827,11 @@ uint8_t media_proxy_ctrl_get_content_ctrl_id(struct media_player *player)
 	}
 #endif /* CONFIG_MCTL_LOCAL_PLAYER_LOCAL_CONTROL */
 
-#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL)
+#if defined(CONFIG_MCTL_REMOTE_PLAYER_CONTROL) && defined(CONFIG_BT_MCC_READ_CONTENT_CONTROL_ID)
 	if (mprx.remote_player.registered && player == &mprx.remote_player) {
 		return bt_mcc_read_content_control_id(mprx.remote_player.conn);
 	}
-#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL */
+#endif /* CONFIG_MCTL_REMOTE_PLAYER_CONTROL && CONFIG_BT_MCC_READ_CONTENT_CONTROL_ID */
 
 	return -EINVAL;
 }

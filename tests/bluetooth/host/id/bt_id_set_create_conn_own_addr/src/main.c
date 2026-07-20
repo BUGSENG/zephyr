@@ -9,6 +9,7 @@
 #include "testing_common_defs.h"
 
 #include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/fff.h>
 #include <zephyr/kernel.h>
 
@@ -54,17 +55,17 @@ ZTEST(bt_id_set_create_conn_own_addr, test_setting_conn_own_public_address_no_pr
 	err = bt_id_set_create_conn_own_addr(false, &own_addr_type);
 
 	zassert_ok(err, "Unexpected error code '%d' was returned", err);
-	zassert_true(own_addr_type == BT_ADDR_LE_PUBLIC,
+	zassert_true(own_addr_type == BT_HCI_OWN_ADDR_PUBLIC,
 		     "Address type reference was incorrectly set");
 }
 
 /*
  *  Test setting connection own address while 'CONFIG_BT_PRIVACY' isn't enabled.
- *  If the default identity has an RPA address of type 'BT_ADDR_LE_RANDOM', set_random_address()
- *  is called and address type reference is updated upon success.
+ *  If the default identity has an RPA address of type 'BT_HCI_OWN_ADDR_RANDOM',
+ * set_random_address() is called and address type reference is updated upon success.
  *
  *  Constraints:
- *   - Default identity has an address with the type 'BT_ADDR_LE_RANDOM'
+ *   - Default identity has an address with the type 'BT_HCI_OWN_ADDR_RANDOM'
  *   - 'CONFIG_BT_PRIVACY' isn't enabled
  *   - set_random_address() succeeds and returns 0
  *
@@ -82,12 +83,12 @@ ZTEST(bt_id_set_create_conn_own_addr, test_setting_conn_own_rpa_address_no_priva
 	bt_addr_le_copy(&bt_dev.id_addr[BT_ID_DEFAULT], BT_RPA_LE_ADDR);
 
 	/* This will make set_random_address() succeeds and returns 0 */
-	bt_addr_copy(&bt_dev.random_addr.a, &BT_RPA_LE_ADDR->a);
+	bt_addr_copy(&bt_dev.random_addr, BT_RPA_ADDR);
 
 	err = bt_id_set_create_conn_own_addr(false, &own_addr_type);
 
 	zassert_ok(err, "Unexpected error code '%d' was returned", err);
-	zassert_true(own_addr_type == BT_ADDR_LE_RANDOM,
+	zassert_true(own_addr_type == BT_HCI_OWN_ADDR_RANDOM,
 		     "Address type reference was incorrectly set");
 }
 
@@ -104,7 +105,7 @@ ZTEST(bt_id_set_create_conn_own_addr, test_setting_conn_own_rpa_address_no_priva
  *
  *  Expected behaviour:
  *   - bt_id_set_create_conn_own_addr() returns 0
- *   - Address type reference is updated with the value 'BT_ADDR_LE_RANDOM'
+ *   - Address type reference is updated with the value 'BT_HCI_OWN_ADDR_RANDOM'
  */
 ZTEST(bt_id_set_create_conn_own_addr, test_setting_conn_own_address_privacy_enabled)
 {
@@ -119,7 +120,7 @@ ZTEST(bt_id_set_create_conn_own_addr, test_setting_conn_own_address_privacy_enab
 	err = bt_id_set_create_conn_own_addr(true, &own_addr_type);
 
 	zassert_ok(err, "Unexpected error code '%d' was returned", err);
-	zassert_true(own_addr_type == BT_ADDR_LE_RANDOM,
+	zassert_true(own_addr_type == BT_HCI_OWN_ADDR_RANDOM,
 		     "Address type reference was incorrectly set");
 }
 

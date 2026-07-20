@@ -7,11 +7,13 @@
 #ifndef ZEPHYR_INCLUDE_POSIX_MQUEUE_H_
 #define ZEPHYR_INCLUDE_POSIX_MQUEUE_H_
 
+#include <time.h>
+#include <signal.h>
+
 #include <zephyr/kernel.h>
-#include <zephyr/posix/time.h>
 #include <zephyr/posix/fcntl.h>
 #include <zephyr/posix/sys/stat.h>
-#include "posix_types.h"
+#include <zephyr/posix/posix_types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,9 +42,10 @@ int mq_timedreceive(mqd_t mqdes, char *msg_ptr, size_t msg_len,
 			unsigned int *msg_prio, const struct timespec *abstime);
 int mq_timedsend(mqd_t mqdes, const char *msg_ptr, size_t msg_len,
 		 unsigned int msg_prio, const struct timespec *abstime);
+int mq_notify(mqd_t mqdes, const struct sigevent *notification);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  /* ZEPHYR_INCLUDE_POSIX_MQUEUE_H_ */
+#endif /* ZEPHYR_INCLUDE_POSIX_MQUEUE_H_ */

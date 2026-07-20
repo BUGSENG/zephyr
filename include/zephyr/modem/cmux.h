@@ -25,6 +25,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include <zephyr/modem/pipe.h>
+#include <zephyr/modem/stats.h>
 
 #ifndef ZEPHYR_MODEM_CMUX_
 #define ZEPHYR_MODEM_CMUX_
@@ -36,6 +37,8 @@ extern "C" {
 /**
  * @brief Modem CMUX
  * @defgroup modem_cmux Modem CMUX
+ * @since 3.5
+ * @version 1.0.0
  * @ingroup modem
  * @{
  */
@@ -51,30 +54,68 @@ typedef void (*modem_cmux_callback)(struct modem_cmux *cmux, enum modem_cmux_eve
 				    void *user_data);
 
 /**
+ * @brief Contains CMUX instance configuration data
+ */
+struct modem_cmux_config {
+	/** Invoked when event occurs */
+	modem_cmux_callback callback;
+	/** Free to use pointer passed to event handler when invoked */
+	void *user_data;
+	/** Receive buffer */
+	uint8_t *receive_buf;
+	/** Size of receive buffer in bytes [127, ...] */
+	uint16_t receive_buf_size;
+	/** Transmit buffer */
+	uint8_t *transmit_buf;
+	/** Size of transmit buffer in bytes [149, ...] */
+	uint16_t transmit_buf_size;
+	/** Enable runtime power management */
+	bool enable_runtime_power_management;
+	/** Close pipe on power save */
+	bool close_pipe_on_power_save;
+	/** Skip the in-band power-save handshake on both entry and exit */
+	bool no_powersave_handshake;
+	/** Idle timeout for power save */
+	k_timeout_t idle_timeout;
+};
+
+/**
  * @cond INTERNAL_HIDDEN
  */
+
+#if CONFIG_MODEM_CMUX_MTU > 127
+#define MODEM_CMUX_HEADER_SIZE			7
+#else
+#define MODEM_CMUX_HEADER_SIZE			6
+#endif
+
+
+/* Total size of the CMUX work buffers */
+#define MODEM_CMUX_WORK_BUFFER_SIZE (CONFIG_MODEM_CMUX_MTU + MODEM_CMUX_HEADER_SIZE + \
+				     CONFIG_MODEM_CMUX_WORK_BUFFER_SIZE_EXTRA)
 
 enum modem_cmux_state {
 	MODEM_CMUX_STATE_DISCONNECTED = 0,
 	MODEM_CMUX_STATE_CONNECTING,
 	MODEM_CMUX_STATE_CONNECTED,
+	MODEM_CMUX_STATE_ENTER_POWERSAVE,
+	MODEM_CMUX_STATE_POWERSAVE,
+	MODEM_CMUX_STATE_CONFIRM_POWERSAVE,
+	MODEM_CMUX_STATE_WAKEUP,
 	MODEM_CMUX_STATE_DISCONNECTING,
 };
 
 enum modem_cmux_receive_state {
 	MODEM_CMUX_RECEIVE_STATE_SOF = 0,
-	MODEM_CMUX_RECEIVE_STATE_RESYNC_0,
-	MODEM_CMUX_RECEIVE_STATE_RESYNC_1,
-	MODEM_CMUX_RECEIVE_STATE_RESYNC_2,
-	MODEM_CMUX_RECEIVE_STATE_RESYNC_3,
+	MODEM_CMUX_RECEIVE_STATE_RESYNC,
 	MODEM_CMUX_RECEIVE_STATE_ADDRESS,
 	MODEM_CMUX_RECEIVE_STATE_ADDRESS_CONT,
 	MODEM_CMUX_RECEIVE_STATE_CONTROL,
 	MODEM_CMUX_RECEIVE_STATE_LENGTH,
 	MODEM_CMUX_RECEIVE_STATE_LENGTH_CONT,
 	MODEM_CMUX_RECEIVE_STATE_DATA,
+	MODEM_CMUX_RECEIVE_STATE_DATA_CONT,
 	MODEM_CMUX_RECEIVE_STATE_FCS,
-	MODEM_CMUX_RECEIVE_STATE_DROP,
 	MODEM_CMUX_RECEIVE_STATE_EOF,
 };
 
@@ -105,10 +146,19 @@ struct modem_cmux_dlci {
 
 	/* State */
 	enum modem_cmux_dlci_state state;
+
+	/* Statistics */
+#if CONFIG_MODEM_STATS
+	struct modem_stats_buffer receive_buf_stats;
+#endif
+	/* Flow control */
+	bool flow_control : 1;
+	bool rx_full : 1;
+	bool msc_sent : 1;
 };
 
 struct modem_cmux_frame {
-	uint16_t dlci_address;
+	uint8_t dlci_address;
 	bool cr;
 	bool pf;
 	uint8_t type;
@@ -125,24 +175,22 @@ struct modem_cmux {
 	/* Bus pipe */
 	struct modem_pipe *pipe;
 
-	/* Event handler */
-	modem_cmux_callback callback;
-	void *user_data;
-
 	/* DLCI channel contexts */
 	sys_slist_t dlcis;
 
 	/* State */
 	enum modem_cmux_state state;
-	bool flow_control_on;
+	uint8_t retry_count;
+	bool flow_control_on : 1;
+	bool initiator : 1;
+
+	/* Work lock */
+	bool attached : 1;
+	struct k_spinlock work_lock;
 
 	/* Receive state*/
 	enum modem_cmux_receive_state receive_state;
-
-	/* Receive buffer */
-	uint8_t *receive_buf;
-	uint16_t receive_buf_size;
-	uint16_t receive_buf_len;
+	int receive_buf_len;
 
 	/* Transmit buffer */
 	struct ring_buf transmit_rb;
@@ -150,7 +198,7 @@ struct modem_cmux {
 
 	/* Received frame */
 	struct modem_cmux_frame frame;
-	uint8_t frame_header[5];
+	int frame_start;
 	uint16_t frame_header_len;
 
 	/* Work */
@@ -158,32 +206,24 @@ struct modem_cmux {
 	struct k_work_delayable transmit_work;
 	struct k_work_delayable connect_work;
 	struct k_work_delayable disconnect_work;
+	struct k_work_delayable runtime_pm_work;
 
 	/* Synchronize actions */
 	struct k_event event;
+	k_timepoint_t t3_timepoint;
+	k_timepoint_t idle_timepoint;
+
+	/* Statistics */
+#if CONFIG_MODEM_STATS
+	struct modem_stats_buffer receive_buf_stats;
+	struct modem_stats_buffer transmit_buf_stats;
+#endif
+	struct modem_cmux_config config;
 };
 
 /**
  * @endcond
  */
-
-/**
- * @brief Contains CMUX instance configuration data
- */
-struct modem_cmux_config {
-	/** Invoked when event occurs */
-	modem_cmux_callback callback;
-	/** Free to use pointer passed to event handler when invoked */
-	void *user_data;
-	/** Receive buffer */
-	uint8_t *receive_buf;
-	/** Size of receive buffer in bytes [127, ...] */
-	uint16_t receive_buf_size;
-	/** Transmit buffer */
-	uint8_t *transmit_buf;
-	/** Size of transmit buffer in bytes [149, ...] */
-	uint16_t transmit_buf_size;
-};
 
 /**
  * @brief Initialize CMUX instance

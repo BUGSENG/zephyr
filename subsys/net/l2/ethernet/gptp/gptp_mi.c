@@ -7,6 +7,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(net_gptp, CONFIG_NET_GPTP_LOG_LEVEL);
 
+#include <zephyr/net/net_log.h>
 #include <zephyr/drivers/ptp_clock.h>
 
 #include "gptp_messages.h"
@@ -123,7 +124,7 @@ static void gptp_mi_half_sync_itv_timeout(struct k_timer *timer)
 	struct gptp_pss_send_state *state;
 	int port;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		state = &GPTP_PORT_STATE(port)->pss_send;
 		if (&state->half_sync_itv_timer == timer) {
 			if (!state->half_sync_itv_timer_expired) {
@@ -143,7 +144,7 @@ static void gptp_mi_rcv_sync_receipt_timeout(struct k_timer *timer)
 	struct gptp_pss_rcv_state *state;
 	int port;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		state = &GPTP_PORT_STATE(port)->pss_rcv;
 		if (&state->rcv_sync_receipt_timeout_timer == timer) {
 			state->rcv_sync_receipt_timeout_timer_expired = true;
@@ -158,7 +159,7 @@ static void gptp_mi_send_sync_receipt_timeout(struct k_timer *timer)
 	struct gptp_pss_send_state *state;
 	int port;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		state = &GPTP_PORT_STATE(port)->pss_send;
 		if (&state->send_sync_receipt_timeout_timer == timer) {
 			state->send_sync_receipt_timeout_timer_expired = true;
@@ -238,7 +239,7 @@ static void announce_timer_handler(struct k_timer *timer)
 	int port;
 	struct gptp_port_announce_information_state *state;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		state = &GPTP_PORT_STATE(port)->pa_info;
 		if (&state->ann_rcpt_expiry_timer == timer) {
 			state->ann_expired = true;
@@ -283,7 +284,7 @@ static void announce_periodic_timer_handler(struct k_timer *timer)
 	int port;
 	struct gptp_port_announce_transmit_state *state;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		state = &GPTP_PORT_STATE(port)->pa_transmit;
 		if (&state->ann_send_periodic_timer == timer) {
 			state->ann_trigger = true;
@@ -361,7 +362,7 @@ uint64_t gptp_get_current_master_time_nanosecond(void)
 
 	port_role = GPTP_GLOBAL_DS()->selected_role;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		if (port_role[port] == GPTP_PORT_MASTER) {
 			return gptp_get_current_time_nanosecond(port);
 		}
@@ -560,6 +561,15 @@ static void gptp_mi_pss_send_state_machine(int port)
 		k_timer_start(&state->half_sync_itv_timer, duration,
 			      K_NO_WAIT);
 
+		/* sourcePortIdentity is set to the portIdentity of this
+		 * PTP Port (see ch. 10.2.12.2.1 and ch 8.5.2).
+		 */
+		memcpy(&state->pss_sync_ptr->sync_info.src_port_id.clk_id,
+			GPTP_DEFAULT_DS()->clk_id,
+			GPTP_CLOCK_ID_LEN);
+		state->pss_sync_ptr->sync_info.src_port_id.port_number = port;
+
+
 		gptp_mi_pss_send_md_sync_send(port);
 
 		__fallthrough;
@@ -629,7 +639,7 @@ static void gptp_mi_site_ss_send_to_pss(void)
 
 	state = &GPTP_STATE()->site_ss;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		pss_send = &GPTP_PORT_STATE(port)->pss_send;
 		pss_send->pss_sync_ptr = &state->pss_send;
 		pss_send->rcvd_pss_sync = true;
@@ -777,14 +787,12 @@ static void gptp_update_local_port_clock(void)
 		nanosecond_diff = -(int64_t)NSEC_PER_SEC + nanosecond_diff;
 	}
 
-	ptp_clock_rate_adjust(clk, port_ds->neighbor_rate_ratio);
-
 	/* If time difference is too high, set the clock value.
 	 * Otherwise, adjust it.
 	 */
 	if (second_diff || (second_diff == 0 &&
-			    (nanosecond_diff < -5000 ||
-			     nanosecond_diff > 5000))) {
+			    (nanosecond_diff < -50000000 ||
+			     nanosecond_diff > 50000000))) {
 		bool underflow = false;
 
 		key = irq_lock();
@@ -813,28 +821,22 @@ static void gptp_update_local_port_clock(void)
 			tm.second++;
 			tm.nanosecond -= NSEC_PER_SEC;
 		}
-
-		/* This prints too much data normally but can be enabled to see
-		 * what time we are setting to the local clock.
-		 */
-		if (0) {
-			NET_INFO("Set local clock %lu.%lu",
-				 (unsigned long int)tm.second,
-				 (unsigned long int)tm.nanosecond);
+		if (IS_ENABLED(CONFIG_NET_GPTP_MONITOR_SYNC_STATUS)) {
+			NET_INFO("Set local clock %"PRIu64".%09u", tm.second, tm.nanosecond);
 		}
-
 		ptp_clock_set(clk, &tm);
 
 	skip_clock_set:
 		irq_unlock(key);
 	} else {
-		if (nanosecond_diff < -200) {
-			nanosecond_diff = -200;
-		} else if (nanosecond_diff > 200) {
-			nanosecond_diff = 200;
-		}
+		double ppb = gptp_servo_pi(nanosecond_diff);
 
-		ptp_clock_adjust(clk, nanosecond_diff);
+		ptp_clock_rate_adjust(clk, 1.0 + (ppb / 1000000000.0));
+
+		if (IS_ENABLED(CONFIG_NET_GPTP_MONITOR_SYNC_STATUS)) {
+			NET_INFO("sync offset %9"PRId64" ns, freq offset %f ppb",
+				 nanosecond_diff, ppb);
+		}
 	}
 }
 #endif /* CONFIG_NET_GPTP_USE_DEFAULT_CLOCK_UPDATE */
@@ -951,12 +953,17 @@ static void gptp_mi_set_ps_sync_cmss(void)
 	sync_info->precise_orig_ts.second = current_time / NSEC_PER_SEC;
 	sync_info->precise_orig_ts.nanosecond = current_time % NSEC_PER_SEC;
 
-	/* TODO calculate correction field properly, rate_ratio is also set to
-	 * zero instead of being copied from global_ds as it affects the final
-	 * value of FUP correction field.
+	/* TODO calculate rate ratio and correction field properly.
+	 * Whenever time aware system is the grand master clock, we currently
+	 * make the following shortcuts:
+	 * - assuming that clock source is the local clock,
+	 *   rate_ratio is set to 1.0 instead of being copied from global_ds.
+	 * - considering that precise origin timestamp is directly inherited
+	 *   from sync egress timestamp in gptp_md_follow_up_prepare(),
+	 *   follow_up_correction_field is set to 0.
 	 */
 	sync_info->follow_up_correction_field = 0;
-	sync_info->rate_ratio = 0;
+	sync_info->rate_ratio = 1.0;
 
 	memcpy(&sync_info->src_port_id.clk_id,
 	       GPTP_DEFAULT_DS()->clk_id,
@@ -986,7 +993,7 @@ static inline void gptp_mi_tx_ps_sync_cmss(void)
 
 	state = &GPTP_STATE()->clk_master_sync_send;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		pss_send = &GPTP_PORT_STATE(port)->pss_send;
 		pss_send->pss_sync_ptr = &state->pss_snd;
 
@@ -1194,18 +1201,18 @@ static void gptp_mi_clk_master_sync_rcv_state_machine(void)
 
 static void copy_path_trace(struct gptp_announce *announce)
 {
-	int len = ntohs(announce->tlv.len);
+	int len = net_ntohs(announce->tlv.len);
 	struct gptp_path_trace *sys_path_trace;
 
-	if (len > GPTP_MAX_PATHTRACE_SIZE) {
+	if (len > (GPTP_MAX_PATHTRACE_SIZE - 1) * GPTP_CLOCK_ID_LEN) {
 		NET_ERR("Too long path trace (%d vs %d)",
-			GPTP_MAX_PATHTRACE_SIZE, len);
+			GPTP_MAX_PATHTRACE_SIZE * GPTP_CLOCK_ID_LEN, len);
 		return;
 	}
 
 	sys_path_trace = &GPTP_GLOBAL_DS()->path_trace;
 
-	sys_path_trace->len = htons(len + GPTP_CLOCK_ID_LEN);
+	sys_path_trace->len = net_htons(len + GPTP_CLOCK_ID_LEN);
 
 	memcpy(sys_path_trace->path_sequence, announce->tlv.path_sequence,
 	       len);
@@ -1230,16 +1237,29 @@ static bool gptp_mi_qualify_announce(int port, struct net_pkt *announce_msg)
 		return false;
 	}
 
-	len = ntohs(announce->steps_removed);
+	len = net_ntohs(announce->steps_removed);
 	if (len >= 255U) {
 		return false;
 	}
 
-	for (i = 0; i < len + 1; i++) {
-		if (memcmp(announce->tlv.path_sequence[i],
-			   GPTP_DEFAULT_DS()->clk_id,
-			   GPTP_CLOCK_ID_LEN) == 0) {
+	/* The path_sequence array in the announce TLV has (tlv.len /
+	 * GPTP_CLOCK_ID_LEN) entries. Iterating up to steps_removed+1
+	 * without validating against the TLV length reads past the data.
+	 */
+	{
+		uint16_t tlv_entries = net_ntohs(announce->tlv.len) / GPTP_CLOCK_ID_LEN;
+		uint16_t max_i = (uint16_t)(len + 1U);
+
+		if (max_i > tlv_entries) {
 			return false;
+		}
+
+		for (i = 0; i < max_i; i++) {
+			if (memcmp(announce->tlv.path_sequence[i],
+				   GPTP_DEFAULT_DS()->clk_id,
+				   GPTP_CLOCK_ID_LEN) == 0) {
+				return false;
+			}
 		}
 	}
 
@@ -1325,7 +1345,7 @@ static enum gptp_received_info compare_priority_vectors(
 	spi_cmp = memcmp(&hdr->port_id, &vector->src_port_id,
 			 sizeof(struct gptp_port_identity));
 
-	port_cmp = (int)port - ntohs(vector->port_number);
+	port_cmp = (int)port - net_ntohs(vector->port_number);
 
 	if (spi_cmp == 0) {
 		if (rsi_cmp == 0) {
@@ -1386,7 +1406,7 @@ static void record_other_announce_info(int port)
 	 */
 	bmca_data->ann_flags.octets[1] = hdr->flags.octets[1];
 
-	bmca_data->ann_current_utc_offset = ntohs(announce->cur_utc_offset);
+	bmca_data->ann_current_utc_offset = net_ntohs(announce->cur_utc_offset);
 	bmca_data->ann_time_source = announce->time_source;
 }
 
@@ -1405,7 +1425,8 @@ static void copy_priority_vector(struct gptp_priority_vector *vector,
 	memcpy(&vector->src_port_id, &hdr->port_id,
 	       sizeof(struct gptp_port_identity));
 
-	vector->port_number = htons(port);
+	vector->steps_removed = announce->steps_removed;
+	vector->port_number = net_htons(port);
 }
 
 static void gptp_mi_port_announce_information_state_machine(int port)
@@ -1534,7 +1555,7 @@ static void gptp_mi_port_announce_information_state_machine(int port)
 				     bmca_data->rcvd_announce_ptr, port);
 
 		announce = GPTP_ANNOUNCE(bmca_data->rcvd_announce_ptr);
-		bmca_data->port_steps_removed = ntohs(announce->steps_removed);
+		bmca_data->port_steps_removed = net_ntohs(announce->steps_removed);
 		record_other_announce_info(port);
 		hdr = GPTP_HDR(bmca_data->rcvd_announce_ptr);
 		gptp_set_time_itv(&bmca_data->ann_rcpt_timeout_time_interval,
@@ -1574,7 +1595,7 @@ static void gptp_updt_role_disabled_tree(void)
 	global_ds = GPTP_GLOBAL_DS();
 
 	/* Set all elements of the selectedRole array to DisabledPort. */
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		gptp_change_port_state(port, GPTP_PORT_DISABLED);
 	}
 
@@ -1583,7 +1604,7 @@ static void gptp_updt_role_disabled_tree(void)
 		     sizeof(struct gptp_priority_vector));
 
 	/* Set pathTrace array to contain the single element thisClock. */
-	global_ds->path_trace.len = htons(GPTP_CLOCK_ID_LEN);
+	global_ds->path_trace.len = net_htons(GPTP_CLOCK_ID_LEN);
 	memcpy(global_ds->path_trace.path_sequence, GPTP_DEFAULT_DS()->clk_id,
 	       GPTP_CLOCK_ID_LEN);
 }
@@ -1618,7 +1639,7 @@ static int compute_best_vector(void)
 	gm_prio->root_system_id.clk_quality.clock_accuracy =
 		default_ds->clk_quality.clock_accuracy;
 	gm_prio->root_system_id.clk_quality.offset_scaled_log_var =
-		htons(default_ds->clk_quality.offset_scaled_log_var);
+		net_htons(default_ds->clk_quality.offset_scaled_log_var);
 
 	memcpy(gm_prio->src_port_id.clk_id, default_ds->clk_id,
 	       GPTP_CLOCK_ID_LEN);
@@ -1627,7 +1648,7 @@ static int compute_best_vector(void)
 
 	best_vector = gm_prio;
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		challenger = &GPTP_PORT_BMCA_DATA(port)->port_priority;
 		pa_info_state = &GPTP_PORT_STATE(port)->pa_info;
 		pss_rcv = &GPTP_PORT_STATE(port)->pss_rcv;
@@ -1655,8 +1676,8 @@ static int compute_best_vector(void)
 				continue;
 			}
 
-			tmp = (int)challenger->steps_removed -
-				((int)ntohs(best_vector->steps_removed) + 1);
+			tmp = (int)(challenger->steps_removed + 1) -
+				(int)net_ntohs(best_vector->steps_removed);
 			if (tmp < 0) {
 				best_vector = challenger;
 				best_port = port;
@@ -1674,8 +1695,8 @@ static int compute_best_vector(void)
 				continue;
 			}
 
-			if (ntohs(challenger->port_number) <
-			    ntohs(best_vector->port_number)) {
+			if (net_ntohs(challenger->port_number) <
+			    net_ntohs(best_vector->port_number)) {
 				best_vector = challenger;
 				best_port = port;
 			}
@@ -1701,7 +1722,7 @@ static int compute_best_vector(void)
 		}
 
 		global_ds->gm_priority.steps_removed =
-			htons(ntohs(best_vector->steps_removed) + 1);
+			net_ntohs(best_vector->steps_removed) + 1;
 
 		if (&global_ds->gm_priority.src_port_id !=
 		    &best_vector->src_port_id) {
@@ -1729,18 +1750,19 @@ static void update_bmca(int port,
 		memcpy(&bmca_data->master_priority, gm_prio,
 		       sizeof(struct gptp_priority_vector));
 
-		bmca_data->master_priority.port_number = htons(port);
+		bmca_data->master_priority.port_number = net_htons(port);
 		bmca_data->master_priority.src_port_id.port_number =
-			htons(port);
+			net_htons(port);
 	} else {
 		memcpy(&bmca_data->master_priority.root_system_id,
 		       &gm_prio->root_system_id,
 		       sizeof(struct gptp_root_system_identity));
 		memcpy(bmca_data->master_priority.src_port_id.clk_id,
 		       default_ds->clk_id, GPTP_CLOCK_ID_LEN);
-		bmca_data->master_priority.port_number = htons(port);
+		bmca_data->master_priority.port_number = net_htons(port);
 		bmca_data->master_priority.src_port_id.port_number =
-			htons(port);
+			net_htons(port);
+		bmca_data->master_priority.steps_removed = gm_prio->steps_removed;
 	}
 
 	switch (bmca_data->info_is) {
@@ -1844,10 +1866,10 @@ static void gptp_updt_roles_tree(void)
 			global_ds->sys_current_utc_offset;
 		global_ds->time_source = bmca_data->ann_time_source;
 		global_ds->master_steps_removed =
-			htons(ntohs(bmca_data->message_steps_removed) + 1);
+			net_htons(net_ntohs(bmca_data->message_steps_removed) + 1);
 	}
 
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		update_bmca(port, best_port, global_ds, default_ds, gm_prio);
 	}
 
@@ -1857,21 +1879,21 @@ static void gptp_updt_roles_tree(void)
 		false : true;
 
 	/* Assign the port role for port 0. */
-	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
+	for (port = GPTP_PORT_START; port <= GPTP_PORT_END; port++) {
 		if (global_ds->selected_role[port] == GPTP_PORT_SLAVE) {
 			gptp_change_port_state(0, GPTP_PORT_PASSIVE);
 			break;
 		}
 	}
 
-	if (port == GPTP_PORT_END) {
+	if (port > GPTP_PORT_END) {
 		gptp_change_port_state(0, GPTP_PORT_SLAVE);
 	}
 
 	/* If current system is the Grand Master, set pathTrace array. */
 	if (memcmp(default_ds->clk_id, gm_prio->root_system_id.grand_master_id,
 		   GPTP_CLOCK_ID_LEN) == 0) {
-		global_ds->path_trace.len = htons(GPTP_CLOCK_ID_LEN);
+		global_ds->path_trace.len = net_htons(GPTP_CLOCK_ID_LEN);
 		memcpy(global_ds->path_trace.path_sequence,
 		       default_ds->clk_id, GPTP_CLOCK_ID_LEN);
 	}
@@ -2005,7 +2027,22 @@ void gptp_mi_state_machines(void)
 	gptp_mi_port_role_selection_state_machine();
 	gptp_mi_clk_master_sync_offset_state_machine();
 #if defined(CONFIG_NET_GPTP_GM_CAPABLE)
-	gptp_mi_clk_master_sync_snd_state_machine();
+	/*
+	 * Only call ClockMasterSyncSend state machine in case a Grand Master clock
+	 * is present and is this time aware system.
+	 * This check is not described by IEEE802.1AS. Instead, according to
+	 * 10.2.9.3, the SiteSyncSync state machine shall not take into account
+	 * information from ClockMasterSyncSend in case this time aware system is
+	 * not grand-master capable. Current implementation of ClockMasterSyncSend
+	 * state machine send sync indication to the PortSync entities, instead of
+	 * sending it to the SiteSyncSync entity. And the SiteSyncSync state machine
+	 * does not make sanity check.
+	 */
+	if (memcmp(GPTP_GLOBAL_DS()->gm_priority.root_system_id.grand_master_id,
+			   GPTP_DEFAULT_DS()->clk_id, GPTP_CLOCK_ID_LEN) == 0 &&
+			   GPTP_GLOBAL_DS()->gm_present) {
+		gptp_mi_clk_master_sync_snd_state_machine();
+	}
 #endif
 	gptp_mi_clk_master_sync_rcv_state_machine();
 }

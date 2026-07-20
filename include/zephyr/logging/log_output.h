@@ -3,6 +3,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+/**
+ * @file
+ * @brief Header file for the log output formatter.
+ * @ingroup log_output
+ */
+
 #ifndef ZEPHYR_INCLUDE_LOGGING_LOG_OUTPUT_H_
 #define ZEPHYR_INCLUDE_LOGGING_LOG_OUTPUT_H_
 
@@ -17,9 +24,9 @@ extern "C" {
 #endif
 
 /**
- * @brief Log output API
- * @defgroup log_output Log output API
+ * @defgroup log_output Log output
  * @ingroup logger
+ * @brief Formatting of log messages into human-readable or structured output.
  * @{
  */
 
@@ -54,18 +61,35 @@ extern "C" {
 /** @brief Flag thread id or name prefix. */
 #define LOG_OUTPUT_FLAG_THREAD			BIT(7)
 
+/** @brief Flag forcing to skip logging the source. */
+#define LOG_OUTPUT_FLAG_SKIP_SOURCE		BIT(8)
+
+/** @brief Flag core/processor id prefix. */
+#define LOG_OUTPUT_FLAG_CORE			BIT(9)
+
 /**@} */
 
-/** @brief Supported backend logging format types for use
- * with log_format_set() API to switch log format at runtime.
+/**
+ * @name Output format types
+ *
+ * Values used with log_format_set() and log_backend_format_set() to select the
+ * output format of a backend at run time.
+ * @{
  */
+
+/** @brief Plain text output format. */
 #define LOG_OUTPUT_TEXT 0
 
+/** @brief MIPI Sys-T output format. */
 #define LOG_OUTPUT_SYST 1
 
+/** @brief Dictionary-based (binary) output format. */
 #define LOG_OUTPUT_DICT 2
 
+/** @brief Custom, user-provided output format. */
 #define LOG_OUTPUT_CUSTOM 3
+
+/** @} */
 
 /**
  * @brief Prototype of the function processing output data.
@@ -82,19 +106,21 @@ extern "C" {
  */
 typedef int (*log_output_func_t)(uint8_t *buf, size_t size, void *ctx);
 
-/* @brief Control block structure for log_output instance.  */
+/** @brief Run-time control block for a @ref log_output instance. */
 struct log_output_control_block {
+	/** @cond INTERNAL_HIDDEN */
 	atomic_t offset;
 	void *ctx;
 	const char *hostname;
+	/** @endcond */
 };
 
-/** @brief Log_output instance structure. */
+/** @brief Log output instance. */
 struct log_output {
-	log_output_func_t func;
-	struct log_output_control_block *control_block;
-	uint8_t *buf;
-	size_t size;
+	log_output_func_t func; /**< Function called to write formatted output. */
+	struct log_output_control_block *control_block; /**< Run-time control block. */
+	uint8_t *buf; /**< Buffer holding formatted output before it is written. */
+	size_t size; /**< Size of @ref log_output.buf, in bytes. */
 };
 
 /**
@@ -149,9 +175,10 @@ void log_output_msg_process(const struct log_output *log_output,
  * @param domain	Domain name string. Can be NULL.
  * @param source	Source name string. Can be NULL.
  * @param tid		Thread ID.
+ * @param core_id	Core ID.
  * @param level		Criticality level.
  * @param package	Cbprintf package with a logging message string.
- * @param data		Data passed to hexdump API. Can bu NULL.
+ * @param data		Data passed to hexdump API. Can be NULL.
  * @param data_len	Data length.
  * @param flags		Formatting flags. See @ref LOG_OUTPUT_FLAGS.
  */
@@ -160,6 +187,7 @@ void log_output_process(const struct log_output *log_output,
 			const char *domain,
 			const char *source,
 			k_tid_t tid,
+			uint8_t core_id,
 			uint8_t level,
 			const uint8_t *package,
 			const uint8_t *data,
@@ -187,11 +215,34 @@ void log_output_msg_syst_process(const struct log_output *log_output,
  */
 void log_output_dropped_process(const struct log_output *output, uint32_t cnt);
 
+/** @brief Write to the output buffer.
+ *
+ * @param outf Output function.
+ * @param buf  Buffer.
+ * @param len  Buffer length.
+ * @param ctx  Context passed to the %p outf.
+ */
+static inline void log_output_write(log_output_func_t outf, uint8_t *buf, size_t len, void *ctx)
+{
+	int processed;
+
+	while (len != 0) {
+		processed = outf(buf, len, ctx);
+		len -= processed;
+		buf += processed;
+	}
+}
+
 /** @brief Flush output buffer.
  *
  * @param output Pointer to the log output instance.
  */
-void log_output_flush(const struct log_output *output);
+static inline void log_output_flush(const struct log_output *output)
+{
+	log_output_write(output->func, output->buf, output->control_block->offset,
+			 output->control_block->ctx);
+	output->control_block->offset = 0;
+}
 
 /** @brief Function for setting user context passed to the output function.
  *

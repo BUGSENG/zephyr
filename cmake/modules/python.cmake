@@ -7,16 +7,18 @@ include_guard(GLOBAL)
 # are invoked by CMake code and, on Windows, standard I/O encoding defaults
 # to the current code page if not connected to a terminal, which is often
 # not what we want.
-if (WIN32)
+if(WIN32)
   set(ENV{PYTHONIOENCODING} "utf-8")
 endif()
 
-set(PYTHON_MINIMUM_REQUIRED 3.8)
-
-find_package(Deprecated COMPONENTS PYTHON_PREFER)
+set(PYTHON_MINIMUM_REQUIRED 3.12)
 
 if(NOT DEFINED Python3_EXECUTABLE AND DEFINED WEST_PYTHON)
   set(Python3_EXECUTABLE "${WEST_PYTHON}")
+  set(_Python3_EXECUTABLE "${WEST_PYTHON}" CACHE INTERNAL "")
+  if(DEFINED WEST_PYTHON_PROPERTIES)
+    set(_Python3_INTERPRETER_PROPERTIES "${WEST_PYTHON_PROPERTIES}" CACHE INTERNAL "")
+  endif()
 endif()
 
 if(NOT Python3_EXECUTABLE)
@@ -25,13 +27,12 @@ if(NOT Python3_EXECUTABLE)
   # cause just using find_program directly could result in a python2.7 as python,
   # and not finding a valid python3.
   foreach(candidate "python" "python3")
-    find_program(Python3_EXECUTABLE ${candidate})
+    find_program(Python3_EXECUTABLE ${candidate} PATHS ENV VIRTUAL_ENV NO_CMAKE_PATH NO_CMAKE_ENVIRONMENT_PATH)
     if(Python3_EXECUTABLE)
         execute_process (COMMAND "${Python3_EXECUTABLE}" -c
                                  "import sys; sys.stdout.write('.'.join([str(x) for x in sys.version_info[:2]]))"
                          RESULT_VARIABLE result
                          OUTPUT_VARIABLE version
-                         ERROR_QUIET
                          OUTPUT_STRIP_TRAILING_WHITESPACE)
 
        if(version VERSION_LESS PYTHON_MINIMUM_REQUIRED)

@@ -5,16 +5,4 @@ description: Nordic nPM1300
 
 compatible: "nordic,npm1300"
 
-include: i2c-device.yaml
-
-properties:
-  reg:
-    required: true
-
-  host-int-gpios:
-    type: phandle-array
-    description: Host pin for interrupt input
-
-  pmic-int-pin:
-    type: int
-    description: Pmic pin number for interrupt output
+include: "nordic,npm13xx-common.yaml"

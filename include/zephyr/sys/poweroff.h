@@ -4,6 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief Header file for system power off.
+ * @ingroup sys_poweroff
+ */
+
 #ifndef ZEPHYR_INCLUDE_SYS_POWEROFF_H_
 #define ZEPHYR_INCLUDE_SYS_POWEROFF_H_
 
@@ -29,15 +35,13 @@ extern "C" {
  */
 FUNC_NORETURN void z_sys_poweroff(void);
 
-/** @} */
-
 /** @endcond */
 
 /**
  * @brief Perform a system power off.
  *
  * This function will perform an immediate power off of the system. It is the
- * responsability of the caller to ensure that the system is in a safe state to
+ * responsibility of the caller to ensure that the system is in a safe state to
  * be powered off. Any required wake up sources must be enabled before calling
  * this function.
  *

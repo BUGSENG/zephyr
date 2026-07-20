@@ -17,7 +17,7 @@
 
 #include "sbs_charger.h"
 
-LOG_MODULE_REGISTER(sbs_sbs_charger);
+LOG_MODULE_REGISTER(sbs_sbs_charger, CONFIG_CHARGER_LOG_LEVEL);
 
 /** Static configuration for the emulator */
 struct sbs_charger_emul_cfg {
@@ -25,10 +25,20 @@ struct sbs_charger_emul_cfg {
 	uint16_t addr;
 };
 
+/** Run-time data used by the emulator */
+struct sbs_charger_emul_data {
+	uint16_t reg_charger_mode;
+};
+
 static int emul_sbs_charger_reg_write(const struct emul *target, int reg, int val)
 {
+	struct sbs_charger_emul_data *data = target->data;
+
 	LOG_INF("write %x = %x", reg, val);
 	switch (reg) {
+	case SBS_CHARGER_REG_CHARGER_MODE:
+		data->reg_charger_mode = val;
+		break;
 	default:
 		LOG_ERR("Unknown write %x", reg);
 		return -EIO;
@@ -62,6 +72,7 @@ static int sbs_charger_emul_transfer_i2c(const struct emul *target, struct i2c_m
 	/* Largely copied from emul_sbs_gauge.c */
 	struct sbs_charger_emul_data *data;
 	unsigned int val;
+	uint16_t value;
 	int reg;
 	int rc;
 
@@ -69,6 +80,21 @@ static int sbs_charger_emul_transfer_i2c(const struct emul *target, struct i2c_m
 
 	i2c_dump_msgs_rw(target->dev, msgs, num_msgs, addr, false);
 	switch (num_msgs) {
+	case 1:
+		if (msgs->flags & I2C_MSG_READ) {
+			LOG_ERR("Unexpected single-message read");
+			return -EIO;
+		}
+		if (msgs->len != 3) {
+			LOG_ERR("Unexpected msg0 length %d", msgs->len);
+			return -EIO;
+		}
+		reg = msgs->buf[0];
+
+		value = sys_get_le16(&(msgs->buf[1]));
+
+		rc = emul_sbs_charger_reg_write(target, reg, value);
+		break;
 	case 2:
 		if (msgs->flags & I2C_MSG_READ) {
 			LOG_ERR("Unexpected read");
@@ -103,7 +129,7 @@ static int sbs_charger_emul_transfer_i2c(const struct emul *target, struct i2c_m
 			if (msgs->len != 2) {
 				LOG_ERR("Unexpected msg1 length %d", msgs->len);
 			}
-			uint16_t value = sys_get_le16(msgs->buf);
+			value = sys_get_le16(msgs->buf);
 
 			rc = emul_sbs_charger_reg_write(target, reg, value);
 		}
@@ -132,10 +158,12 @@ static int emul_sbs_sbs_charger_init(const struct emul *target, const struct dev
  * Main instantiation macro. SBS Charger Emulator only implemented for I2C
  */
 #define SBS_CHARGER_EMUL(n)                                                                        \
+	static struct sbs_charger_emul_data sbs_charger_emul_data_##n;                             \
+                                                                                                   \
 	static const struct sbs_charger_emul_cfg sbs_charger_emul_cfg_##n = {                      \
 		.addr = DT_INST_REG_ADDR(n),                                                       \
 	};                                                                                         \
-	EMUL_DT_INST_DEFINE(n, emul_sbs_sbs_charger_init, NULL, &sbs_charger_emul_cfg_##n,         \
-			    &sbs_charger_emul_api_i2c, NULL)
+	EMUL_DT_INST_DEFINE(n, emul_sbs_sbs_charger_init, &sbs_charger_emul_data_##n,              \
+			    &sbs_charger_emul_cfg_##n, &sbs_charger_emul_api_i2c, NULL)
 
 DT_INST_FOREACH_STATUS_OKAY(SBS_CHARGER_EMUL)

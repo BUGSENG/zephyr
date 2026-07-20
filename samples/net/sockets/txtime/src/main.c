@@ -22,6 +22,11 @@ LOG_MODULE_REGISTER(net_txtime_sample, LOG_LEVEL_DBG);
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/ethernet_mgmt.h>
 
+#include <zephyr/posix/sys/socket.h>
+#include <zephyr/posix/unistd.h>
+
+#include "net_sample_common.h"
+
 #define APP_BANNER "Run SO_TXTIME client"
 
 #define DHCPV4_MASK (NET_EVENT_IPV4_DHCP_BOUND | \
@@ -63,15 +68,13 @@ K_SEM_DEFINE(run_app, 0, 1);
 static bool want_to_quit;
 static bool connected;
 
-extern int init_vlan(void);
-
 static void quit(void)
 {
 	k_sem_give(&quit_lock);
 }
 
 static void event_handler(struct net_mgmt_event_callback *cb,
-			  uint32_t mgmt_event, struct net_if *iface)
+			  uint64_t mgmt_event, struct net_if *iface)
 {
 	static bool dhcpv4_done;
 
@@ -127,8 +130,12 @@ static void event_handler(struct net_mgmt_event_callback *cb,
 	}
 }
 
-static void rx(struct app_data *data)
+static void rx(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	struct app_data *data = p1;
 	static uint8_t recv_buf[sizeof(txtime_str)];
 	struct sockaddr src;
 	socklen_t addr_len = data->peer_addr_len;
@@ -143,8 +150,12 @@ static void rx(struct app_data *data)
 	}
 }
 
-static void tx(struct app_data *data)
+static void tx(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	struct app_data *data = p1;
 	struct net_ptp_time time;
 	struct msghdr msg;
 	struct cmsghdr *cmsg;
@@ -255,7 +266,7 @@ static int create_socket(struct net_if *iface, struct sockaddr *peer)
 {
 	struct sockaddr local;
 	socklen_t addrlen;
-	bool optval;
+	int optval;
 	uint8_t priority;
 	int sock;
 	int ret;
@@ -265,7 +276,7 @@ static int create_socket(struct net_if *iface, struct sockaddr *peer)
 	if (IS_ENABLED(CONFIG_NET_SAMPLE_PACKET_SOCKET)) {
 		struct sockaddr_ll *addr;
 
-		sock = socket(AF_PACKET, SOCK_RAW, ETH_P_ALL);
+		sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 		if (sock < 0) {
 			LOG_ERR("Cannot create %s socket (%d)", "packet",
 				-errno);
@@ -620,7 +631,7 @@ int main(void)
 
 	tx_tid = k_thread_create(&tx_thread, tx_stack,
 				 K_THREAD_STACK_SIZEOF(tx_stack),
-				 (k_thread_entry_t)tx, &peer_data,
+				 tx, &peer_data,
 				 NULL, NULL, THREAD_PRIORITY, 0,
 				 K_FOREVER);
 	if (!tx_tid) {
@@ -632,7 +643,7 @@ int main(void)
 
 	rx_tid = k_thread_create(&rx_thread, rx_stack,
 				 K_THREAD_STACK_SIZEOF(rx_stack),
-				 (k_thread_entry_t)rx, &peer_data,
+				 rx, &peer_data,
 				 NULL, NULL, THREAD_PRIORITY, 0,
 				 K_FOREVER);
 	if (!rx_tid) {

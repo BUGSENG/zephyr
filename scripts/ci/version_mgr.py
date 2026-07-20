@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020 Intel Corp.
+# Copyright (c) 2020-2023 Intel Corp.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -12,47 +12,47 @@ Syntax of file:
         },
     ]
 """
-import json
+
 import argparse
-import urllib.request
+import json
 import os
+import tempfile
+import urllib.request
+from datetime import datetime
 
 from git import Git
-from datetime import datetime
 
 VERSIONS_FILE = "versions.json"
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-                description="Manage versions to be tested.", allow_abbrev=False)
-    parser.add_argument('-l', '--list', action="store_true",
-                        help="List all published versions")
-    parser.add_argument('-u', '--update',
-                        help="Update versions file from tree.")
-    parser.add_argument('-L', '--latest', action="store_true",
-                        help="Get latest published version")
-    parser.add_argument('-w', '--weekly', action="store_true",
-                        help="Mark as weekly")
-    parser.add_argument('-v', '--verbose', action="store_true",
-                        help="Verbose output")
+        description="Manage versions to be tested.", allow_abbrev=False
+    )
+    parser.add_argument('-l', '--list', action="store_true", help="List all published versions")
+    parser.add_argument('-u', '--update', help="Update versions file from tree.")
+    parser.add_argument('-L', '--latest', action="store_true", help="Get latest published version")
+    parser.add_argument('-w', '--weekly', action="store_true", help="Mark as weekly")
+    parser.add_argument('-W', '--list-weekly', action="store_true", help="List weekly commits")
+    parser.add_argument('-v', '--verbose', action="store_true", help="Verbose output")
     return parser.parse_args()
 
 
 def get_versions():
     data = None
-    if not os.path.exists('versions.json'):
-        url = 'https://testing.zephyrproject.org/daily_tests/versions.json'
-        urllib.request.urlretrieve(url, 'versions.json')
-    with open("versions.json", "r") as fp:
-        data = json.load(fp)
-
+    with tempfile.NamedTemporaryFile() as fo:
+        if not os.path.exists('versions.json'):
+            url = 'https://testing.zephyrproject.org/daily_tests/versions.json'
+            urllib.request.urlretrieve(url, fo.name)
+        with open(fo.name) as fp:
+            data = json.load(fp)
     return data
+
 
 def handle_compat(item):
     item_compat = {}
     if isinstance(item, str):
-        item_compat['version'] =  item
+        item_compat['version'] = item
         item_compat['weekly'] = False
         item_compat['date'] = None
     else:
@@ -60,11 +60,14 @@ def handle_compat(item):
 
     return item_compat
 
-def show_versions():
+
+def show_versions(weekly=False):
     data = get_versions()
     for item in data:
         item_compat = handle_compat(item)
         is_weekly = item_compat.get('weekly', False)
+        if weekly and not is_weekly:
+            continue
         wstr = ""
         datestr = ""
         if args.verbose:
@@ -111,8 +114,13 @@ def update(git_tree, is_weekly=False):
         if wday == 'Monday':
             is_weekly = True
 
-    found = list(filter(lambda item: (isinstance(item, dict) and
-                        item.get('version') == version) or item == version, data))
+    found = list(
+        filter(
+            lambda item: (isinstance(item, dict) and item.get('version') == version)
+            or item == version,
+            data,
+        )
+    )
     if found:
         published = True
         print("version already published")
@@ -128,18 +136,20 @@ def update(git_tree, is_weekly=False):
             data.append(item)
             json.dump(data, versions)
 
+
 def main():
     global args
 
     args = parse_args()
     if args.update:
         update(args.update, args.weekly)
-    elif args.list:
-        show_versions()
+    elif args.list or args.list_weekly:
+        show_versions(weekly=args.list_weekly)
     elif args.latest:
         show_latest()
     else:
         print("You did not specify any options")
+
 
 if __name__ == "__main__":
     main()

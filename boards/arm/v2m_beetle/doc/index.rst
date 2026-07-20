@@ -1,4 +1,4 @@
-.. _v2m_beetle_board:
+.. zephyr:board:: v2m_beetle
 
 ARM V2M Beetle
 ##############
@@ -49,36 +49,7 @@ ARM V2M BEETLE provides the following hardware components:
 Supported Features
 ===================
 
-The v2m_beetle board configuration supports the following hardware features:
-
-+-----------+------------+-------------------------------------+
-| Interface | Controller | Driver/Component                    |
-+===========+============+=====================================+
-| NVIC      | on-chip    | nested vector interrupt controller  |
-+-----------+------------+-------------------------------------+
-| SYSTICK   | on-chip    | systick                             |
-+-----------+------------+-------------------------------------+
-| UART      | on-chip    | serial port-polling;                |
-|           |            | serial port-interrupt               |
-+-----------+------------+-------------------------------------+
-| PINMUX    | on-chip    | pinmux                              |
-+-----------+------------+-------------------------------------+
-| GPIO      | on-chip    | gpio                                |
-+-----------+------------+-------------------------------------+
-| WATCHDOG  | on-chip    | watchdog                            |
-+-----------+------------+-------------------------------------+
-| TIMER     | on-chip    | timer                               |
-+-----------+------------+-------------------------------------+
-
-Other hardware features are not currently supported by the port.
-See the `V2M Beetle Website`_ for a complete list of V2M Beetle board hardware
-features.
-
-The default configuration can be found in the defconfig file:
-
-.. code-block:: console
-
-   boards/arm/v2m_beetle/v2m_beetle_defconfig
+.. zephyr:board-supported-hw::
 
 Interrupt Controller
 ====================
@@ -190,7 +161,7 @@ Peripheral Mapping:
    - I2C_1_SDA : D22
    - I2C_1_SCL : D23
 
-For mode details please refer to `Beetle Technical Reference Manual (TRM)`_.
+For more details please refer to `Beetle Technical Reference Manual (TRM)`_.
 
 System Clock
 ============
@@ -229,7 +200,7 @@ Flashing an application to V2M Beetle
 -------------------------------------
 
 You can build applications in the usual way. Here is an example for
-the :ref:`hello_world` application.
+the :zephyr:code-sample:`hello_world` application.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world

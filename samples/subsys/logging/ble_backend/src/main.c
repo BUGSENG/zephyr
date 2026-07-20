@@ -6,6 +6,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/logging/log_backend_ble.h>
 
@@ -17,11 +18,15 @@ static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL, LOGGER_BACKEND_BLE_ADV_UUID_DATA)
 };
 
+static const struct bt_data sd[] = {
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+};
+
 static void start_adv(void)
 {
 	int err;
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 	if (err) {
 		LOG_ERR("Advertising failed to start (err %d)", err);
 		return;
@@ -33,7 +38,7 @@ static void start_adv(void)
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	if (err) {
-		LOG_ERR("Connection failed (err 0x%02x)", err);
+		LOG_ERR("Connection failed, err 0x%02x %s", err, bt_hci_err_to_str(err));
 	} else {
 		LOG_INF("Connected");
 	}
@@ -41,7 +46,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	LOG_INF("Disconnected (reason 0x%02x)", reason);
+	LOG_INF("Disconnected, reason 0x%02x %s", reason, bt_hci_err_to_str(reason));
 	start_adv();
 }
 
@@ -52,11 +57,7 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 
 static void auth_cancel(struct bt_conn *conn)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	LOG_INF("Pairing cancelled: %s", addr);
+	LOG_INF("Pairing cancelled: %s", bt_conn_dst_str(conn));
 }
 
 static struct bt_conn_auth_cb auth_cb_display = {
@@ -68,9 +69,9 @@ void backend_ble_hook(bool status, void *ctx)
 	ARG_UNUSED(ctx);
 
 	if (status) {
-		LOG_INF("BLE Logger Backend enabled.");
+		LOG_INF("Bluetooth Logger Backend enabled.");
 	} else {
-		LOG_INF("BLE Logger Backend disabled.");
+		LOG_INF("Bluetooth Logger Backend disabled.");
 	}
 }
 
@@ -79,7 +80,7 @@ int main(void)
 {
 	int err;
 
-	LOG_INF("BLE LOG Demo");
+	LOG_INF("Bluetooth LOG Demo");
 	logger_backend_ble_set_hook(backend_ble_hook, NULL);
 	err = bt_enable(NULL);
 	if (err) {

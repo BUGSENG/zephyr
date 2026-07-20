@@ -6,8 +6,8 @@
 #define DT_DRV_COMPAT regulator_gpio
 
 #include <stdint.h>
-
 #include <zephyr/kernel.h>
+
 #include <zephyr/drivers/regulator.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
@@ -24,7 +24,6 @@ struct regulator_gpio_config {
 	uint8_t states_cnt;
 
 	const struct gpio_dt_spec enable;
-	int32_t startup_delay_us;
 };
 
 struct regulator_gpio_data {
@@ -40,18 +39,10 @@ static int regulator_gpio_apply_state(const struct device *dev, uint32_t state)
 		int ret;
 		int new_state_of_gpio = (state >> gpio_idx) & 0x1;
 
-		ret = gpio_pin_get_dt(&cfg->gpios[gpio_idx]);
+		ret = gpio_pin_set_dt(&cfg->gpios[gpio_idx], new_state_of_gpio);
 		if (ret < 0) {
-			LOG_ERR("%s: can't get pin state", dev->name);
+			LOG_ERR("%s: can't set pin state", dev->name);
 			return ret;
-		}
-
-		if (ret != new_state_of_gpio) {
-			ret = gpio_pin_set_dt(&cfg->gpios[gpio_idx], new_state_of_gpio);
-			if (ret < 0) {
-				LOG_ERR("%s: can't set pin state", dev->name);
-				return ret;
-			}
 		}
 	}
 
@@ -71,10 +62,6 @@ static int regulator_gpio_enable(const struct device *dev)
 	if (ret < 0) {
 		LOG_ERR("%s: can't enable regulator!", dev->name);
 		return ret;
-	}
-
-	if (cfg->startup_delay_us > 0U) {
-		k_sleep(K_USEC(cfg->startup_delay_us));
 	}
 
 	return 0;
@@ -156,7 +143,7 @@ static int regulator_gpio_get_voltage(const struct device *dev, int32_t *volt_uv
 	return 0;
 }
 
-static const struct regulator_driver_api regulator_gpio_api = {
+static DEVICE_API(regulator, regulator_gpio_api) = {
 	.enable = regulator_gpio_enable,
 	.disable = regulator_gpio_disable,
 	.set_voltage = regulator_gpio_set_voltage,
@@ -168,13 +155,12 @@ static const struct regulator_driver_api regulator_gpio_api = {
 static int regulator_gpio_init(const struct device *dev)
 {
 	const struct regulator_gpio_config *cfg = dev->config;
+	const bool should_enable = cfg->common.flags & REGULATOR_INIT_ENABLED;
 	int ret;
 
 	regulator_common_data_init(dev);
 
 	for (unsigned int gpio_idx = 0; gpio_idx < cfg->num_gpios; gpio_idx++) {
-		int ret;
-
 		if (!gpio_is_ready_dt(&cfg->gpios[gpio_idx])) {
 			LOG_ERR("%s: gpio pin: %s not ready", dev->name,
 				cfg->gpios[gpio_idx].port ? cfg->gpios[gpio_idx].port->name
@@ -196,7 +182,8 @@ static int regulator_gpio_init(const struct device *dev)
 			return -ENODEV;
 		}
 
-		ret = gpio_pin_configure_dt(&cfg->enable, GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW);
+		ret = gpio_pin_configure_dt(&cfg->enable, should_enable ? GPIO_OUTPUT_ACTIVE
+									: GPIO_OUTPUT_INACTIVE);
 		if (ret < 0) {
 			LOG_ERR("%s: can't configure enable pin (%d) as output", dev->name,
 				cfg->enable.pin);
@@ -204,7 +191,11 @@ static int regulator_gpio_init(const struct device *dev)
 		}
 	}
 
-	return regulator_common_init(dev, false);
+	if (should_enable && cfg->common.startup_delay_us > 0U) {
+		k_usleep(cfg->common.startup_delay_us);
+	}
+
+	return regulator_common_init(dev, should_enable);
 }
 
 #define REG_GPIO_CONTEXT_GPIOS_SPEC_ELEM(_node_id, _prop, _idx)                                    \
@@ -229,7 +220,6 @@ static int regulator_gpio_init(const struct device *dev)
 		.enable = GPIO_DT_SPEC_INST_GET_OR(inst, enable_gpios, {0}),                       \
 		.states = ((const int[])DT_INST_PROP(inst, states)),                               \
 		.states_cnt = DT_INST_PROP_LEN(inst, states) / 2,                                  \
-		.startup_delay_us = DT_INST_PROP_OR(inst, startup_delay_us, 0),                    \
 	};                                                                                         \
 	DEVICE_DT_INST_DEFINE(inst, regulator_gpio_init, NULL, &data##inst, &config##inst,         \
 			      POST_KERNEL, CONFIG_REGULATOR_GPIO_INIT_PRIORITY,                    \

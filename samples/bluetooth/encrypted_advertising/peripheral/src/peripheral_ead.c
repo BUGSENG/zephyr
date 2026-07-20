@@ -17,6 +17,7 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
+#include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/bluetooth.h>
 
 #include <zephyr/logging/log.h>
@@ -63,7 +64,7 @@ static int update_ad_data(struct bt_le_ext_adv *adv)
 	err = bt_ead_encrypt(mk.session_key, mk.iv, ad_1, size_ad_1, ead_1);
 	if (err != 0) {
 		LOG_ERR("Error during first encryption");
-		return -1;
+		return err;
 	}
 
 	/* Encrypt ad structures 3 and 4 */
@@ -80,7 +81,7 @@ static int update_ad_data(struct bt_le_ext_adv *adv)
 	err = bt_ead_encrypt(mk.session_key, mk.iv, ad_3_4, size_ad_3_4, ead_2);
 	if (err != 0) {
 		LOG_ERR("Error during second encryption");
-		return -1;
+		return err;
 	}
 
 	/* Concatenate and update the advertising data */
@@ -96,7 +97,7 @@ static int update_ad_data(struct bt_le_ext_adv *adv)
 	err = bt_le_ext_adv_set_data(adv, ad_structs, ARRAY_SIZE(ad_structs), NULL, 0);
 	if (err) {
 		LOG_ERR("Failed to set advertising data (%d)", err);
-		return -1;
+		return err;
 	}
 
 	LOG_DBG("Advertising Data Updated");
@@ -127,24 +128,13 @@ static bool rpa_expired_cb(struct bt_le_ext_adv *adv)
 static int create_adv(struct bt_le_ext_adv **adv)
 {
 	int err;
-	struct bt_le_adv_param params;
-
-	memset(&params, 0, sizeof(struct bt_le_adv_param));
-
-	params.options |= BT_LE_ADV_OPT_CONNECTABLE;
-	params.options |= BT_LE_ADV_OPT_EXT_ADV;
-
-	params.id = BT_ID_DEFAULT;
-	params.sid = 0;
-	params.interval_min = BT_GAP_ADV_FAST_INT_MIN_2;
-	params.interval_max = BT_GAP_ADV_FAST_INT_MAX_2;
 
 	adv_cb.rpa_expired = rpa_expired_cb;
 
-	err = bt_le_ext_adv_create(&params, &adv_cb, adv);
+	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_CONN, &adv_cb, adv);
 	if (err) {
 		LOG_ERR("Failed to create advertiser (%d)", err);
-		return -1;
+		return err;
 	}
 
 	return 0;
@@ -164,7 +154,7 @@ static int start_adv(struct bt_le_ext_adv *adv)
 	err = bt_le_ext_adv_start(adv, &start_params);
 	if (err) {
 		LOG_ERR("Failed to start advertiser (%d)", err);
-		return -1;
+		return err;
 	}
 
 	LOG_DBG("Advertiser started");
@@ -179,13 +169,13 @@ static int stop_and_delete_adv(struct bt_le_ext_adv *adv)
 	err = bt_le_ext_adv_stop(adv);
 	if (err) {
 		LOG_ERR("Failed to stop advertiser (err %d)", err);
-		return -1;
+		return err;
 	}
 
 	err = bt_le_ext_adv_delete(adv);
 	if (err) {
 		LOG_ERR("Failed to delete advertiser (err %d)", err);
-		return -1;
+		return err;
 	}
 
 	return 0;
@@ -193,54 +183,42 @@ static int stop_and_delete_adv(struct bt_le_ext_adv *adv)
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
 	if (err) {
-		LOG_ERR("Failed to connect to %s (%u)", addr, err);
+		LOG_ERR("Failed to connect to %s %u %s", bt_conn_dst_str(conn),
+			err, bt_hci_err_to_str(err));
 		return;
 	}
 
-	LOG_DBG("Connected to %s", addr);
+	LOG_DBG("Connected to %s", bt_conn_dst_str(conn));
 
 	default_conn = conn;
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	LOG_DBG("Disconnected from %s (reason 0x%02x)", addr, reason);
+	LOG_DBG("Disconnected from %s, reason 0x%02x %s", bt_conn_dst_str(conn),
+		reason, bt_hci_err_to_str(reason));
 
 	k_poll_signal_raise(&disconn_signal, 0);
 }
 
 static void security_changed(struct bt_conn *conn, bt_security_t level, enum bt_security_err err)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
 	if (!err) {
-		LOG_DBG("Security changed: %s level %u", addr, level);
+		LOG_DBG("Security changed: %s level %u", bt_conn_dst_str(conn), level);
 	} else {
-		LOG_DBG("Security failed: %s level %u err %d", addr, level, err);
+		LOG_DBG("Security failed: %s level %u err %s(%d)", bt_conn_dst_str(conn), level,
+			bt_security_err_to_str(err), err);
 	}
 }
 
 static void auth_passkey_confirm(struct bt_conn *conn, unsigned int passkey)
 {
 	char passkey_str[7];
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
 	snprintk(passkey_str, ARRAY_SIZE(passkey_str), "%06u", passkey);
 
-	printk("Passkey for %s: %s\n", addr, passkey_str);
+	printk("Passkey for %s: %s\n", bt_conn_dst_str(conn), passkey_str);
 
 	k_poll_signal_raise(&passkey_enter_signal, 0);
 }
@@ -248,22 +226,15 @@ static void auth_passkey_confirm(struct bt_conn *conn, unsigned int passkey)
 static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 {
 	char passkey_str[7];
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
 	snprintk(passkey_str, ARRAY_SIZE(passkey_str), "%06u", passkey);
 
-	LOG_DBG("Passkey for %s: %s", addr, passkey_str);
+	LOG_DBG("Passkey for %s: %s", bt_conn_dst_str(conn), passkey_str);
 }
 
 static void auth_cancel(struct bt_conn *conn)
 {
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	LOG_DBG("Pairing cancelled: %s", addr);
+	LOG_DBG("Pairing cancelled: %s", bt_conn_dst_str(conn));
 }
 
 static int init_bt(void)
@@ -276,7 +247,7 @@ static int init_bt(void)
 	err = bt_enable(NULL);
 	if (err) {
 		LOG_ERR("Bluetooth init failed (err %d)", err);
-		return -1;
+		return err;
 	}
 
 	LOG_DBG("Bluetooth initialized");
@@ -302,7 +273,7 @@ static int init_bt(void)
 	err = bt_conn_auth_cb_register(&peripheral_auth_cb);
 	if (err) {
 		LOG_ERR("Failed to register bt_conn_auth_cb (err %d)", err);
-		return -1;
+		return err;
 	}
 
 	return 0;
@@ -315,23 +286,23 @@ int run_peripheral_sample(int get_passkey_confirmation(struct bt_conn *conn))
 
 	err = init_bt();
 	if (err) {
-		return -1;
+		return err;
 	}
 
 	/* Setup advertiser */
 	err = create_adv(&adv);
 	if (err) {
-		return -2;
+		return err;
 	}
 
 	err = start_adv(adv);
 	if (err) {
-		return -3;
+		return err;
 	}
 
 	err = set_ad_data(adv);
 	if (err) {
-		return -4;
+		return err;
 	}
 
 	/* Wait for the peer to update security */
@@ -340,7 +311,7 @@ int run_peripheral_sample(int get_passkey_confirmation(struct bt_conn *conn))
 	err = get_passkey_confirmation(default_conn);
 	if (err) {
 		LOG_ERR("Failure during security update");
-		return -5;
+		return err;
 	}
 
 	/* Wait for the peer to disconnect */
@@ -349,12 +320,12 @@ int run_peripheral_sample(int get_passkey_confirmation(struct bt_conn *conn))
 	/* Restart advertising */
 	err = start_adv(adv);
 	if (err) {
-		return -3;
+		return err;
 	}
 
 	err = set_ad_data(adv);
 	if (err) {
-		return -4;
+		return err;
 	}
 
 	/* Wait 10s before stopping and deleting the advertiser */
@@ -362,7 +333,7 @@ int run_peripheral_sample(int get_passkey_confirmation(struct bt_conn *conn))
 
 	err = stop_and_delete_adv(adv);
 	if (err) {
-		return -6;
+		return err;
 	}
 
 	return 0;

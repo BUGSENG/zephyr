@@ -21,9 +21,7 @@ void spin_for_ms(int ms)
 		/* In the posix arch, a busy loop takes no time, so
 		 * let's make it take some
 		 */
-		if (IS_ENABLED(CONFIG_ARCH_POSIX)) {
-			k_busy_wait(50);
-		}
+		Z_SPIN_DELAY(50);
 	}
 }
 
@@ -40,7 +38,7 @@ static void *threads_scheduling_tests_setup(void)
 /**
  * @brief Test scheduling
  *
- * @defgroup kernel_sched_tests Scheduling Tests
+ * @defgroup tests_kernel_sched Scheduling tests
  *
  * @ingroup all_tests
  *

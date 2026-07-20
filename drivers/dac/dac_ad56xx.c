@@ -94,6 +94,11 @@ static int ad56xx_channel_setup(const struct device *dev, const struct dac_chann
 		return -EINVAL;
 	}
 
+	if (channel_cfg->internal) {
+		LOG_ERR("Internal channels not supported");
+		return -ENOTSUP;
+	}
+
 	return 0;
 }
 
@@ -106,7 +111,7 @@ static int ad56xx_write_value(const struct device *dev, uint8_t channel, uint32_
 		return -EINVAL;
 	}
 
-	if (channel > config->channel_count) {
+	if (channel >= config->channel_count) {
 		LOG_ERR("invalid channel %i", channel);
 		return -EINVAL;
 	}
@@ -154,7 +159,7 @@ static int ad56xx_init(const struct device *dev)
 	return 0;
 }
 
-static const struct dac_driver_api ad56xx_driver_api = {
+static DEVICE_API(dac, ad56xx_driver_api) = {
 	.channel_setup = ad56xx_channel_setup,
 	.write_value = ad56xx_write_value,
 };
@@ -166,7 +171,7 @@ BUILD_ASSERT(CONFIG_DAC_AD56XX_INIT_PRIORITY > CONFIG_SPI_INIT_PRIORITY,
 	static struct ad56xx_data data_##name##_##index;                                           \
 	static const struct ad56xx_config config_##name##_##index = {                              \
 		.bus = SPI_DT_SPEC_INST_GET(                                                       \
-			index, SPI_OP_MODE_MASTER | SPI_MODE_CPHA | SPI_WORD_SET(8), 0),           \
+			index, SPI_OP_MODE_MASTER | SPI_MODE_CPHA | SPI_WORD_SET(8)),              \
 		.resolution = res,                                                                 \
 		.gpio_reset = GPIO_DT_SPEC_INST_GET_OR(index, reset_gpios, {0}),                   \
 		.channel_addresses = channels,                                                     \
@@ -290,6 +295,8 @@ static const uint8_t ad5686_channels[] = {
 	2,
 	4,
 	8,
+	3,
+	15,
 };
 #define DAC_AD5686_RESOLUTION    16
 #define DAC_AD5686_CHANNELS      ad5686_channels

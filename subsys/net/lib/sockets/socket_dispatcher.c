@@ -29,8 +29,8 @@ static int sock_dispatch_create(int family, int type, int proto);
 
 static bool is_tls(int proto)
 {
-	if ((proto >= IPPROTO_TLS_1_0 && proto <= IPPROTO_TLS_1_2) ||
-	    (proto >= IPPROTO_DTLS_1_0 && proto <= IPPROTO_DTLS_1_2)) {
+	if ((proto >= NET_IPPROTO_TLS_1_0 && proto <= NET_IPPROTO_TLS_1_2) ||
+	    (proto >= NET_IPPROTO_DTLS_1_0 && proto <= NET_IPPROTO_DTLS_1_2)) {
 		return true;
 	}
 
@@ -60,19 +60,19 @@ static int sock_dispatch_socket(struct dispatcher_context *ctx,
 		return -1;
 	}
 
-	obj = z_get_fd_obj_and_vtable(new_fd,
+	obj = zvfs_get_fd_obj_and_vtable(new_fd,
 				      (const struct fd_op_vtable **)&vtable,
 				      NULL);
 	if (obj == NULL) {
 		return -1;
 	}
 
-	/* Reassing FD with new obj and entry. */
+	/* Reassign FD with new obj and entry. */
 	fd = ctx->fd;
-	z_finalize_fd(fd, obj, (const struct fd_op_vtable *)vtable);
+	zvfs_finalize_typed_fd(fd, obj, (const struct fd_op_vtable *)vtable, ZVFS_MODE_IFSOCK);
 
 	/* Release FD that is no longer in use. */
-	z_free_fd(new_fd);
+	zvfs_free_fd(new_fd);
 
 	dispatcher_ctx_free(ctx);
 
@@ -93,7 +93,7 @@ static struct net_socket_register *sock_dispatch_find(int family, int type,
 		}
 
 		if (sock_family->family != family &&
-		    sock_family->family != AF_UNSPEC) {
+		    sock_family->family != NET_AF_UNSPEC) {
 			continue;
 		}
 
@@ -148,7 +148,7 @@ static ssize_t sock_dispatch_read_vmeth(void *obj, void *buffer, size_t count)
 		return -1;
 	}
 
-	new_obj = z_get_fd_obj_and_vtable(fd, &vtable, NULL);
+	new_obj = zvfs_get_fd_obj_and_vtable(fd, &vtable, NULL);
 	if (new_obj == NULL) {
 		return -1;
 	}
@@ -168,7 +168,7 @@ static ssize_t sock_dispatch_write_vmeth(void *obj, const void *buffer,
 		return -1;
 	}
 
-	new_obj = z_get_fd_obj_and_vtable(fd, &vtable, NULL);
+	new_obj = zvfs_get_fd_obj_and_vtable(fd, &vtable, NULL);
 	if (new_obj == NULL) {
 		return -1;
 	}
@@ -193,7 +193,7 @@ static int sock_dispatch_ioctl_vmeth(void *obj, unsigned int request,
 		return -1;
 	}
 
-	new_obj = z_get_fd_obj_and_vtable(fd, &vtable, NULL);
+	new_obj = zvfs_get_fd_obj_and_vtable(fd, &vtable, NULL);
 	if (new_obj == NULL) {
 		return -1;
 	}
@@ -212,8 +212,8 @@ static int sock_dispatch_shutdown_vmeth(void *obj, int how)
 	return zsock_shutdown(fd, how);
 }
 
-static int sock_dispatch_bind_vmeth(void *obj, const struct sockaddr *addr,
-				    socklen_t addrlen)
+static int sock_dispatch_bind_vmeth(void *obj, const struct net_sockaddr *addr,
+				    net_socklen_t addrlen)
 {
 	int fd = sock_dispatch_default(obj);
 
@@ -224,8 +224,8 @@ static int sock_dispatch_bind_vmeth(void *obj, const struct sockaddr *addr,
 	return zsock_bind(fd, addr, addrlen);
 }
 
-static int sock_dispatch_connect_vmeth(void *obj, const struct sockaddr *addr,
-				       socklen_t addrlen)
+static int sock_dispatch_connect_vmeth(void *obj, const struct net_sockaddr *addr,
+				       net_socklen_t addrlen)
 {
 	int fd = sock_dispatch_default(obj);
 
@@ -247,8 +247,8 @@ static int sock_dispatch_listen_vmeth(void *obj, int backlog)
 	return zsock_listen(fd, backlog);
 }
 
-static int sock_dispatch_accept_vmeth(void *obj, struct sockaddr *addr,
-				      socklen_t *addrlen)
+static int sock_dispatch_accept_vmeth(void *obj, struct net_sockaddr *addr,
+				      net_socklen_t *addrlen)
 {
 	int fd = sock_dispatch_default(obj);
 
@@ -261,8 +261,8 @@ static int sock_dispatch_accept_vmeth(void *obj, struct sockaddr *addr,
 
 static ssize_t sock_dispatch_sendto_vmeth(void *obj, const void *buf,
 					  size_t len, int flags,
-					  const struct sockaddr *addr,
-					  socklen_t addrlen)
+					  const struct net_sockaddr *addr,
+					  net_socklen_t addrlen)
 {
 	int fd = sock_dispatch_default(obj);
 
@@ -273,7 +273,7 @@ static ssize_t sock_dispatch_sendto_vmeth(void *obj, const void *buf,
 	return zsock_sendto(fd, buf, len, flags, addr, addrlen);
 }
 
-static ssize_t sock_dispatch_sendmsg_vmeth(void *obj, const struct msghdr *msg,
+static ssize_t sock_dispatch_sendmsg_vmeth(void *obj, const struct net_msghdr *msg,
 					   int flags)
 {
 	int fd = sock_dispatch_default(obj);
@@ -287,8 +287,8 @@ static ssize_t sock_dispatch_sendmsg_vmeth(void *obj, const struct msghdr *msg,
 
 static ssize_t sock_dispatch_recvfrom_vmeth(void *obj, void *buf,
 					    size_t max_len, int flags,
-					    struct sockaddr *addr,
-					    socklen_t *addrlen)
+					    struct net_sockaddr *addr,
+					    net_socklen_t *addrlen)
 {
 	int fd = sock_dispatch_default(obj);
 
@@ -300,7 +300,7 @@ static ssize_t sock_dispatch_recvfrom_vmeth(void *obj, void *buf,
 }
 
 static int sock_dispatch_getsockopt_vmeth(void *obj, int level, int optname,
-					  void *optval, socklen_t *optlen)
+					  void *optval, net_socklen_t *optlen)
 {
 	int fd = sock_dispatch_default(obj);
 
@@ -312,13 +312,13 @@ static int sock_dispatch_getsockopt_vmeth(void *obj, int level, int optname,
 }
 
 static int sock_dispatch_setsockopt_vmeth(void *obj, int level, int optname,
-					  const void *optval, socklen_t optlen)
+					  const void *optval, net_socklen_t optlen)
 {
 	int fd;
 
-	if ((level == SOL_SOCKET) && (optname == SO_BINDTODEVICE)) {
+	if ((level == ZSOCK_SOL_SOCKET) && (optname == ZSOCK_SO_BINDTODEVICE)) {
 		struct net_if *iface;
-		const struct ifreq *ifreq = optval;
+		const struct net_ifreq *ifreq = optval;
 
 		if ((ifreq == NULL) || (optlen != sizeof(*ifreq))) {
 			errno = EINVAL;
@@ -362,7 +362,7 @@ static int sock_dispatch_setsockopt_vmeth(void *obj, int level, int optname,
 			/* Native interface - use native socket implementation. */
 			fd = sock_dispatch_native(obj);
 		}
-	} else if ((level == SOL_TLS) && (optname == TLS_NATIVE)) {
+	} else if ((level == ZSOCK_SOL_TLS) && (optname == ZSOCK_TLS_NATIVE)) {
 		const int *tls_native = optval;
 		struct dispatcher_context *ctx = obj;
 
@@ -393,15 +393,17 @@ static int sock_dispatch_setsockopt_vmeth(void *obj, int level, int optname,
 	return zsock_setsockopt(fd, level, optname, optval, optlen);
 }
 
-static int sock_dispatch_close_vmeth(void *obj)
+static int sock_dispatch_close_vmeth(void *obj, int fd)
 {
+	ARG_UNUSED(fd);
+
 	dispatcher_ctx_free(obj);
 
 	return 0;
 }
 
-static int sock_dispatch_getpeername_vmeth(void *obj, struct sockaddr *addr,
-					   socklen_t *addrlen)
+static int sock_dispatch_getpeername_vmeth(void *obj, struct net_sockaddr *addr,
+					   net_socklen_t *addrlen)
 {
 	int fd = sock_dispatch_default(obj);
 
@@ -412,8 +414,8 @@ static int sock_dispatch_getpeername_vmeth(void *obj, struct sockaddr *addr,
 	return zsock_getpeername(fd, addr, addrlen);
 }
 
-static int sock_dispatch_getsockname_vmeth(void *obj, struct sockaddr *addr,
-					   socklen_t *addrlen)
+static int sock_dispatch_getsockname_vmeth(void *obj, struct net_sockaddr *addr,
+					   net_socklen_t *addrlen)
 {
 	int fd = sock_dispatch_default(obj);
 
@@ -428,7 +430,7 @@ static const struct socket_op_vtable sock_dispatch_fd_op_vtable = {
 	.fd_vtable = {
 		.read = sock_dispatch_read_vmeth,
 		.write = sock_dispatch_write_vmeth,
-		.close = sock_dispatch_close_vmeth,
+		.close2 = sock_dispatch_close_vmeth,
 		.ioctl = sock_dispatch_ioctl_vmeth,
 	},
 	.shutdown = sock_dispatch_shutdown_vmeth,
@@ -471,7 +473,7 @@ static int sock_dispatch_create(int family, int type, int proto)
 		goto out;
 	}
 
-	fd = z_reserve_fd();
+	fd = zvfs_reserve_fd();
 	if (fd < 0) {
 		goto out;
 	}
@@ -482,8 +484,8 @@ static int sock_dispatch_create(int family, int type, int proto)
 	entry->proto = proto;
 	entry->is_used = true;
 
-	z_finalize_fd(fd, entry,
-		      (const struct fd_op_vtable *)&sock_dispatch_fd_op_vtable);
+	zvfs_finalize_typed_fd(fd, entry, (const struct fd_op_vtable *)&sock_dispatch_fd_op_vtable,
+			    ZVFS_MODE_IFSOCK);
 
 out:
 	k_mutex_unlock(&dispatcher_lock);
@@ -495,5 +497,5 @@ static bool is_supported(int family, int type, int proto)
 	return true;
 }
 
-NET_SOCKET_REGISTER(sock_dispatch, 0, AF_UNSPEC, is_supported,
+NET_SOCKET_REGISTER(sock_dispatch, 0, NET_AF_UNSPEC, is_supported,
 		    sock_dispatch_create);

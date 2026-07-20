@@ -196,10 +196,6 @@ static int i2c_sc18im_transfer(const struct device *dev,
 {
 	int ret;
 
-	if (num_msgs == 0) {
-		return 0;
-	}
-
 	ret = sc18im704_claim(dev);
 	if (ret < 0) {
 		LOG_ERR("Failed to claim I2C bridge (%d)", ret);
@@ -320,10 +316,13 @@ static int i2c_sc18im_init(const struct device *dev)
 	return 0;
 }
 
-static const struct i2c_driver_api i2c_sc18im_driver_api = {
+static DEVICE_API(i2c, i2c_sc18im_driver_api) = {
 	.configure = i2c_sc18im_configure,
 	.get_config = i2c_sc18im_get_config,
 	.transfer = i2c_sc18im_transfer,
+#ifdef CONFIG_I2C_RTIO
+	.iodev_submit = i2c_iodev_submit_fallback,
+#endif
 };
 
 #define I2C_SC18IM_DEFINE(n)									\
@@ -337,7 +336,7 @@ static const struct i2c_driver_api i2c_sc18im_driver_api = {
 		.i2c_config = I2C_MODE_CONTROLLER | (I2C_SPEED_STANDARD << I2C_SPEED_SHIFT),	\
 	};											\
 												\
-	DEVICE_DT_INST_DEFINE(n, i2c_sc18im_init, NULL,						\
+	I2C_DEVICE_DT_INST_DEFINE(n, i2c_sc18im_init, NULL,					\
 			      &i2c_sc18im_data_##n, &i2c_sc18im_config_##n,			\
 			      POST_KERNEL, CONFIG_I2C_SC18IM704_INIT_PRIORITY,			\
 			      &i2c_sc18im_driver_api);

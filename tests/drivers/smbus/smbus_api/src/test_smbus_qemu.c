@@ -16,7 +16,7 @@
 #include <zephyr/ztest.h>
 #include <zephyr/drivers/smbus.h>
 
-BUILD_ASSERT(DT_NODE_HAS_STATUS(DT_NODELABEL(smbus0), okay),
+BUILD_ASSERT(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(smbus0)),
 	     "SMBus node is disabled!");
 
 /* Qemu q35 has default emulated EEPROM-like devices */
@@ -87,7 +87,7 @@ ZTEST_USER(test_smbus_qemu, test_smbus_api_read_write)
 		zassert_ok(ret, "SMBUS write byte data failed, ret %d", ret);
 
 		/**
-		 * Reading is done through executing two consequitive
+		 * Reading is done through executing two consecutive
 		 * operations: write, which sets offset, followed by read, which
 		 * reads data from given offset
 		 */

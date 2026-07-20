@@ -12,6 +12,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/net/net_offload.h>
+#include <zephyr/net/conn_mgr/connectivity_wifi_mgmt.h>
 #ifdef CONFIG_NET_SOCKETS_OFFLOAD
 #include <zephyr/net/socket_offload.h>
 #endif
@@ -136,14 +137,13 @@ static void simplelink_scan_work_handler(struct k_work *work)
 	}
 }
 
-static int simplelink_mgmt_scan(const struct device *dev,
-				struct wifi_scan_params *params,
+static int simplelink_mgmt_scan(const struct device *dev __unused,
+				struct net_if *iface __unused,
+				struct wifi_scan_params *params __unused,
 				scan_result_cb_t cb)
 {
 	int err;
 	int status;
-
-	ARG_UNUSED(params);
 
 	/* Cancel any previous scan processing in progress: */
 	k_work_cancel_delayable(&simplelink_data.work);
@@ -172,7 +172,8 @@ static int simplelink_mgmt_scan(const struct device *dev,
 	return status;
 }
 
-static int simplelink_mgmt_connect(const struct device *dev,
+static int simplelink_mgmt_connect(const struct device *dev __unused,
+				   struct net_if *iface __unused,
 				   struct wifi_connect_req_params *params)
 {
 	int ret;
@@ -182,7 +183,8 @@ static int simplelink_mgmt_connect(const struct device *dev,
 	return ret ? -EIO : ret;
 }
 
-static int simplelink_mgmt_disconnect(const struct device *dev)
+static int simplelink_mgmt_disconnect(const struct device *dev __unused,
+				      struct net_if *iface __unused)
 {
 	int ret;
 
@@ -191,7 +193,7 @@ static int simplelink_mgmt_disconnect(const struct device *dev)
 	return ret ? -EIO : ret;
 }
 
-static int simplelink_dummy_get(sa_family_t family,
+static int simplelink_dummy_get(net_sa_family_t family,
 				enum net_sock_type type,
 				enum net_ip_protocol ip_proto,
 				struct net_context **context)
@@ -228,7 +230,7 @@ static void simplelink_iface_init(struct net_if *iface)
 		SIMPLELINK_IPV6 : 0;
 
 	/* Direct socket offload used instead of net offload: */
-	iface->if_dev->offload = &simplelink_offload;
+	net_if_offload_set(iface, &simplelink_offload);
 
 	/* Initialize and configure NWP to defaults: */
 	ret = z_simplelink_init(simplelink_wifi_cb);
@@ -302,3 +304,5 @@ NET_DEVICE_OFFLOAD_INIT(simplelink, CONFIG_WIFI_SIMPLELINK_NAME,
 			&simplelink_data, NULL,
 			CONFIG_WIFI_INIT_PRIORITY, &simplelink_api,
 			CONFIG_WIFI_SIMPLELINK_MAX_PACKET_SIZE);
+
+CONNECTIVITY_WIFI_MGMT_BIND(simplelink);

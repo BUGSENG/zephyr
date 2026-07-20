@@ -8,23 +8,40 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/kernel.h>
-#include <zephyr/sys/byteorder.h>
-#include <zephyr/sys/check.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/types.h>
 
-#include <zephyr/device.h>
-#include <zephyr/init.h>
-
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/att.h>
+#include <zephyr/bluetooth/audio/aics.h>
+#include <zephyr/bluetooth/audio/vcp.h>
+#include <zephyr/bluetooth/audio/vocs.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
-#include <zephyr/bluetooth/audio/vcp.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/sys/atomic.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/clock.h>
+#include <zephyr/sys/time_units.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/sys_clock.h>
+#include <zephyr/toolchain.h>
 
 #include "audio_internal.h"
 #include "vcp_internal.h"
 
 #define LOG_LEVEL CONFIG_BT_VCP_VOL_REND_LOG_LEVEL
-#include <zephyr/logging/log.h>
+
 LOG_MODULE_REGISTER(bt_vcp_vol_rend);
 
 #define VOLUME_DOWN(current_vol) \
@@ -59,6 +76,8 @@ static struct bt_vcp_vol_rend vol_rend;
 static void volume_state_cfg_changed(const struct bt_gatt_attr *attr,
 				     uint16_t value)
 {
+	ARG_UNUSED(attr);
+
 	LOG_DBG("value 0x%04x", value);
 }
 
@@ -97,7 +116,7 @@ static void notify_work_reschedule(struct bt_vcp_vol_rend *inst, enum vol_rend_n
 	if (err < 0) {
 		LOG_ERR("Failed to reschedule %s notification err %d", vol_rend_notify_str(notify),
 			err);
-	} else {
+	} else if (!K_TIMEOUT_EQ(delay, K_NO_WAIT)) {
 		LOG_DBG("%s notification scheduled in %dms", vol_rend_notify_str(notify),
 			k_ticks_to_ms_floor32(k_work_delayable_remaining_get(&inst->notify_work)));
 	}
@@ -145,6 +164,8 @@ static ssize_t write_vcs_control(struct bt_conn *conn,
 	bool notify = false;
 	bool volume_change = false;
 	uint8_t opcode;
+
+	ARG_UNUSED(attr);
 
 	if (offset > 0) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
@@ -253,20 +274,19 @@ static ssize_t write_vcs_control(struct bt_conn *conn,
 		value_changed(&vol_rend, NOTIFY_STATE);
 
 		if (vol_rend.cb && vol_rend.cb->state) {
-			vol_rend.cb->state(0, vol_rend.state.volume,
-					       vol_rend.state.mute);
+			vol_rend.cb->state(conn, 0, vol_rend.state.volume, vol_rend.state.mute);
 		}
 	}
 
 	if (volume_change && !vol_rend.flags) {
-		vol_rend.flags = 1;
+		vol_rend.flags = 1U;
 
 		if (IS_ENABLED(CONFIG_BT_VCP_VOL_REND_VOL_FLAGS_NOTIFIABLE)) {
 			value_changed(&vol_rend, NOTIFY_FLAGS);
 		}
 
 		if (vol_rend.cb && vol_rend.cb->flags) {
-			vol_rend.cb->flags(0, vol_rend.flags);
+			vol_rend.cb->flags(conn, 0, vol_rend.flags);
 		}
 	}
 	return len;
@@ -275,6 +295,8 @@ static ssize_t write_vcs_control(struct bt_conn *conn,
 #if defined(CONFIG_BT_VCP_VOL_REND_VOL_FLAGS_NOTIFIABLE)
 static void flags_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
+	ARG_UNUSED(attr);
+
 	LOG_DBG("value 0x%04x", value);
 }
 #endif /* CONFIG_BT_VCP_VOL_REND_VOL_FLAGS_NOTIFIABLE */
@@ -422,17 +444,17 @@ int bt_vcp_vol_rend_register(struct bt_vcp_vol_rend_register_param *param)
 	static bool registered;
 	int err;
 
-	CHECKIF(param == NULL) {
+	if (param == NULL) {
 		LOG_DBG("param is NULL");
 		return -EINVAL;
 	}
 
-	CHECKIF(param->mute > BT_VCP_STATE_MUTED) {
+	if (param->mute > BT_VCP_STATE_MUTED) {
 		LOG_DBG("Invalid mute value: %u", param->mute);
 		return -EINVAL;
 	}
 
-	CHECKIF(param->step == 0) {
+	if (param->step == 0) {
 		LOG_DBG("Invalid step value: %u", param->step);
 		return -EINVAL;
 	}
@@ -497,7 +519,7 @@ int bt_vcp_vol_rend_included_get(struct bt_vcp_included *included)
 
 int bt_vcp_vol_rend_set_step(uint8_t volume_step)
 {
-	if (volume_step > 0) {
+	if (volume_step > 0U) {
 		vol_rend.volume_step = volume_step;
 		return 0;
 	} else {
@@ -508,8 +530,7 @@ int bt_vcp_vol_rend_set_step(uint8_t volume_step)
 int bt_vcp_vol_rend_get_state(void)
 {
 	if (vol_rend.cb && vol_rend.cb->state) {
-		vol_rend.cb->state(0, vol_rend.state.volume,
-				   vol_rend.state.mute);
+		vol_rend.cb->state(NULL, 0, vol_rend.state.volume, vol_rend.state.mute);
 	}
 
 	return 0;
@@ -518,7 +539,7 @@ int bt_vcp_vol_rend_get_state(void)
 int bt_vcp_vol_rend_get_flags(void)
 {
 	if (vol_rend.cb && vol_rend.cb->flags) {
-		vol_rend.cb->flags(0, vol_rend.flags);
+		vol_rend.cb->flags(NULL, 0, vol_rend.flags);
 	}
 
 	return 0;

@@ -6,14 +6,14 @@
  */
 
 #include <zephyr/drivers/can.h>
-#include <zephyr/drivers/can/can_mcan.h>
+#include "can_mcan.h"
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/counter.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/__assert.h>
 #include <soc.h>
-#include <stm32_ll_rcc.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/irq.h>
 
@@ -174,6 +174,9 @@ struct can_stm32fd_config {
 	void (*config_irq)(void);
 	const struct pinctrl_dev_config *pcfg;
 	uint8_t clock_divider;
+#ifdef CONFIG_CAN_RX_TIMESTAMP
+	const struct device *external_timestamp_counter_dev;
+#endif
 };
 
 static inline uint16_t can_stm32fd_remap_reg(uint16_t reg)
@@ -202,6 +205,7 @@ static inline uint16_t can_stm32fd_remap_reg(uint16_t reg)
 	case CAN_MCAN_TXEFC:
 		__ASSERT_NO_MSG(false);
 		remap = CAN_STM32FD_REGISTER_UNSUPPORTED;
+		break;
 	case CAN_MCAN_XIDAM:
 		remap = CAN_STM32FD_XIDAM;
 		break;
@@ -275,58 +279,23 @@ static int can_stm32fd_read_reg(const struct device *dev, uint16_t reg, uint32_t
 
 	switch (reg) {
 	case CAN_MCAN_IR:
-		/* Remap IR bits */
-		*val |= FIELD_PREP(CAN_MCAN_IR_ARA,  FIELD_GET(CAN_STM32FD_IR_ARA, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_PED,  FIELD_GET(CAN_STM32FD_IR_PED, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_PEA,  FIELD_GET(CAN_STM32FD_IR_PEA, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_WDI,  FIELD_GET(CAN_STM32FD_IR_WDI, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_BO,   FIELD_GET(CAN_STM32FD_IR_BO, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_EW,   FIELD_GET(CAN_STM32FD_IR_EW, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_EP,   FIELD_GET(CAN_STM32FD_IR_EP, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_ELO,  FIELD_GET(CAN_STM32FD_IR_ELO, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_TOO,  FIELD_GET(CAN_STM32FD_IR_TOO, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_MRAF, FIELD_GET(CAN_STM32FD_IR_MRAF, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_TSW,  FIELD_GET(CAN_STM32FD_IR_TSW, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_TEFL, FIELD_GET(CAN_STM32FD_IR_TEFL, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_TEFF, FIELD_GET(CAN_STM32FD_IR_TEFF, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_TEFN, FIELD_GET(CAN_STM32FD_IR_TEFN, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_TFE,  FIELD_GET(CAN_STM32FD_IR_TFE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_TCF,  FIELD_GET(CAN_STM32FD_IR_TCF, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_TC,   FIELD_GET(CAN_STM32FD_IR_TC, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_HPM,  FIELD_GET(CAN_STM32FD_IR_HPM, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_RF1L, FIELD_GET(CAN_STM32FD_IR_RF1L, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_RF1F, FIELD_GET(CAN_STM32FD_IR_RF1F, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_RF1N, FIELD_GET(CAN_STM32FD_IR_RF1N, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_RF0L, FIELD_GET(CAN_STM32FD_IR_RF0L, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_RF0F, FIELD_GET(CAN_STM32FD_IR_RF0F, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IR_RF0N, FIELD_GET(CAN_STM32FD_IR_RF0N, bits));
-		break;
+		__fallthrough;
 	case CAN_MCAN_IE:
-		/* Remap IE bits */
-		*val |= FIELD_PREP(CAN_MCAN_IE_ARAE,  FIELD_GET(CAN_STM32FD_IE_ARAE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_PEDE,  FIELD_GET(CAN_STM32FD_IE_PEDE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_PEAE,  FIELD_GET(CAN_STM32FD_IE_PEAE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_WDIE,  FIELD_GET(CAN_STM32FD_IE_WDIE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_BOE,   FIELD_GET(CAN_STM32FD_IE_BOE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_EWE,   FIELD_GET(CAN_STM32FD_IE_EWE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_EPE,   FIELD_GET(CAN_STM32FD_IE_EPE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_ELOE,  FIELD_GET(CAN_STM32FD_IE_ELOE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_TOOE,  FIELD_GET(CAN_STM32FD_IE_TOOE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_MRAFE, FIELD_GET(CAN_STM32FD_IE_MRAFE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_TSWE,  FIELD_GET(CAN_STM32FD_IE_TSWE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_TEFLE, FIELD_GET(CAN_STM32FD_IE_TEFLE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_TEFFE, FIELD_GET(CAN_STM32FD_IE_TEFFE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_TEFNE, FIELD_GET(CAN_STM32FD_IE_TEFNE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_TFEE,  FIELD_GET(CAN_STM32FD_IE_TFEE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_TCFE,  FIELD_GET(CAN_STM32FD_IE_TCFE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_TCE,   FIELD_GET(CAN_STM32FD_IE_TCE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_HPME,  FIELD_GET(CAN_STM32FD_IE_HPME, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_RF1LE, FIELD_GET(CAN_STM32FD_IE_RF1LE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_RF1FE, FIELD_GET(CAN_STM32FD_IE_RF1FE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_RF1NE, FIELD_GET(CAN_STM32FD_IE_RF1NE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_RF0LE, FIELD_GET(CAN_STM32FD_IE_RF0LE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_RF0FE, FIELD_GET(CAN_STM32FD_IE_RF0FE, bits));
-		*val |= FIELD_PREP(CAN_MCAN_IE_RF0NE, FIELD_GET(CAN_STM32FD_IE_RF0NE, bits));
+		/* Remap IR/IE bits, ignoring unsupported bits */
+		/* Group 1 map bits 23-16 (stm32fd) to 29-22 (mcan) */
+		*val |= ((bits & GENMASK(23, 16)) << 6);
+
+		/* Group 2 map bits 15-11 (stm32fd) to 18-14 (mcan) */
+		*val |= ((bits & GENMASK(15, 11)) << 3);
+
+		/* Group 3 map bits 10-4 (stm32fd) to 12-6 (mcan) */
+		*val |= ((bits & GENMASK(10, 4)) << 2);
+
+		/* Group 4 map bits 3-1 (stm32fd) to 4-2 (mcan) */
+		*val |= ((bits & GENMASK(3, 1)) << 1);
+
+		/* Group 5 map bits 0 (mcan) to 0 (stm32fd) */
+		*val |= ((bits & GENMASK(0, 0)) << 0);
 		break;
 	case CAN_MCAN_ILS:
 		/* Only remap ILS groups used in can_mcan.c */
@@ -366,58 +335,23 @@ static int can_stm32fd_write_reg(const struct device *dev, uint16_t reg, uint32_
 
 	switch (reg) {
 	case CAN_MCAN_IR:
-		/* Remap IR bits, ignoring unsupported bits */
-		bits |= FIELD_PREP(CAN_STM32FD_IR_ARA,  FIELD_GET(CAN_MCAN_IR_ARA, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_PED,  FIELD_GET(CAN_MCAN_IR_PED, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_PEA,  FIELD_GET(CAN_MCAN_IR_PEA, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_WDI,  FIELD_GET(CAN_MCAN_IR_WDI, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_BO,   FIELD_GET(CAN_MCAN_IR_BO, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_EW,   FIELD_GET(CAN_MCAN_IR_EW, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_EP,   FIELD_GET(CAN_MCAN_IR_EP, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_ELO,  FIELD_GET(CAN_MCAN_IR_ELO, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_TOO,  FIELD_GET(CAN_MCAN_IR_TOO, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_MRAF, FIELD_GET(CAN_MCAN_IR_MRAF, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_TSW,  FIELD_GET(CAN_MCAN_IR_TSW, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_TEFL, FIELD_GET(CAN_MCAN_IR_TEFL, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_TEFF, FIELD_GET(CAN_MCAN_IR_TEFF, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_TEFN, FIELD_GET(CAN_MCAN_IR_TEFN, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_TFE,  FIELD_GET(CAN_MCAN_IR_TFE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_TCF,  FIELD_GET(CAN_MCAN_IR_TCF, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_TC,   FIELD_GET(CAN_MCAN_IR_TC, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_HPM,  FIELD_GET(CAN_MCAN_IR_HPM, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_RF1L, FIELD_GET(CAN_MCAN_IR_RF1L, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_RF1F, FIELD_GET(CAN_MCAN_IR_RF1F, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_RF1N, FIELD_GET(CAN_MCAN_IR_RF1N, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_RF0L, FIELD_GET(CAN_MCAN_IR_RF0L, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_RF0F, FIELD_GET(CAN_MCAN_IR_RF0F, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IR_RF0N, FIELD_GET(CAN_MCAN_IR_RF0N, val));
-		break;
+		__fallthrough;
 	case CAN_MCAN_IE:
-		/* Remap IE bits, ignoring unsupported bits */
-		bits |= FIELD_PREP(CAN_STM32FD_IE_ARAE,  FIELD_GET(CAN_MCAN_IE_ARAE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_PEDE,  FIELD_GET(CAN_MCAN_IE_PEDE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_PEAE,  FIELD_GET(CAN_MCAN_IE_PEAE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_WDIE,  FIELD_GET(CAN_MCAN_IE_WDIE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_BOE,   FIELD_GET(CAN_MCAN_IE_BOE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_EWE,   FIELD_GET(CAN_MCAN_IE_EWE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_EPE,   FIELD_GET(CAN_MCAN_IE_EPE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_ELOE,  FIELD_GET(CAN_MCAN_IE_ELOE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_TOOE,  FIELD_GET(CAN_MCAN_IE_TOOE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_MRAFE, FIELD_GET(CAN_MCAN_IE_MRAFE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_TSWE,  FIELD_GET(CAN_MCAN_IE_TSWE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_TEFLE, FIELD_GET(CAN_MCAN_IE_TEFLE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_TEFFE, FIELD_GET(CAN_MCAN_IE_TEFFE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_TEFNE, FIELD_GET(CAN_MCAN_IE_TEFNE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_TFEE,  FIELD_GET(CAN_MCAN_IE_TFEE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_TCFE,  FIELD_GET(CAN_MCAN_IE_TCFE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_TCE,   FIELD_GET(CAN_MCAN_IE_TCE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_HPME,  FIELD_GET(CAN_MCAN_IE_HPME, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_RF1LE, FIELD_GET(CAN_MCAN_IE_RF1LE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_RF1FE, FIELD_GET(CAN_MCAN_IE_RF1FE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_RF1NE, FIELD_GET(CAN_MCAN_IE_RF1NE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_RF0LE, FIELD_GET(CAN_MCAN_IE_RF0LE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_RF0FE, FIELD_GET(CAN_MCAN_IE_RF0FE, val));
-		bits |= FIELD_PREP(CAN_STM32FD_IE_RF0NE, FIELD_GET(CAN_MCAN_IE_RF0NE, val));
+		/* Remap IR/IE bits, ignoring unsupported bits */
+		/* Group 1 map bits 29-22 (mcan) to 23-16 (stm32fd) */
+		bits |= ((val & GENMASK(29, 22)) >> 6);
+
+		/* Group 2 map bits 18-14 (mcan) to 15-11 (stm32fd) */
+		bits |= ((val & GENMASK(18, 14)) >> 3);
+
+		/* Group 3 map bits 12-6 (mcan) to 10-4 (stm32fd) */
+		bits |= ((val & GENMASK(12, 6)) >> 2);
+
+		/* Group 4 map bits 4-2 (mcan) to 3-1 (stm32fd) */
+		bits |= ((val & GENMASK(4, 2)) >> 1);
+
+		/* Group 5 map bits 0 (mcan) to 0 (stm32fd) */
+		bits |= ((val & GENMASK(0, 0)) >> 0);
 		break;
 	case CAN_MCAN_ILS:
 		/* Only remap ILS groups used in can_mcan.c */
@@ -431,8 +365,10 @@ static int can_stm32fd_write_reg(const struct device *dev, uint16_t reg, uint32_
 		break;
 	case CAN_MCAN_GFC:
 		/* Map fields to RXGFC including STM32 FDCAN LSS and LSE fields */
-		bits |= FIELD_PREP(CAN_STM32FD_RXGFC_LSS, CONFIG_CAN_MAX_STD_ID_FILTER) |
-			FIELD_PREP(CAN_STM32FD_RXGFC_LSE, CONFIG_CAN_MAX_EXT_ID_FILTER);
+		bits |= FIELD_PREP(CAN_STM32FD_RXGFC_LSS,
+				   CONFIG_CAN_STM32_FDCAN_MAX_STD_ID_FILTERS);
+		bits |= FIELD_PREP(CAN_STM32FD_RXGFC_LSE,
+				   CONFIG_CAN_STM32_FDCAN_MAX_EXT_ID_FILTERS);
 		bits |= val & (CAN_MCAN_GFC_ANFS | CAN_MCAN_GFC_ANFE |
 			CAN_MCAN_GFC_RRFS | CAN_MCAN_GFC_RRFE);
 		break;
@@ -472,13 +408,25 @@ static int can_stm32fd_clear_mram(const struct device *dev, uint16_t offset, siz
 
 static int can_stm32fd_get_core_clock(const struct device *dev, uint32_t *rate)
 {
-	const uint32_t rate_tmp = LL_RCC_GetFDCANClockFreq(LL_RCC_FDCAN_CLKSOURCE);
+	uint32_t rate_tmp;
+	const struct can_mcan_config *mcan_cfg = dev->config;
+	const struct can_stm32fd_config *stm32fd_cfg = mcan_cfg->custom;
+	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 
-	ARG_UNUSED(dev);
-
-	if (rate_tmp == LL_RCC_PERIPH_FREQUENCY_NO) {
-		LOG_ERR("Can't read core clock");
-		return -EIO;
+	if (IS_ENABLED(STM32_CANFD_DOMAIN_CLOCK_SUPPORT) && (stm32fd_cfg->pclk_len > 1)) {
+		if (clock_control_get_rate(clk,
+			 (clock_control_subsys_t) &stm32fd_cfg->pclken[1],
+			  &rate_tmp) < 0) {
+			LOG_ERR("Failed call clock_control_get_rate(pclk[1])");
+			return -EIO;
+		}
+	} else {
+		if (clock_control_get_rate(clk,
+			 (clock_control_subsys_t) &stm32fd_cfg->pclken[0],
+			  &rate_tmp) < 0) {
+			LOG_ERR("Failed call clock_control_get_rate(pclk[0])");
+			return -EIO;
+		}
 	}
 
 	if (FDCAN_CONFIG->CKDIV == 0) {
@@ -496,10 +444,6 @@ static int can_stm32fd_clock_enable(const struct device *dev)
 	const struct can_mcan_config *mcan_cfg = dev->config;
 	const struct can_stm32fd_config *stm32fd_cfg = mcan_cfg->custom;
 	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
-
-	if (!device_is_ready(clk)) {
-		return -ENODEV;
-	}
 
 	if (IS_ENABLED(STM32_CANFD_DOMAIN_CLOCK_SUPPORT) && (stm32fd_cfg->pclk_len > 1)) {
 		ret = clock_control_configure(clk,
@@ -552,8 +496,8 @@ static int can_stm32fd_init(const struct device *dev)
 		return ret;
 	}
 
-	rxgfc |= FIELD_PREP(CAN_STM32FD_RXGFC_LSS, CONFIG_CAN_MAX_STD_ID_FILTER) |
-		 FIELD_PREP(CAN_STM32FD_RXGFC_LSE, CONFIG_CAN_MAX_EXT_ID_FILTER);
+	rxgfc |= FIELD_PREP(CAN_STM32FD_RXGFC_LSS, CONFIG_CAN_STM32_FDCAN_MAX_STD_ID_FILTERS) |
+		 FIELD_PREP(CAN_STM32FD_RXGFC_LSE, CONFIG_CAN_STM32_FDCAN_MAX_EXT_ID_FILTERS);
 
 	ret = can_mcan_write_reg(dev, CAN_STM32FD_RXGFC, rxgfc);
 	if (ret != 0) {
@@ -571,12 +515,35 @@ static int can_stm32fd_init(const struct device *dev)
 		return ret;
 	}
 
+
+#ifdef CONFIG_CAN_RX_TIMESTAMP
+	if (stm32fd_cfg->external_timestamp_counter_dev != NULL) {
+		if (!device_is_ready(stm32fd_cfg->external_timestamp_counter_dev)) {
+			LOG_ERR_DEVICE_NOT_READY(stm32fd_cfg->external_timestamp_counter_dev);
+			return -ENODEV;
+		}
+
+		ret = counter_start(stm32fd_cfg->external_timestamp_counter_dev);
+		if (ret < 0) {
+			LOG_ERR("Failed to start timestamp counter (%d)", ret);
+			return ret;
+		}
+
+		/* Use External Timestamp counter (TSS=2) */
+		ret = can_mcan_write_reg(dev, CAN_MCAN_TSCC, FIELD_PREP(CAN_MCAN_TSCC_TSS, 0x2));
+		if (ret != 0) {
+			LOG_ERR("Failed to write TSCC register");
+			return ret;
+		}
+	}
+#endif /* CONFIG_CAN_RX_TIMESTAMP */
+
 	stm32fd_cfg->config_irq();
 
 	return ret;
 }
 
-static const struct can_driver_api can_stm32fd_driver_api = {
+static DEVICE_API(can, can_stm32fd_driver_api) = {
 	.get_capabilities = can_mcan_get_capabilities,
 	.start = can_mcan_start,
 	.stop = can_mcan_stop,
@@ -586,11 +553,10 @@ static const struct can_driver_api can_stm32fd_driver_api = {
 	.add_rx_filter = can_mcan_add_rx_filter,
 	.remove_rx_filter = can_mcan_remove_rx_filter,
 	.get_state = can_mcan_get_state,
-#ifndef CONFIG_CAN_AUTO_BUS_OFF_RECOVERY
+#ifdef CONFIG_CAN_MANUAL_RECOVERY_MODE
 	.recover = can_mcan_recover,
-#endif /* CONFIG_CAN_AUTO_BUS_OFF_RECOVERY */
+#endif /* CONFIG_CAN_MANUAL_RECOVERY_MODE */
 	.get_core_clock = can_stm32fd_get_core_clock,
-	.get_max_bitrate = can_mcan_get_max_bitrate,
 	.get_max_filters = can_mcan_get_max_filters,
 	.set_state_change_callback = can_mcan_set_state_change_callback,
 	.timing_min = CAN_MCAN_TIMING_MIN_INITIALIZER,
@@ -626,52 +592,53 @@ static const struct can_mcan_ops can_stm32fd_ops = {
 	BUILD_ASSERT(CAN_MCAN_DT_INST_MRAM_TX_BUFFER_ELEMENTS(inst) == 3,	\
 		     "Tx Buffer elements must be 0");
 
-#define CAN_STM32FD_IRQ_CFG_FUNCTION(inst)                                     \
-static void config_can_##inst##_irq(void)                                      \
-{                                                                              \
-	LOG_DBG("Enable CAN" #inst " IRQ");                                    \
-	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(inst, line_0, irq),                    \
-		    DT_INST_IRQ_BY_NAME(inst, line_0, priority),               \
-		    can_mcan_line_0_isr, DEVICE_DT_INST_GET(inst), 0);         \
-	irq_enable(DT_INST_IRQ_BY_NAME(inst, line_0, irq));                    \
-	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(inst, line_1, irq),                    \
-		    DT_INST_IRQ_BY_NAME(inst, line_1, priority),               \
-		    can_mcan_line_1_isr, DEVICE_DT_INST_GET(inst), 0);         \
-	irq_enable(DT_INST_IRQ_BY_NAME(inst, line_1, irq));                    \
-}
+#define CAN_STM32FD_IRQ_CFG_FUNCTION(inst)					\
+	static void config_can_##inst##_irq(void)				\
+	{									\
+		LOG_DBG("Enable CAN" #inst " IRQ");				\
+		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(inst, int0, irq),		\
+			    DT_INST_IRQ_BY_NAME(inst, int0, priority),		\
+			    can_mcan_line_0_isr, DEVICE_DT_INST_GET(inst), 0);	\
+		irq_enable(DT_INST_IRQ_BY_NAME(inst, int0, irq));		\
+		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(inst, int1, irq),		\
+			    DT_INST_IRQ_BY_NAME(inst, int1, priority),		\
+			    can_mcan_line_1_isr, DEVICE_DT_INST_GET(inst), 0);	\
+		irq_enable(DT_INST_IRQ_BY_NAME(inst, int1, irq));		\
+	}
 
-#define CAN_STM32FD_CFG_INST(inst)					\
-	BUILD_ASSERT(CAN_MCAN_DT_INST_MRAM_ELEMENTS_SIZE(inst) <=	\
-		     CAN_MCAN_DT_INST_MRAM_SIZE(inst),			\
-		     "Insufficient Message RAM size to hold elements");	\
-									\
-	PINCTRL_DT_INST_DEFINE(inst);					\
-	CAN_MCAN_CALLBACKS_DEFINE(can_stm32fd_cbs_##inst,		\
+#define CAN_STM32FD_CFG_INST(inst)						\
+	BUILD_ASSERT(CAN_MCAN_DT_INST_MRAM_ELEMENTS_SIZE(inst) <=		\
+		     CAN_MCAN_DT_INST_MRAM_SIZE(inst),				\
+		     "Insufficient Message RAM size to hold elements");		\
+										\
+	PINCTRL_DT_INST_DEFINE(inst);						\
+	CAN_MCAN_CALLBACKS_DEFINE(can_stm32fd_cbs_##inst,			\
 				  CAN_MCAN_DT_INST_MRAM_TX_BUFFER_ELEMENTS(inst), \
-				  CONFIG_CAN_MAX_STD_ID_FILTER,		\
-				  CONFIG_CAN_MAX_EXT_ID_FILTER);	\
-									\
-	static const struct stm32_pclken can_stm32fd_pclken_##inst[] =	\
-					STM32_DT_INST_CLOCKS(inst);	\
-									\
-	static const struct can_stm32fd_config can_stm32fd_cfg_##inst = { \
-		.base = CAN_MCAN_DT_INST_MCAN_ADDR(inst),		\
-		.mram = CAN_MCAN_DT_INST_MRAM_ADDR(inst),		\
-		.pclken = can_stm32fd_pclken_##inst,			\
-		.pclk_len = DT_INST_NUM_CLOCKS(inst),			\
-		.config_irq = config_can_##inst##_irq,			\
-		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),		\
-		.clock_divider = DT_INST_PROP_OR(inst, clk_divider, 0)  \
-	};								\
-									\
-	static const struct can_mcan_config can_mcan_cfg_##inst =	\
-		CAN_MCAN_DT_CONFIG_INST_GET(inst, &can_stm32fd_cfg_##inst, \
-					    &can_stm32fd_ops,		\
+				  CONFIG_CAN_STM32_FDCAN_MAX_STD_ID_FILTERS,	\
+				  CONFIG_CAN_STM32_FDCAN_MAX_EXT_ID_FILTERS);	\
+										\
+	static const struct stm32_pclken can_stm32fd_pclken_##inst[] =		\
+					STM32_DT_INST_CLOCKS(inst);		\
+										\
+	static const struct can_stm32fd_config can_stm32fd_cfg_##inst =	{	\
+		.base = CAN_MCAN_DT_INST_MCAN_ADDR(inst),			\
+		.mram = CAN_MCAN_DT_INST_MRAM_ADDR(inst),			\
+		.pclken = can_stm32fd_pclken_##inst,				\
+		.pclk_len = DT_INST_NUM_CLOCKS(inst),				\
+		.config_irq = config_can_##inst##_irq,				\
+		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),			\
+		.clock_divider = DT_INST_PROP_OR(inst, clk_divider, 0),		\
+		IF_ENABLED(CONFIG_CAN_RX_TIMESTAMP,				\
+			   (.external_timestamp_counter_dev = DEVICE_DT_GET_OR_NULL( \
+					DT_INST_PHANDLE(inst, external_timestamp_counter)),)) \
+	};									\
+										\
+	static const struct can_mcan_config can_mcan_cfg_##inst =		\
+		CAN_MCAN_DT_CONFIG_INST_GET(inst, &can_stm32fd_cfg_##inst,	\
+					    &can_stm32fd_ops,			\
 					    &can_stm32fd_cbs_##inst);
 
-#define CAN_STM32FD_DATA_INST(inst)					\
-	static struct can_mcan_data can_mcan_data_##inst =		\
-		CAN_MCAN_DATA_INITIALIZER(NULL);
+#define CAN_STM32FD_DATA_INST(inst) CAN_MCAN_DATA_DEFINE(can_mcan_data_##inst, NULL);
 
 #define CAN_STM32FD_DEVICE_INST(inst)						\
 	CAN_DEVICE_DT_INST_DEFINE(inst, can_stm32fd_init, NULL,			\
@@ -679,11 +646,11 @@ static void config_can_##inst##_irq(void)                                      \
 				  POST_KERNEL, CONFIG_CAN_INIT_PRIORITY,	\
 				  &can_stm32fd_driver_api);
 
-#define CAN_STM32FD_INST(inst)          \
-CAN_STM32FD_BUILD_ASSERT_MRAM_CFG(inst) \
-CAN_STM32FD_IRQ_CFG_FUNCTION(inst)      \
-CAN_STM32FD_CFG_INST(inst)              \
-CAN_STM32FD_DATA_INST(inst)             \
-CAN_STM32FD_DEVICE_INST(inst)
+#define CAN_STM32FD_INST(inst)			\
+	CAN_STM32FD_BUILD_ASSERT_MRAM_CFG(inst)	\
+	CAN_STM32FD_IRQ_CFG_FUNCTION(inst)	\
+	CAN_STM32FD_CFG_INST(inst)		\
+	CAN_STM32FD_DATA_INST(inst)		\
+	CAN_STM32FD_DEVICE_INST(inst)
 
 DT_INST_FOREACH_STATUS_OKAY(CAN_STM32FD_INST)

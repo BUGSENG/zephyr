@@ -6,7 +6,7 @@
 #ifndef ZEPHYR_ARCH_X86_INCLUDE_INTEL64_OFFSETS_SHORT_ARCH_H_
 #define ZEPHYR_ARCH_X86_INCLUDE_INTEL64_OFFSETS_SHORT_ARCH_H_
 
-#include <offsets.h>
+#include <zephyr/offsets.h>
 
 #define _thread_offset_to_rsp \
 	(___thread_t_callee_saved_OFFSET + ___callee_saved_t_rsp_OFFSET)
@@ -70,5 +70,16 @@
 
 #define _thread_offset_to_cs \
 	(___thread_t_arch_OFFSET + ___thread_arch_t_cs_OFFSET)
+
+#ifdef CONFIG_HW_SHADOW_STACK
+#define _thread_offset_to_shstk_addr \
+	(___thread_t_arch_OFFSET + ___thread_arch_t_shstk_addr_OFFSET)
+
+#define _thread_offset_to_shstk_base \
+	(___thread_t_arch_OFFSET + ___thread_arch_t_shstk_base_OFFSET)
+
+#define _thread_offset_to_shstk_size \
+	(___thread_t_arch_OFFSET + ___thread_arch_t_shstk_size_OFFSET)
+#endif
 
 #endif /* ZEPHYR_ARCH_X86_INCLUDE_INTEL64_OFFSETS_SHORT_ARCH_H_ */

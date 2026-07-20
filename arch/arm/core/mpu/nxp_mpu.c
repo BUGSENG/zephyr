@@ -37,8 +37,10 @@ static uint8_t static_regions_num;
 /* Global MPU configuration at system initialization. */
 static void mpu_init(void)
 {
+#if defined(CONFIG_SOC_FAMILY_KINETIS)
 	/* Enable clock for the Memory Protection Unit (MPU). */
 	CLOCK_EnableClock(kCLOCK_Sysmpu0);
+#endif
 }
 
 /**
@@ -49,9 +51,9 @@ static inline uint8_t get_num_regions(void)
 	return FSL_FEATURE_SYSMPU_DESCRIPTOR_COUNT;
 }
 
-/* @brief Partition sanity check
+/* @brief Partition coherence check
  *
- * This internal function performs run-time sanity check for
+ * This internal function performs run-time coherence check for
  * MPU region start address and size.
  *
  * @param part Pointer to the data structure holding the partition
@@ -149,7 +151,7 @@ static int region_allocate_and_init(const uint8_t index,
 				  .end  = (reg).dt_addr + (reg).dt_size,	\
 				  .attr = _ATTR,				\
 				}
-
+#ifdef CONFIG_MEM_ATTR
 /* This internal function programs the MPU regions defined in the DT when using
  * the `zephyr,memory-attr = <( DT_MEM_ARM(...) )>` property.
  */
@@ -196,7 +198,7 @@ static int mpu_configure_regions_from_dt(uint8_t *reg_index)
 
 	return 0;
 }
-
+#endif /* CONFIG_MEM_ATTR */
 /**
  * This internal function is utilized by the MPU driver to combine a given
  * region attribute configuration and size and fill-in a driver-specific
@@ -295,11 +297,11 @@ static int mpu_sram_partitioning(uint8_t index,
 
 /* This internal function programs a set of given MPU regions
  * over a background memory area, optionally performing a
- * sanity check of the memory regions to be programmed.
+ * coherence check of the memory regions to be programmed.
  */
 static int mpu_configure_regions(const struct z_arm_mpu_partition regions[],
 				 uint8_t regions_num, uint8_t start_reg_index,
-				 bool do_sanity_check)
+				 bool do_coherence_check)
 {
 	int i;
 	int reg_index = start_reg_index;
@@ -310,9 +312,9 @@ static int mpu_configure_regions(const struct z_arm_mpu_partition regions[],
 		}
 		/* Non-empty region. */
 
-		if (do_sanity_check &&
+		if (do_coherence_check &&
 				(!mpu_partition_is_valid(&regions[i]))) {
-			LOG_ERR("Partition %u: sanity check failed.", i);
+			LOG_ERR("Partition %u: coherence check failed.", i);
 			return -EINVAL;
 		}
 
@@ -600,7 +602,7 @@ static inline int is_user_accessible_region(uint32_t r_index, int write)
 /**
  * @brief validate the given buffer is user accessible or not
  */
-int arm_core_mpu_buffer_validate(void *addr, size_t size, int write)
+int arm_core_mpu_buffer_validate(const void *addr, size_t size, int write)
 {
 	uint8_t r_index;
 
@@ -698,13 +700,13 @@ int z_arm_mpu_init(void)
 
 	/* Update the number of programmed MPU regions. */
 	static_regions_num = mpu_config.num_regions;
-
+#ifdef CONFIG_MEM_ATTR
 	/* DT-defined MPU regions. */
 	if (mpu_configure_regions_from_dt(&static_regions_num) == -EINVAL) {
 		__ASSERT(0, "Failed to allocate MPU regions from DT\n");
 		return -EINVAL;
 	}
-
+#endif /* CONFIG_MEM_ATTR */
 	arm_core_mpu_enable();
 
 	return 0;

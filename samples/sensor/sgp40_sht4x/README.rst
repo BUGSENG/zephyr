@@ -1,7 +1,8 @@
-.. _sgp40_sht4x:
+.. zephyr:code-sample:: sgp40_sht4x
+   :name: SGP40 and SHT4X digital humidity and multipixel gas sensor
+   :relevant-api: sensor_interface
 
-SGP40 and SHT4X: High accuracy digital I2C humidity sensor and multipixel gas sensor
-####################################################################################
+   Get temperature, humidity and gas sensor data from SGP40 and SHT4X sensors (polling mode).
 
 Description
 ***********
@@ -23,8 +24,8 @@ To make use of the heater have a look at the Kconfig options for this applicatio
 References
 **********
 
- - `SHT4X sensor <https://www.sensirion.com/en/environmental-sensors/humidity-sensors/humidity-sensor-sht4x/>`_
- - `SGP40 sensor <https://www.sensirion.com/en/environmental-sensors/gas-sensors/sgp40/>`_
+ - `SHT4X sensor <https://sensirion.com/products/catalog/SHT40>`_
+ - `SGP40 sensor <https://sensirion.com/products/catalog/SGP40>`_
 
 Wiring
 ******
@@ -41,7 +42,7 @@ Building and Running
 This project outputs sensor data to the console. It requires a SHT4X and a SGP40
 sensor. It should work with any platform featuring a I2C peripheral
 interface. This example has an example device tree overlay
-for the :ref:`blackpill_f411ce` board.
+for the :zephyr:board:`blackpill_f411ce` board.
 
 
 .. zephyr-app-commands::
@@ -61,6 +62,6 @@ Sample Output
         SHT4X: 23.66 Temp. [C] ; 32.16 RH [%] -- SGP40: 30541 Gas [a.u.]
         SHT4X: 23.63 Temp. [C] ; 30.83 RH [%] -- SGP40: 30522 Gas [a.u.]
 
-The datasheet states that the raw sensor signal for the SGP40 ist proportional
+The datasheet states that the raw sensor signal for the SGP40 is proportional
 to the logarithm of the sensors resistance, hence it is labeled as [a.u.]
 (arbitrary units) in the example.

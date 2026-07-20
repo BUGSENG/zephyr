@@ -31,6 +31,8 @@
 #include <zephyr/linker/sections.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/sys/printk-hooks.h>
+#include <zephyr/sys/libc-hooks.h>
 #include <zephyr/pm/device_runtime.h>
 #ifdef CONFIG_UART_CONSOLE_MCUMGR
 #include <zephyr/mgmt/mcumgr/transport/serial.h>
@@ -87,13 +89,11 @@ static int console_out(int c)
 
 #endif  /* CONFIG_UART_CONSOLE_DEBUG_SERVER_HOOKS */
 
-	if (pm_device_runtime_is_enabled(uart_console_dev)) {
-		if (pm_device_runtime_get(uart_console_dev) < 0) {
-			/* Enabling the UART instance has failed but this
-			 * function MUST return the byte output.
-			 */
-			return c;
-		}
+	if (pm_device_runtime_get(uart_console_dev) < 0) {
+		/* Enabling the UART instance has failed but this
+		 * function MUST return the byte output.
+		 */
+		return c;
 	}
 
 	if ('\n' == c) {
@@ -101,22 +101,15 @@ static int console_out(int c)
 	}
 	uart_poll_out(uart_console_dev, c);
 
-	if (pm_device_runtime_is_enabled(uart_console_dev)) {
-		/* As errors cannot be returned, ignore the return value */
-		(void)pm_device_runtime_put(uart_console_dev);
-	}
+	/* Use async put to avoid useless device suspension/resumption
+	 * when tranmiting chain of chars.
+	 * As errors cannot be returned, ignore the return value
+	 */
+	(void)pm_device_runtime_put_async(uart_console_dev, K_MSEC(1));
 
 	return c;
 }
 
-#endif
-
-#if defined(CONFIG_STDOUT_CONSOLE)
-extern void __stdout_hook_install(int (*hook)(int c));
-#endif
-
-#if defined(CONFIG_PRINTK)
-extern void __printk_hook_install(int (*fn)(int c));
 #endif
 
 #if defined(CONFIG_CONSOLE_HANDLER)
@@ -446,25 +439,21 @@ static void uart_console_isr(const struct device *unused, void *user_data)
 	ARG_UNUSED(user_data);
 	static uint8_t last_char = '\0';
 
-	while (uart_irq_update(uart_console_dev) > 0 &&
-	       uart_irq_is_pending(uart_console_dev) > 0) {
+	uart_irq_update(uart_console_dev);
+
+	if (uart_irq_rx_ready(uart_console_dev) <= 0) {
+		return;
+	}
+
+	while (true) {
 		static struct console_input *cmd;
 		uint8_t byte;
 		int rx;
 
-		rx = uart_irq_rx_ready(uart_console_dev);
-		if (rx < 0) {
-			return;
-		}
-
-		if (rx == 0) {
-			continue;
-		}
-
 		/* Character(s) have been received */
 
 		rx = read_uart(uart_console_dev, &byte, 1);
-		if (rx < 0) {
+		if (rx <= 0) {
 			return;
 		}
 
@@ -474,7 +463,7 @@ static void uart_console_isr(const struct device *unused, void *user_data)
 			 * The input hook indicates that no further processing
 			 * should be done by this handler.
 			 */
-			return;
+			continue;
 		}
 #endif
 
@@ -545,14 +534,12 @@ static void uart_console_isr(const struct device *unused, void *user_data)
 				break;
 			}
 
-			last_char = byte;
-			continue;
-		}
-
 		/* Ignore characters if there's no more buffer space */
-		if (cur + end < sizeof(cmd->line) - 1) {
+		} else if (cur + end < sizeof(cmd->line) - 1) {
 			insert_char(&cmd->line[cur++], byte, end);
 		}
+
+		last_char = byte;
 	}
 }
 
@@ -566,8 +553,8 @@ static void console_input_init(void)
 	uart_irq_callback_set(uart_console_dev, uart_console_isr);
 
 	/* Drain the fifo */
-	while (uart_irq_rx_ready(uart_console_dev) > 0) {
-		uart_fifo_read(uart_console_dev, &c, 1);
+	while (uart_poll_in(uart_console_dev, &c) == 0) {
+		/* do nothing */
 	}
 
 	uart_irq_rx_enable(uart_console_dev);
@@ -624,10 +611,8 @@ static int uart_console_init(void)
 }
 
 /* UART console initializes after the UART device itself */
-SYS_INIT(uart_console_init,
 #if defined(CONFIG_EARLY_CONSOLE)
-	 PRE_KERNEL_1,
+SYS_INIT(uart_console_init, PRE_KERNEL_1, CONFIG_CONSOLE_INIT_PRIORITY);
 #else
-	 POST_KERNEL,
-#endif
-	 CONFIG_CONSOLE_INIT_PRIORITY);
+SYS_INIT(uart_console_init, POST_KERNEL, CONFIG_CONSOLE_INIT_PRIORITY);
+#endif /* CONFIG_EARLY_CONSOLE */

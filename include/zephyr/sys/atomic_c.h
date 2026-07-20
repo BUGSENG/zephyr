@@ -4,6 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief Interrupt-locking C implementation of the atomic operations API.
+ *
+ * The public documentation for these operations lives in <zephyr/sys/atomic.h>.
+ */
+
 #ifndef ZEPHYR_INCLUDE_SYS_ATOMIC_C_H_
 #define ZEPHYR_INCLUDE_SYS_ATOMIC_C_H_
 
@@ -12,6 +19,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** @cond INTERNAL_HIDDEN */
 
 /* Simple and correct (but very slow) implementation of atomic
  * primitives that require nothing more than kernel interrupt locking.
@@ -39,9 +48,9 @@ static inline atomic_val_t atomic_dec(atomic_t *target)
 
 }
 
-extern atomic_val_t atomic_get(const atomic_t *target);
+atomic_val_t atomic_get(const atomic_t *target);
 
-extern atomic_ptr_val_t atomic_ptr_get(const atomic_ptr_t *target);
+atomic_ptr_val_t atomic_ptr_get(const atomic_ptr_t *target);
 
 __syscall atomic_val_t atomic_set(atomic_t *target, atomic_val_t value);
 
@@ -67,12 +76,33 @@ __syscall atomic_val_t atomic_and(atomic_t *target, atomic_val_t value);
 
 __syscall atomic_val_t atomic_nand(atomic_t *target, atomic_val_t value);
 
+/** @endcond */
+
 #ifdef __cplusplus
 }
 #endif
 
 #ifdef CONFIG_ATOMIC_OPERATIONS_C
-#include <syscalls/atomic_c.h>
+
+#ifndef DISABLE_SYSCALL_TRACING
+/* Skip defining macros of atomic_*() for syscall tracing.
+ * Compiler does not like "({ ... tracing code ... })" and complains
+ *
+ *   error: expected identifier or '(' before '{' token
+ *
+ * ... even though there is a '(' before '{'.
+ */
+#define DISABLE_SYSCALL_TRACING
+#define _REMOVE_DISABLE_SYSCALL_TRACING
+#endif
+
+#include <zephyr/syscalls/atomic_c.h>
+
+#ifdef _REMOVE_DISABLE_SYSCALL_TRACING
+#undef DISABLE_SYSCALL_TRACING
+#undef _REMOVE_DISABLE_SYSCALL_TRACING
+#endif
+
 #endif
 
 #endif /* ZEPHYR_INCLUDE_SYS_ATOMIC_C_H_ */

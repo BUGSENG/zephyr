@@ -21,13 +21,14 @@ K_MBOX_DEFINE(mbox_s);
 K_PIPE_DEFINE(pipe_s, 64, 4);
 K_QUEUE_DEFINE(queue_s);
 K_EVENT_DEFINE(event_s);
+K_EVENT_DEFINE(double_init_event_s);
 
 unsigned char __aligned(4) pipe_buffer[64];
 char __aligned(4) slab_buffer[8 * 4];
 stack_data_t stack_array[8 * 4];
 int msgq_buffer[64];
 
-ZTEST(obj_tracking, test_obj_tracking_sanity)
+ZTEST(obj_tracking, test_obj_tracking_coherence)
 {
 	struct k_timer timer;
 	struct k_mem_slab slab;
@@ -150,9 +151,29 @@ ZTEST(obj_tracking, test_obj_tracking_sanity)
 		}
 		list = SYS_PORT_TRACK_NEXT((struct k_event *)list);
 	}
-	zassert_equal(count, 2, "Wrong number of queue objects");
+	zassert_equal(count, 2, "Wrong number of event objects");
 
+	/* Count all the events in the list */
+	list = _track_list_k_event;
+	count = 0;
+	while (list != NULL) {
+		count++;
+		list = SYS_PORT_TRACK_NEXT((struct k_event *)list);
+	}
 
+	/* Initialize the statically initialized event dynamically to test if it corrupts the list
+	 */
+	k_event_init(&double_init_event_s);
+	list = _track_list_k_event;
+	while (list != NULL) {
+		list = SYS_PORT_TRACK_NEXT((struct k_event *)list);
+
+		if (count == 0) {
+			break;
+		}
+		count--;
+	}
+	zassert_equal(list, NULL, "List of event objects has circles");
 }
 
 ZTEST_SUITE(obj_tracking, NULL, NULL, NULL, NULL, NULL);

@@ -6,7 +6,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/kernel/thread.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 
 #include <zephyr/logging/log.h>
 
@@ -14,7 +14,7 @@
 #include <zephyr/ztest_assert.h>
 #include <zephyr/ztest_test.h>
 
-#include <zephyr/drivers/bluetooth/hci_driver.h>
+#include <zephyr/drivers/bluetooth.h>
 #include <zephyr/drivers/uart/serial_test.h>
 
 LOG_MODULE_REGISTER(test, LOG_LEVEL_DBG);
@@ -27,29 +27,40 @@ static const struct device *const zephyr_bt_c2h_uart = DEVICE_DT_GET(DT_CHOSEN(z
 /* The DUT is Sandwiched between the mock serial interface and a mock
  * controller. {{{
  */
+#define DT_DRV_COMPAT zephyr_bt_hci_test
+
 static void serial_vnd_data_callback(const struct device *dev, void *user_data);
-static int drv_send(struct net_buf *buf);
-static int drv_open(void);
-static const struct bt_hci_driver drv = {
-	.name = "Mock Controller",
-	.bus = BT_HCI_DRIVER_BUS_VIRTUAL,
+static int drv_send(const struct device *dev, struct net_buf *buf);
+static int drv_open(const struct device *dev);
+
+static DEVICE_API(bt_hci, drv_api) = {
 	.open = drv_open,
 	.send = drv_send,
 };
-static int sys_init_hci_driver_register(void)
+
+static int drv_init(const struct device *dev)
 {
 	serial_vnd_set_callback(zephyr_bt_c2h_uart, serial_vnd_data_callback, NULL);
-	bt_hci_driver_register(&drv);
 	return 0;
 }
-SYS_INIT(sys_init_hci_driver_register, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
+
+#define TEST_DEVICE_INIT(inst) \
+	static struct bt_hci_driver_data drv_data_##inst = { \
+	}; \
+	static const struct bt_hci_driver_config drv_config_##inst = \
+						BT_DT_HCI_DRIVER_CONFIG_INST_GET(inst); \
+	DEVICE_DT_INST_DEFINE(inst, drv_init, NULL, &drv_data_##inst, &drv_config_##inst, \
+			      POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &drv_api)
+
+DT_INST_FOREACH_STATUS_OKAY(TEST_DEVICE_INIT)
+
 /* }}} */
 
 /* Start the DUT "main thread". The settings for this thread are selected as
  * true as possible to the real main thread. {{{
  */
 static struct k_thread hci_uart_thread;
-static K_THREAD_PINNED_STACK_DEFINE(hci_uart_thread_stack, CONFIG_MAIN_STACK_SIZE);
+static K_THREAD_STACK_DEFINE(hci_uart_thread_stack, CONFIG_MAIN_STACK_SIZE);
 static void hci_uart_thread_entry(void *p1, void *p2, void *p3)
 {
 	extern void hci_uart_main(void);
@@ -57,10 +68,10 @@ static void hci_uart_thread_entry(void *p1, void *p2, void *p3)
 }
 static int sys_init_spawn_hci_uart(void)
 {
-	k_thread_name_set(&hci_uart_thread, "hci_uart_main");
 	k_thread_create(&hci_uart_thread, hci_uart_thread_stack,
 			K_THREAD_STACK_SIZEOF(hci_uart_thread_stack), hci_uart_thread_entry, NULL,
 			NULL, NULL, CONFIG_MAIN_THREAD_PRIORITY, 0, K_NO_WAIT);
+	k_thread_name_set(&hci_uart_thread, "hci_uart_main");
 	return 0;
 }
 SYS_INIT(sys_init_spawn_hci_uart, POST_KERNEL, 64);
@@ -68,9 +79,12 @@ SYS_INIT(sys_init_spawn_hci_uart, POST_KERNEL, 64);
 
 /* Mock controller callbacks. {{{ */
 
-static int drv_open(void)
+static int drv_open(const struct device *dev)
 {
+	ARG_UNUSED(dev);
+
 	LOG_DBG("drv_open");
+
 	return 0;
 }
 
@@ -82,13 +96,13 @@ static int drv_open(void)
  *  should use #bt_recv to send c2h packets to the DUT.
  */
 K_FIFO_DEFINE(drv_send_fifo); /* elem T: net_buf */
-static int drv_send(struct net_buf *buf)
+static int drv_send(const struct device *dev, struct net_buf *buf)
 {
-	LOG_DBG("buf %p type %d len %u", buf, bt_buf_get_type(buf), buf->len);
+	LOG_DBG("buf %p type %d len %u", buf, buf->data[0], buf->len);
 	LOG_HEXDUMP_DBG(buf->data, buf->len, "buf");
 
 	__ASSERT_NO_MSG(buf);
-	net_buf_put(&drv_send_fifo, buf);
+	k_fifo_put(&drv_send_fifo, buf);
 	return 0;
 }
 
@@ -195,24 +209,24 @@ ZTEST(hci_uart, test_h2c_cmd_flow_control)
 	for (uint16_t i = 0; i < HCI_NORMAL_CMD_BUF_COUNT; i++) {
 		/* The mock controller processes a command. */
 		{
-			struct net_buf *buf = net_buf_get(&drv_send_fifo, TIMEOUT_PRESUME_STUCK);
+			struct net_buf *buf = k_fifo_get(&drv_send_fifo, TIMEOUT_PRESUME_STUCK);
 
 			zassert_not_null(buf);
-			zassert_equal(buf->len, sizeof(h4_msg_cmd_dummy1) - 1, "Wrong length");
-			zassert_mem_equal(buf->data, &h4_msg_cmd_dummy1[1],
-					  sizeof(h4_msg_cmd_dummy1) - 1);
+			zassert_equal(buf->len, sizeof(h4_msg_cmd_dummy1), "Wrong length");
+			zassert_mem_equal(buf->data, h4_msg_cmd_dummy1, sizeof(h4_msg_cmd_dummy1));
 			net_buf_unref(buf);
 		}
 
 		/* The controller sends a HCI Command Complete response. */
 		{
+			const struct device *dev = DEVICE_DT_GET(DT_DRV_INST(0));
 			int err;
 			struct net_buf *buf = bt_buf_get_rx(BT_BUF_EVT, K_NO_WAIT);
 
 			zassert_not_null(buf);
 			net_buf_add_mem(buf, hci_msg_rx_evt_cmd_complete,
 					sizeof(hci_msg_rx_evt_cmd_complete));
-			err = bt_recv(buf);
+			err = bt_hci_recv_err(dev, buf);
 			zassert_equal(err, 0, "bt_recv failed");
 		}
 	}
@@ -221,13 +235,13 @@ ZTEST(hci_uart, test_h2c_cmd_flow_control)
 	for (uint16_t i = 0; i < TEST_PARAM_HOST_COMPLETE_COUNT; i++) {
 		/* The mock controller processes a 'HCI Host Number of Completed Packets'. */
 		{
-			struct net_buf *buf = net_buf_get(&drv_send_fifo, TIMEOUT_PRESUME_STUCK);
+			struct net_buf *buf = k_fifo_get(&drv_send_fifo, TIMEOUT_PRESUME_STUCK);
 
 			zassert_not_null(buf);
-			zassert_equal(buf->len, sizeof(h4_msg_cmd_host_num_complete) - 1,
+			zassert_equal(buf->len, sizeof(h4_msg_cmd_host_num_complete),
 				      "Wrong length");
-			zassert_mem_equal(buf->data, &h4_msg_cmd_host_num_complete[1],
-					  sizeof(h4_msg_cmd_dummy1) - 2);
+			zassert_mem_equal(buf->data, h4_msg_cmd_host_num_complete,
+					  sizeof(h4_msg_cmd_dummy1) - 1);
 			net_buf_unref(buf);
 		}
 

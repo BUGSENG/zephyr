@@ -18,15 +18,12 @@
 
 #include <stm32_ll_usart.h>
 
-#define STM32_UART_DEFAULT_BAUDRATE	115200
-#define STM32_UART_DEFAULT_PARITY	UART_CFG_PARITY_NONE
-#define STM32_UART_DEFAULT_STOP_BITS	UART_CFG_STOP_BITS_1
-#define STM32_UART_DEFAULT_DATA_BITS	UART_CFG_DATA_BITS_8
-
 /* device config */
 struct uart_stm32_config {
 	/* USART instance */
 	USART_TypeDef *usart;
+	/* clock device */
+	const struct device *clock;
 	/* Reset controller device configuration */
 	const struct reset_dt_spec reset;
 	/* clock subsystem driving this peripheral */
@@ -49,6 +46,8 @@ struct uart_stm32_config {
 	uint8_t de_deassert_time;
 	/* enable de pin inversion */
 	bool de_invert;
+	/* enable fifo */
+	bool fifo_enable;
 	/* pin muxing */
 	const struct pinctrl_dev_config *pcfg;
 #if defined(CONFIG_UART_INTERRUPT_DRIVEN) || defined(CONFIG_UART_ASYNC_API) || \
@@ -84,8 +83,6 @@ struct uart_dma_stream {
 
 /* driver data */
 struct uart_stm32_data {
-	/* clock device */
-	const struct device *clock;
 	/* uart config */
 	struct uart_config *uart_cfg;
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
@@ -106,7 +103,65 @@ struct uart_stm32_data {
 	bool tx_poll_stream_on;
 	bool tx_int_stream_on;
 	bool pm_policy_state_on;
+	bool rx_woken;
 #endif
 };
+
+#if defined(CONFIG_SOC_SERIES_STM32MP1X)
+static inline uint32_t ll_usart_is_active_txe(USART_TypeDef *usart)
+#else /* CONFIG_SOC_SERIES_STM32MP1X */
+static inline uint32_t ll_usart_is_active_txe(const USART_TypeDef *usart)
+#endif /* CONFIG_SOC_SERIES_STM32MP1X */
+{
+#if defined(CONFIG_STM32_HAL2)
+	return LL_USART_IsActiveFlag_TXE_TXFNF(usart);
+#else
+	return LL_USART_IsActiveFlag_TXE(usart);
+#endif /* CONFIG_STM32_HAL2 */
+}
+
+static inline void ll_usart_irq_rx_enable(USART_TypeDef *usart)
+{
+#if defined(CONFIG_STM32_HAL2)
+	LL_USART_EnableIT_RXNE_RXFNE(usart);
+#else
+	LL_USART_EnableIT_RXNE(usart);
+#endif
+}
+
+static inline void ll_usart_irq_rx_disable(USART_TypeDef *usart)
+{
+#if defined(CONFIG_STM32_HAL2)
+	LL_USART_DisableIT_RXNE_RXFNE(usart);
+#else
+	LL_USART_DisableIT_RXNE(usart);
+#endif
+}
+
+#if defined(CONFIG_SOC_SERIES_STM32MP1X)
+static inline uint32_t ll_usart_is_active_rxne(USART_TypeDef *usart)
+#else /* CONFIG_SOC_SERIES_STM32MP1X */
+static inline uint32_t ll_usart_is_active_rxne(const USART_TypeDef *usart)
+#endif /* CONFIG_SOC_SERIES_STM32MP1X */
+{
+#if defined(CONFIG_STM32_HAL2)
+	return LL_USART_IsActiveFlag_RXNE_RXFNE(usart);
+#else
+	return LL_USART_IsActiveFlag_RXNE(usart);
+#endif /* CONFIG_STM32_HAL2 */
+}
+
+#if defined(CONFIG_SOC_SERIES_STM32MP1X)
+static inline uint32_t ll_usart_is_enabled_rxne(USART_TypeDef *usart)
+#else /* CONFIG_SOC_SERIES_STM32MP1X */
+static inline uint32_t ll_usart_is_enabled_rxne(const USART_TypeDef *usart)
+#endif /* CONFIG_SOC_SERIES_STM32MP1X */
+{
+#if defined(CONFIG_STM32_HAL2)
+	return LL_USART_IsEnabledIT_RXNE_RXFNE(usart);
+#else
+	return LL_USART_IsEnabledIT_RXNE(usart);
+#endif /* CONFIG_STM32_HAL2 */
+}
 
 #endif	/* ZEPHYR_DRIVERS_SERIAL_UART_STM32_H_ */

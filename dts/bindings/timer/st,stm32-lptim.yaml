@@ -1,17 +1,19 @@
 # Copyright (c) 2020, STMicroelectronics
 # SPDX-License-Identifier: Apache-2.0
 
-description: STM32 lptim
+description: |
+  STM32 low-power timer (LPTIM).
 
 compatible: "st,stm32-lptim"
 
 include:
   - name: st,stm32-timers.yaml
     property-blocklist:
-      # 'resets' property is not supported yet
-      - resets
       - st,prescaler
       - st,countermode
+      - st,mastermode
+      - st,slavemode
+      - st,trigger-selection
 
 properties:
   st,prescaler:
@@ -40,10 +42,28 @@ properties:
       - 64
       - 128
 
-  st,static-prescaler:
-    type: boolean
+  st,timeout:
+    type: int
     description: |
-        Clock x2 factor at the input of the LPTIM,
-        depending on the serie.
-        For example, stm32U5x have a x2-factor for LPTIM1,3,4.
-        To be adapted once the value is selectable.
+        Gives the LPTIM an exact counting value (s) for timeout expiration.
+        Value must be consistent with st,prescaler pre-defined setting otherwise
+        driver fails to initialize for the related device.
+    min: 1
+    max: 256
+
+examples:
+  - |
+    /*
+     * Usage of LPTIM as system timer:
+     * (1) enable and configure selected LPTIM instance
+     */
+    &lptim1 {
+      status = "okay";
+    }
+
+    /* (2) select instance as system timer */
+    / {
+      chosen {
+        zephyr,system-timer = &lptim1;
+      };
+    };

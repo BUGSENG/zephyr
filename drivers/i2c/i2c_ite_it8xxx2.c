@@ -21,7 +21,7 @@
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(i2c_ite_it8xxx2, CONFIG_I2C_LOG_LEVEL);
-
+#include "i2c_bitbang.h"
 #include "i2c-priv.h"
 
 /* Start smbus session from idle state */
@@ -44,6 +44,7 @@ struct i2c_it8xxx2_config {
 	uint8_t *reg_mstfctrl;
 	uint8_t i2c_irq_base;
 	uint8_t port;
+	uint8_t channel_switch_sel;
 	/* SCL GPIO cells */
 	struct gpio_dt_spec scl_gpios;
 	/* SDA GPIO cells */
@@ -51,7 +52,9 @@ struct i2c_it8xxx2_config {
 	/* I2C alternate configuration */
 	const struct pinctrl_dev_config *pcfg;
 	uint32_t clock_gate_offset;
+	int transfer_timeout_ms;
 	bool fifo_enable;
+	bool push_pull_recovery;
 };
 
 enum i2c_pin_fun {
@@ -71,6 +74,7 @@ struct i2c_it8xxx2_data {
 	struct i2c_msg *active_msg;
 	struct k_mutex mutex;
 	struct k_sem device_sync_sem;
+	struct i2c_bitbang bitbang;
 #ifdef CONFIG_I2C_IT8XXX2_FIFO_MODE
 	struct i2c_msg *msgs_list;
 	/* Read or write byte counts. */
@@ -93,6 +97,7 @@ struct i2c_it8xxx2_data {
 	uint8_t freq;
 	/* wait for stop bit interrupt */
 	uint8_t stop;
+	uint8_t *buf;
 };
 
 enum i2c_host_status {
@@ -140,20 +145,22 @@ static int i2c_parsing_return_value(const struct device *dev)
 		LOG_ERR("I2C ch%d Address:0x%X Transaction time out.",
 			config->port, data->addr_16bit);
 	} else {
-		LOG_DBG("I2C ch%d Address:0x%X Host error bits message:",
-			config->port, data->addr_16bit);
 		/* Host error bits message*/
 		if (data->err & HOSTA_TMOE) {
-			LOG_ERR("Time-out error: hardware time-out error.");
+			LOG_ERR("I2C ch%d Address:0x%X Time-out error: hardware time-out error.",
+				config->port, data->addr_16bit);
 		}
 		if (data->err & HOSTA_NACK) {
-			LOG_DBG("NACK error: device does not response ACK.");
+			LOG_DBG("I2C ch%d Address:0x%X NACK error: device does not response ACK.",
+				config->port, data->addr_16bit);
 		}
 		if (data->err & HOSTA_FAIL) {
-			LOG_ERR("Fail: a processing transmission is killed.");
+			LOG_ERR("I2C ch%d Address:0x%X Fail: a processing transmission is killed.",
+				config->port, data->addr_16bit);
 		}
 		if (data->err & HOSTA_BSER) {
-			LOG_ERR("BUS error: SMBus has lost arbitration.");
+			LOG_ERR("I2C ch%d Address:0x%X BUS error: SMBus has lost arbitration.",
+				config->port, data->addr_16bit);
 		}
 	}
 
@@ -209,6 +216,15 @@ static void i2c_standard_port_timing_regs_400khz(uint8_t port)
 	/* Port clock frequency depends on setting of timing registers. */
 	IT8XXX2_SMB_SCLKTS(port) = 0;
 	/* Suggested setting of timing registers of 400kHz. */
+#ifdef CONFIG_SOC_IT8XXX2_EC_BUS_24MHZ
+	IT8XXX2_SMB_4P7USL = 0x16;
+	IT8XXX2_SMB_4P0USL = 0x11;
+	IT8XXX2_SMB_300NS = 0x8;
+	IT8XXX2_SMB_250NS = 0x8;
+	IT8XXX2_SMB_45P3USL = 0xff;
+	IT8XXX2_SMB_45P3USH = 0x3;
+	IT8XXX2_SMB_4P7A4P0H = 0;
+#else
 	IT8XXX2_SMB_4P7USL = 0x3;
 	IT8XXX2_SMB_4P0USL = 0;
 	IT8XXX2_SMB_300NS = 0x1;
@@ -216,6 +232,7 @@ static void i2c_standard_port_timing_regs_400khz(uint8_t port)
 	IT8XXX2_SMB_45P3USL = 0x6a;
 	IT8XXX2_SMB_45P3USH = 0x1;
 	IT8XXX2_SMB_4P7A4P0H = 0;
+#endif
 }
 
 /* Set clock frequency for i2c port A, B , or C */
@@ -404,7 +421,7 @@ void __soc_ram_code i2c_tran_fifo_write_start(const struct device *dev)
 
 	for (i = 0; i < data->bytecnt; i++) {
 		/* Set host block data byte. */
-		IT8XXX2_SMB_HOBDB(base) = *(data->active_msg->buf++);
+		IT8XXX2_SMB_HOBDB(base) = *data->buf++;
 	}
 	/* Calculate the remaining byte counts. */
 	data->bytecnt = data->active_msg->len - data->bytecnt;
@@ -431,7 +448,7 @@ void __soc_ram_code i2c_tran_fifo_write_next_block(const struct device *dev)
 
 	for (i = 0; i < _bytecnt; i++) {
 		/* Set host block data byte. */
-		IT8XXX2_SMB_HOBDB(base) = *(data->active_msg->buf++);
+		IT8XXX2_SMB_HOBDB(base) = *data->buf++;
 	}
 	/* Clear FIFO block done status. */
 	*reg_mstfctrl |= IT8XXX2_SMB_BLKDS;
@@ -474,6 +491,7 @@ int __soc_ram_code i2c_tran_fifo_w2r_change_direction(const struct device *dev)
 	IT8XXX2_SMB_HOCTL2(base) &= ~IT8XXX2_SMB_I2C_SW_WAIT;
 	/* Point to the next msg for the read location. */
 	data->active_msg = &data->msgs_list[data->active_msg_index];
+	data->buf = data->active_msg->buf;
 	/* Set read byte counts. */
 	IT8XXX2_SMB_D0REG(base) = data->active_msg->len;
 	data->bytecnt = data->active_msg->len;
@@ -528,7 +546,7 @@ void __soc_ram_code i2c_tran_fifo_read_next_block(const struct device *dev)
 
 	for (i = 0; i < I2C_FIFO_MODE_MAX_SIZE; i++) {
 		/* To get received data. */
-		*(data->active_msg->buf++) = IT8XXX2_SMB_HOBDB(base);
+		*data->buf++ = IT8XXX2_SMB_HOBDB(base);
 	}
 	/* Clear FIFO block done status. */
 	*reg_mstfctrl |= IT8XXX2_SMB_BLKDS;
@@ -545,7 +563,7 @@ void __soc_ram_code i2c_tran_fifo_read_finish(const struct device *dev)
 
 	for (i = 0; i < data->bytecnt; i++) {
 		/* To get received data. */
-		*(data->active_msg->buf++) = IT8XXX2_SMB_HOBDB(base);
+		*data->buf++ = IT8XXX2_SMB_HOBDB(base);
 	}
 	/* Clear byte count register. */
 	IT8XXX2_SMB_D0REG(base) = 0;
@@ -788,7 +806,7 @@ int __soc_ram_code i2c_tran_read(const struct device *dev)
 		} else if (IT8XXX2_SMB_HOSTA(base) & HOSTA_BDS) {
 			if (data->ridx < data->active_msg->len) {
 				/* To get received data. */
-				*(data->active_msg->buf++) = IT8XXX2_SMB_HOBDB(base);
+				*data->buf++ = IT8XXX2_SMB_HOBDB(base);
 				data->ridx++;
 				/* For last byte */
 				i2c_r_last_byte(dev);
@@ -834,7 +852,7 @@ int __soc_ram_code i2c_tran_write(const struct device *dev)
 		 */
 		IT8XXX2_SMB_TRASLA(base) = (uint8_t)data->addr_16bit << 1;
 		/* Send first byte */
-		IT8XXX2_SMB_HOBDB(base) = *(data->active_msg->buf++);
+		IT8XXX2_SMB_HOBDB(base) = *data->buf++;
 
 		data->widx++;
 		/* clear start flag */
@@ -852,7 +870,7 @@ int __soc_ram_code i2c_tran_write(const struct device *dev)
 		if (IT8XXX2_SMB_HOSTA(base) & HOSTA_BDS) {
 			if (data->widx < data->active_msg->len) {
 				/* Send next byte */
-				IT8XXX2_SMB_HOBDB(base) = *(data->active_msg->buf++);
+				IT8XXX2_SMB_HOBDB(base) = *data->buf++;
 
 				data->widx++;
 				/* W/C byte done for next byte */
@@ -930,6 +948,8 @@ static int i2c_it8xxx2_transfer(const struct device *dev, struct i2c_msg *msgs,
 
 	/* Lock mutex of i2c controller */
 	k_mutex_lock(&data->mutex, K_FOREVER);
+	/* Block to enter power policy. */
+	pm_policy_state_lock_get(PM_STATE_STANDBY, PM_ALL_SUBSTATES);
 	/*
 	 * If the transaction of write to read is divided into two
 	 * transfers, the repeat start transfer uses this flag to
@@ -947,9 +967,8 @@ static int i2c_it8xxx2_transfer(const struct device *dev, struct i2c_msg *msgs,
 			 * (No external pull-up), drop the transaction.
 			 */
 			if (i2c_bus_not_available(dev)) {
-				/* Unlock mutex of i2c controller */
-				k_mutex_unlock(&data->mutex);
-				return -EIO;
+				ret = -EIO;
+				goto done;
 			}
 		}
 
@@ -961,11 +980,6 @@ static int i2c_it8xxx2_transfer(const struct device *dev, struct i2c_msg *msgs,
 	/* Store msgs to data struct. */
 	data->msgs_list = msgs;
 	bool fifo_mode_enable = fifo_mode_allowed(dev, msgs);
-
-	if (fifo_mode_enable) {
-		/* Block to enter power policy. */
-		pm_policy_state_lock_get(PM_STATE_STANDBY, PM_ALL_SUBSTATES);
-	}
 #endif
 	for (int i = 0; i < num_msgs; i++) {
 
@@ -973,6 +987,7 @@ static int i2c_it8xxx2_transfer(const struct device *dev, struct i2c_msg *msgs,
 		data->ridx = 0;
 		data->err = 0;
 		data->active_msg = &msgs[i];
+		data->buf = msgs[i].buf;
 		data->addr_16bit = addr;
 
 #ifdef CONFIG_I2C_IT8XXX2_FIFO_MODE
@@ -996,8 +1011,7 @@ static int i2c_it8xxx2_transfer(const struct device *dev, struct i2c_msg *msgs,
 			}
 		}
 		/* Wait for the transfer to complete */
-		/* TODO: the timeout should be adjustable */
-		res = k_sem_take(&data->device_sync_sem, K_MSEC(100));
+		res = k_sem_take(&data->device_sync_sem, K_MSEC(config->transfer_timeout_ms));
 		/*
 		 * The irq will be enabled at the condition of start or
 		 * repeat start of I2C. If timeout occurs without being
@@ -1043,8 +1057,6 @@ static int i2c_it8xxx2_transfer(const struct device *dev, struct i2c_msg *msgs,
 		if (data->num_msgs == 2) {
 			i2c_fifo_en_w2r(dev, 0);
 		}
-		/* Permit to enter power policy. */
-		pm_policy_state_lock_put(PM_STATE_STANDBY, PM_ALL_SUBSTATES);
 	}
 #endif
 	/* reset i2c channel status */
@@ -1053,6 +1065,10 @@ static int i2c_it8xxx2_transfer(const struct device *dev, struct i2c_msg *msgs,
 	}
 	/* Save return value. */
 	ret = i2c_parsing_return_value(dev);
+
+done:
+	/* Permit to enter power policy. */
+	pm_policy_state_lock_put(PM_STATE_STANDBY, PM_ALL_SUBSTATES);
 	/* Unlock mutex of i2c controller */
 	k_mutex_unlock(&data->mutex);
 
@@ -1134,6 +1150,18 @@ static int i2c_it8xxx2_init(const struct device *dev)
 	}
 #endif
 
+	/* ChannelA-C switch selection of I2C pin */
+	if (config->port == SMB_CHANNEL_A) {
+		IT8XXX2_SMB_SMB01CHS = (IT8XXX2_SMB_SMB01CHS &= ~GENMASK(2, 0)) |
+			config->channel_switch_sel;
+	} else if (config->port == SMB_CHANNEL_B) {
+		IT8XXX2_SMB_SMB01CHS = (config->channel_switch_sel << 4) |
+			(IT8XXX2_SMB_SMB01CHS &= ~GENMASK(6, 4));
+	} else if (config->port == SMB_CHANNEL_C) {
+		IT8XXX2_SMB_SMB23CHS = (IT8XXX2_SMB_SMB23CHS &= ~GENMASK(2, 0)) |
+			config->channel_switch_sel;
+	}
+
 	/* Set clock frequency for I2C ports */
 	if (config->bitrate == I2C_BITRATE_STANDARD ||
 		config->bitrate == I2C_BITRATE_FAST ||
@@ -1162,52 +1190,54 @@ static int i2c_it8xxx2_init(const struct device *dev)
 	return 0;
 }
 
+static void i2c_it8xxx2_set_scl(void *io_context, int state)
+{
+	const struct i2c_it8xxx2_config *config = io_context;
+
+	gpio_pin_set_dt(&config->scl_gpios, state);
+}
+
+static void i2c_it8xxx2_set_sda(void *io_context, int state)
+{
+	const struct i2c_it8xxx2_config *config = io_context;
+
+	gpio_pin_set_dt(&config->sda_gpios, state);
+}
+
+static int i2c_it8xxx2_get_sda(void *io_context)
+{
+	const struct i2c_it8xxx2_config *config = io_context;
+	int ret = gpio_pin_get_dt(&config->sda_gpios);
+
+	/* Default high as that would be a NACK */
+	return ret != 0;
+}
+
+static const struct i2c_bitbang_io i2c_it8xxx2_bitbang_io = {
+	.set_scl = i2c_it8xxx2_set_scl,
+	.set_sda = i2c_it8xxx2_set_sda,
+	.get_sda = i2c_it8xxx2_get_sda,
+};
+
 static int i2c_it8xxx2_recover_bus(const struct device *dev)
 {
 	const struct i2c_it8xxx2_config *config = dev->config;
-	int i, status;
+	struct i2c_it8xxx2_data *data = dev->data;
+	int status, ret;
 
+	/* Output type selection */
+	gpio_flags_t flags = GPIO_OUTPUT | (config->push_pull_recovery ? 0 : GPIO_OPEN_DRAIN);
 	/* Set SCL of I2C as GPIO pin */
-	gpio_pin_configure_dt(&config->scl_gpios, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&config->scl_gpios, flags);
 	/* Set SDA of I2C as GPIO pin */
-	gpio_pin_configure_dt(&config->sda_gpios, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&config->sda_gpios, flags);
 
-	/*
-	 * In I2C recovery bus, 1ms sleep interval for bitbanging i2c
-	 * is mainly to ensure that gpio has enough time to go from
-	 * low to high or high to low.
-	 */
-	/* Pull SCL and SDA pin to high */
-	gpio_pin_set_dt(&config->scl_gpios, 1);
-	gpio_pin_set_dt(&config->sda_gpios, 1);
-	k_msleep(1);
+	i2c_bitbang_init(&data->bitbang, &i2c_it8xxx2_bitbang_io, (void *)config);
 
-	/* Start condition */
-	gpio_pin_set_dt(&config->sda_gpios, 0);
-	k_msleep(1);
-	gpio_pin_set_dt(&config->scl_gpios, 0);
-	k_msleep(1);
-
-	/* 9 cycles of SCL with SDA held high */
-	for (i = 0; i < 9; i++) {
-		/* SDA */
-		gpio_pin_set_dt(&config->sda_gpios, 1);
-		/* SCL */
-		gpio_pin_set_dt(&config->scl_gpios, 1);
-		k_msleep(1);
-		/* SCL */
-		gpio_pin_set_dt(&config->scl_gpios, 0);
-		k_msleep(1);
+	ret = i2c_bitbang_recover_bus(&data->bitbang);
+	if (ret != 0) {
+		LOG_ERR("%s: Failed to recover bus (err %d)", dev->name, ret);
 	}
-	/* SDA */
-	gpio_pin_set_dt(&config->sda_gpios, 0);
-	k_msleep(1);
-
-	/* Stop condition */
-	gpio_pin_set_dt(&config->scl_gpios, 1);
-	k_msleep(1);
-	gpio_pin_set_dt(&config->sda_gpios, 1);
-	k_msleep(1);
 
 	/* Set GPIO back to I2C alternate function of SCL */
 	status = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
@@ -1224,11 +1254,14 @@ static int i2c_it8xxx2_recover_bus(const struct device *dev)
 	return 0;
 }
 
-static const struct i2c_driver_api i2c_it8xxx2_driver_api = {
+static DEVICE_API(i2c, i2c_it8xxx2_driver_api) = {
 	.configure = i2c_it8xxx2_configure,
 	.get_config = i2c_it8xxx2_get_config,
 	.transfer = i2c_it8xxx2_transfer,
 	.recover_bus = i2c_it8xxx2_recover_bus,
+#ifdef CONFIG_I2C_RTIO
+	.iodev_submit = i2c_iodev_submit_fallback,
+#endif
 };
 
 #ifdef CONFIG_I2C_IT8XXX2_FIFO_MODE
@@ -1242,8 +1275,16 @@ static const struct i2c_driver_api i2c_it8xxx2_driver_api = {
  * that channel C may encounter wrong register being written due to FIFO2
  * byte counter wrong write after channel B's write operation.
  */
-BUILD_ASSERT((DT_INST_PROP(SMB_CHANNEL_C, fifo_enable) == false),
+BUILD_ASSERT((DT_PROP(DT_NODELABEL(i2c2), fifo_enable) == false),
 	     "Channel C cannot use FIFO mode.");
+#endif
+
+#ifdef CONFIG_SOC_IT8XXX2_EC_BUS_24MHZ
+#define I2C_IT8XXX2_CHECK_SUPPORTED_CLOCK(inst)                                 \
+	BUILD_ASSERT((DT_INST_PROP(inst, clock_frequency) ==                    \
+		     I2C_BITRATE_FAST), "Only supports 400 KHz");
+
+DT_INST_FOREACH_STATUS_OKAY(I2C_IT8XXX2_CHECK_SUPPORTED_CLOCK)
 #endif
 
 #define I2C_ITE_IT8XXX2_INIT(inst)                                              \
@@ -1265,11 +1306,14 @@ BUILD_ASSERT((DT_INST_PROP(SMB_CHANNEL_C, fifo_enable) == false),
 		.bitrate = DT_INST_PROP(inst, clock_frequency),                 \
 		.i2c_irq_base = DT_INST_IRQN(inst),                             \
 		.port = DT_INST_PROP(inst, port_num),                           \
+		.channel_switch_sel = DT_INST_PROP(inst, channel_switch_sel),   \
 		.scl_gpios = GPIO_DT_SPEC_INST_GET(inst, scl_gpios),            \
 		.sda_gpios = GPIO_DT_SPEC_INST_GET(inst, sda_gpios),            \
 		.clock_gate_offset = DT_INST_PROP(inst, clock_gate_offset),     \
+		.transfer_timeout_ms = DT_INST_PROP(inst, transfer_timeout_ms), \
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                   \
 		.fifo_enable = DT_INST_PROP(inst, fifo_enable),                 \
+		.push_pull_recovery = DT_INST_PROP(inst, push_pull_recovery),   \
 	};                                                                      \
 										\
 	static struct i2c_it8xxx2_data i2c_it8xxx2_data_##inst;                 \

@@ -3,6 +3,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+/**
+ * @file
+ * @brief Header file for logging internal functions.
+ */
+
 #ifndef ZEPHYR_INCLUDE_LOGGING_LOG_INTERNAL_H_
 #define ZEPHYR_INCLUDE_LOGGING_LOG_INTERNAL_H_
 
@@ -19,6 +25,8 @@ extern "C" {
  * shared between various portions of logging subsystem. Functions are internal
  * not intended to be used outside, including logging backends.
  */
+
+/** @cond INTERNAL_HIDDEN */
 
 /** @brief Structure wrapper to be used for memory section. */
 struct log_mpsc_pbuf {
@@ -64,7 +72,7 @@ void z_log_runtime_filters_init(void);
 void z_log_links_initiate(void);
 
 /* Activate links.
- * Attemp to activate links,
+ * Attempt to activate links,
  *
  * @param active_mask     Mask with links to activate. N bit set indicates that Nth
  * link should be activated.
@@ -114,8 +122,6 @@ void z_log_msg_commit(struct log_msg *msg);
  *
  * @param[out] backoff Recommended backoff needed to maintain ordering of processed
  * messages. Used only when links are using dedicated buffers.
- *
- * @param Message or null if no pending messages.
  */
 union log_msg_generic *z_log_msg_claim(k_timeout_t *backoff);
 
@@ -164,6 +170,8 @@ static inline bool z_log_is_local_domain(uint8_t domain_id)
  * @return Timestamp.
  */
 log_timestamp_t z_log_timestamp(void);
+
+/** @endcond */
 
 #ifdef __cplusplus
 }

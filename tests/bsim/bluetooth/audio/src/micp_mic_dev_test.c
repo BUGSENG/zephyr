@@ -3,17 +3,30 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
-#ifdef CONFIG_BT_MICP_MIC_DEV
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/audio/aics.h>
 #include <zephyr/bluetooth/audio/micp.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/toolchain.h>
+
+#include "bstests.h"
 #include "common.h"
 
+#ifdef CONFIG_BT_MICP_MIC_DEV
 extern enum bst_result_t bst_result;
 
 #if defined(CONFIG_BT_AICS)
 #define AICS_DESC_SIZE CONFIG_BT_AICS_MAX_INPUT_DESCRIPTION_SIZE
 #else
-#define AICS_DESC_SIZE 0
+#define AICS_DESC_SIZE 0U
 #endif /* CONFIG_BT_AICS */
 
 static struct bt_micp_included micp_included;
@@ -44,6 +57,8 @@ static struct bt_micp_mic_dev_cb micp_cb = {
 static void aics_state_cb(struct bt_aics *inst, int err, int8_t gain,
 			  uint8_t mute, uint8_t mode)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS state cb err (%d)", err);
 		return;
@@ -58,6 +73,8 @@ static void aics_state_cb(struct bt_aics *inst, int err, int8_t gain,
 static void aics_gain_setting_cb(struct bt_aics *inst, int err, uint8_t units,
 				 int8_t minimum, int8_t maximum)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS gain setting cb err (%d)", err);
 		return;
@@ -72,6 +89,8 @@ static void aics_gain_setting_cb(struct bt_aics *inst, int err, uint8_t units,
 static void aics_input_type_cb(struct bt_aics *inst, int err,
 			       uint8_t input_type)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS input type cb err (%d)", err);
 		return;
@@ -83,6 +102,8 @@ static void aics_input_type_cb(struct bt_aics *inst, int err,
 
 static void aics_status_cb(struct bt_aics *inst, int err, bool active)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS status cb err (%d)", err);
 		return;
@@ -95,6 +116,8 @@ static void aics_status_cb(struct bt_aics *inst, int err, bool active)
 static void aics_description_cb(struct bt_aics *inst, int err,
 				char *description)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS description cb err (%d)", err);
 		return;
@@ -373,6 +396,7 @@ static void test_main(void)
 {
 	int err;
 	struct bt_micp_mic_dev_register_param micp_param;
+	struct bt_le_ext_adv *ext_adv;
 
 	err = bt_enable(NULL);
 	if (err != 0) {
@@ -419,14 +443,7 @@ static void test_main(void)
 	}
 
 	printk("MICP initialized\n");
-
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, AD_SIZE, NULL, 0);
-	if (err != 0) {
-		FAIL("Advertising failed to start (err %d)\n", err);
-		return;
-	}
-
-	printk("Advertising successfully started\n");
+	setup_connectable_adv(&ext_adv);
 
 	WAIT_FOR_FLAG(flag_connected);
 
@@ -436,13 +453,13 @@ static void test_main(void)
 static const struct bst_test_instance test_micp[] = {
 	{
 		.test_id = "micp_mic_dev_only",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_mic_dev_only
 	},
 	{
 		.test_id = "micp_mic_dev",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main
 	},

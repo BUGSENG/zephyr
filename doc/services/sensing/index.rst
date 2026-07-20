@@ -1,4 +1,4 @@
-.. _sensing_api:
+.. _sensing:
 
 Sensing Subsystem
 ########################
@@ -25,7 +25,7 @@ The sensing subsystem relies on Zephyr sensor device APIs (existing version or u
 to leverage Zephyr's large library of sensor device drivers (100+).
 
 Use of the sensing subsystem is optional. Applications that only need to access simple sensors
-devices can use the Zephyr :ref:`sensor_api` API directly.
+devices can use the Zephyr :ref:`sensor` API directly.
 
 Since the sensing subsystem is separated from device driver layer or
 kernel space and could support various customizations and sensor
@@ -64,25 +64,27 @@ Configurability
 Main Features
 *************
 
-* Scope
-    * Focus on framework for sensor fusion, multiple clients, arbitration, data sampling, timing
-      management and scheduling.
+Scope
+  Focus on framework for sensor fusion, multiple clients, arbitration, data sampling, timing
+  management and scheduling.
 
-* Sensor Abstraction
-    * ``Physical sensor``: interacts with Zephyr sensor device drivers, focus on data collecting.
-    * ``Virtual sensor``: relies on other sensor(s), ``physical`` or ``virtual``, focus on
-      data fusion.
+Sensor Abstraction
+  * **Physical sensor**: interacts with Zephyr sensor device drivers, focus on data collecting.
+  * **Virtual sensor**: relies on other sensor(s), **physical** or **virtual**, focus on
+    data fusion.
 
-* Data Driven Model
-    * ``Polling mode``: periodical sampling rate
-    * ``Interrupt mode``: data ready, threshold interrupt etc.
+Data Driven Model
+  * **Polling mode**: periodical sampling rate
+  * **Interrupt mode**: data ready, threshold interrupt etc.
 
-* Scheduling
-    * single thread main loop for all sensor objects sampling and process.
+Scheduling
+  Single thread main loop for all sensor objects sampling and process.
 
-* Buffer Mode for Batching
+Buffer Mode for Batching
+  ..
 
-* Configurable Via Device Tree
+Configurable Via Devicetree
+  ..
 
 
 Below diagram shows the API position and scope:
@@ -136,7 +138,7 @@ there're two methods for Applications to identify and open an unique sensor inst
 
 .. code-block:: c
 
-   sensing_open_sensor_by_dt(DEVICE_DT_GET(DT_NODELABLE(base_accel)), cb_list, handle);
+   sensing_open_sensor_by_dt(DEVICE_DT_GET(DT_NODELABEL(base_accel)), cb_list, handle);
    sensing_open_sensor_by_dt(DEVICE_DT_GET(DT_CHOSEN(zephyr_sensing_base_accel)), cb_list, handle);
 
 This method is useful and easy use for some simple Application which just want to access specific
@@ -197,7 +199,7 @@ Sensor Sample Value
   The ``header`` defines a **base_timestamp**, and
   each element in the **readings[]** array defines **timestamp_delta**.
 
-  The **timestamp_delta** is is in relation to the previous **readings** (or the **base_timestamp**)
+  The **timestamp_delta** is in relation to the previous **readings** (or the **base_timestamp**)
 
   For example:
 
@@ -241,12 +243,9 @@ Device Tree Configuration
 Sensing subsystem using device tree to configuration all sensor instances and their properties,
 reporting relationships.
 
-See the example :zephyr_file:`samples/subsys/sensing/simple/boards/native_posix.overlay`
+See the example :zephyr_file:`samples/subsys/sensing/simple/boards/native_sim.overlay`
 
 API Reference
 *************
 
-.. doxygengroup:: sensing_sensor_types
-.. doxygengroup:: sensing_datatypes
 .. doxygengroup:: sensing_api
-.. doxygengroup:: sensing_sensor

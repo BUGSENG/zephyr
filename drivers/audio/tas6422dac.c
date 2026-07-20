@@ -123,7 +123,9 @@ static void codec_mute_output(const struct device *dev, enum tas6422dac_channel_
 #if TAS6422DAC_MUTE_GPIO_SUPPORT
 	const struct codec_driver_config *const dev_cfg = dev->config;
 
-	gpio_pin_configure_dt(&dev_cfg->mute_gpio, GPIO_OUTPUT_ACTIVE);
+	if (channel == TAS6422DAC_CHANNEL_ALL) {
+		gpio_pin_configure_dt(&dev_cfg->mute_gpio, GPIO_OUTPUT_ACTIVE);
+	}
 #endif
 
 	codec_read_reg(dev, CH_STATE_CTRL_ADDR, &val);
@@ -352,7 +354,7 @@ static void codec_read_all_regs(const struct device *dev)
 }
 #endif
 
-static const struct audio_codec_api codec_driver_api = {
+static DEVICE_API(audio_codec, codec_driver_api) = {
 	.configure = codec_configure,
 	.start_output = codec_start_output,
 	.stop_output = codec_stop_output,

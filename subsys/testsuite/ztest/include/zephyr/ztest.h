@@ -28,8 +28,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-struct esf;
-typedef struct esf z_arch_esf_t;
+struct arch_esf;
 #ifdef __cplusplus
 }
 #endif
@@ -44,6 +43,8 @@ typedef struct esf z_arch_esf_t;
 #include <zephyr/ztest_mock.h>
 #include <zephyr/ztest_test.h>
 #include <zephyr/tc_util.h>
+
+#include <zephyr/benchmark.h>
 
 #ifdef __cplusplus
 extern "C" {

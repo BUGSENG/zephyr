@@ -20,11 +20,11 @@ LOG_MODULE_DECLARE(LOG_MODULE_NAME);
 int eswifi_socket_type_from_zephyr(int proto, enum eswifi_transport_type *type)
 {
 	if (IS_ENABLED(CONFIG_NET_SOCKETS_SOCKOPT_TLS) &&
-	    proto >= IPPROTO_TLS_1_0 && proto <= IPPROTO_TLS_1_2) {
+	    proto >= NET_IPPROTO_TLS_1_0 && proto <= NET_IPPROTO_TLS_1_2) {
 		*type = ESWIFI_TRANSPORT_TCP_SSL;
-	} else if (proto == IPPROTO_TCP) {
+	} else if (proto == NET_IPPROTO_TCP) {
 		*type = ESWIFI_TRANSPORT_TCP;
-	} else if (proto == IPPROTO_UDP) {
+	} else if (proto == NET_IPPROTO_UDP) {
 		*type = ESWIFI_TRANSPORT_UDP;
 	} else {
 		return -EPFNOSUPPORT;
@@ -75,12 +75,12 @@ static int __read_data(struct eswifi_dev *eswifi, size_t len, char **data)
 }
 
 int __eswifi_bind(struct eswifi_dev *eswifi, struct eswifi_off_socket *socket,
-		      const struct sockaddr *addr, socklen_t addrlen)
+		      const struct net_sockaddr *addr, net_socklen_t addrlen)
 {
 	int err;
 
-	if (addr->sa_family != AF_INET) {
-		LOG_ERR("Only AF_INET is supported!");
+	if (addr->sa_family != NET_AF_INET) {
+		LOG_ERR("Only NET_AF_INET is supported!");
 		return -EPFNOSUPPORT;
 	}
 
@@ -133,32 +133,39 @@ static void eswifi_off_read_work(struct k_work *work)
 
 	__select_socket(eswifi, socket->index);
 
+	/* Verify if we can allocate a rx packet before reading data to prevent leaks */
+	pkt = net_pkt_rx_alloc_with_buffer(eswifi->iface, 1460,
+					   NET_AF_UNSPEC, 0, K_NO_WAIT);
+	if (!pkt) {
+		LOG_ERR("Cannot allocate rx packet");
+		goto done;
+	}
+
 	len = __read_data(eswifi, 1460, &data); /* 1460 is max size */
 	if (len < 0) {
 		__stop_socket(eswifi, socket);
 
 		if (socket->recv_cb) {
 			/* send EOF (null pkt) */
+			net_pkt_unref(pkt);
+			pkt = NULL;
 			goto do_recv_cb;
 		}
 	}
 
 	if (!len || !socket->recv_cb) {
+		net_pkt_unref(pkt);
 		goto done;
 	}
 
 	LOG_DBG("payload sz = %d", len);
 
-	pkt = net_pkt_rx_alloc_with_buffer(eswifi->iface, len,
-					   AF_UNSPEC, 0, K_NO_WAIT);
-	if (!pkt) {
-		LOG_ERR("Cannot allocate rx packet");
-		goto done;
-	}
-
 	if (net_pkt_write(pkt, data, len) < 0) {
 		LOG_WRN("Incomplete buffer copy");
 	}
+
+	/* Resize the packet */
+	net_pkt_trim_buffer(pkt);
 
 	net_pkt_cursor_init(pkt);
 
@@ -188,8 +195,8 @@ done:
 int __eswifi_off_start_client(struct eswifi_dev *eswifi,
 			      struct eswifi_off_socket *socket)
 {
-	struct sockaddr *addr = &socket->peer_addr;
-	struct in_addr *sin_addr = &net_sin(addr)->sin_addr;
+	struct net_sockaddr *addr = &socket->peer_addr;
+	struct net_in_addr *sin_addr = &net_sin(addr)->sin_addr;
 	int err;
 
 	LOG_DBG("");
@@ -266,7 +273,7 @@ int __eswifi_listen(struct eswifi_dev *eswifi, struct eswifi_off_socket *socket,
 	err = eswifi_at_cmd(eswifi, eswifi->buf);
 	if (err < 0) {
 		LOG_ERR("Unable to start set listen backlog");
-		err = -EIO;
+		return -EIO;
 	}
 
 	socket->is_server = true;
@@ -317,8 +324,8 @@ int __eswifi_socket_new(struct eswifi_dev *eswifi, int family, int type,
 
 	LOG_DBG("");
 
-	if (family != AF_INET) {
-		LOG_ERR("Only AF_INET is supported!");
+	if (family != NET_AF_INET) {
+		LOG_ERR("Only NET_AF_INET is supported!");
 		return -EPFNOSUPPORT;
 	}
 

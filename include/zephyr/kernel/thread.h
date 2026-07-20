@@ -8,11 +8,11 @@
 #define ZEPHYR_INCLUDE_KERNEL_THREAD_H_
 
 #ifdef CONFIG_DEMAND_PAGING_THREAD_STATS
-#include <zephyr/sys/mem_manage.h>
-#endif
+#include <zephyr/kernel/mm/demand_paging.h>
+#endif /* CONFIG_DEMAND_PAGING_THREAD_STATS */
 
 #include <zephyr/kernel/stats.h>
-#include <zephyr/sys/arch_interface.h>
+#include <zephyr/arch/arch_interface.h>
 
 /**
  * @typedef k_thread_entry_t
@@ -38,21 +38,9 @@ struct __thread_entry {
 	void *parameter2;
 	void *parameter3;
 };
-#endif
+#endif /* CONFIG_THREAD_MONITOR */
 
 struct k_thread;
-
-/*
- * This _pipe_desc structure is used by the pipes kernel module when
- * CONFIG_PIPES has been selected.
- */
-
-struct _pipe_desc {
-	sys_dnode_t      node;
-	unsigned char   *buffer;         /* Position in src/dest buffer */
-	size_t           bytes_to_xfer;  /* # bytes left to transfer */
-	struct k_thread *thread;         /* Back pointer to pended thread */
-};
 
 /* can be used for creating 'dummy' threads, e.g. for pending on objects */
 struct _thread_base {
@@ -64,15 +52,12 @@ struct _thread_base {
 	};
 
 	/* wait queue on which the thread is pended (needed only for
-	 * trees, not dumb lists)
+	 * trees, not simple lists)
 	 */
 	_wait_q_t *pended_on;
 
-	/* user facing 'thread options'; values defined in include/kernel.h */
-	uint8_t user_options;
-
-	/* thread state */
-	uint8_t thread_state;
+	/* user facing 'thread options'; values defined in include/zephyr/kernel.h */
+	uint16_t user_options;
 
 	/*
 	 * scheduler lock count and thread priority
@@ -96,36 +81,37 @@ struct _thread_base {
 #else /* Little Endian */
 			int8_t prio;
 			uint8_t sched_locked;
-#endif
+#endif /* CONFIG_BIG_ENDIAN */
 		};
 		uint16_t preempt;
 	};
 
 #ifdef CONFIG_SCHED_DEADLINE
 	int prio_deadline;
+#endif /* CONFIG_SCHED_DEADLINE */
+
+#if defined(CONFIG_SCHED_SCALABLE) || defined(CONFIG_WAITQ_SCALABLE)
+	uint32_t order_key;
 #endif
 
-	uint32_t order_key;
+	/* thread state */
+	uint8_t thread_state;
 
 #ifdef CONFIG_SMP
 	/* True for the per-CPU idle threads */
 	uint8_t is_idle;
 
-	/* CPU index on which thread was last run */
+	/* Identify CPU on which thread is (or was last) executing */
 	uint8_t cpu;
 
 	/* Recursive count of irq_lock() calls */
 	uint8_t global_lock_count;
 
-#endif
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_SCHED_CPU_MASK
 	/* "May run on" bits for each CPU */
-#if CONFIG_MP_MAX_NUM_CPUS <= 8
-	uint8_t cpu_mask;
-#else
-	uint16_t cpu_mask;
-#endif
+	uint32_t cpu_mask;
 #endif /* CONFIG_SCHED_CPU_MASK */
 
 	/* data returned by APIs */
@@ -134,22 +120,29 @@ struct _thread_base {
 #ifdef CONFIG_SYS_CLOCK_EXISTS
 	/* this thread's entry in a timeout queue */
 	struct _timeout timeout;
-#endif
+#endif /* CONFIG_SYS_CLOCK_EXISTS */
 
 #ifdef CONFIG_TIMESLICE_PER_THREAD
 	int32_t slice_ticks;
 	k_thread_timeslice_fn_t slice_expired;
 	void *slice_data;
-#endif
+#endif /* CONFIG_TIMESLICE_PER_THREAD */
 
 #ifdef CONFIG_SCHED_THREAD_USAGE
 	struct k_cycle_stats  usage;   /* Track thread usage statistics */
-#endif
+#endif /* CONFIG_SCHED_THREAD_USAGE */
 };
 
 typedef struct _thread_base _thread_base_t;
 
 #if defined(CONFIG_THREAD_STACK_INFO)
+
+#if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY)
+struct _thread_stack_usage {
+	size_t unused_threshold; /* Threshold below which to trigger hook */
+};
+#endif
+
 /* Contains the stack information of a thread */
 struct _thread_stack_info {
 	/* Stack start - Represents the start address of the thread-writable
@@ -171,6 +164,20 @@ struct _thread_stack_info {
 	 * is the initial stack pointer for a thread. May be 0.
 	 */
 	size_t delta;
+
+#if defined(CONFIG_THREAD_STACK_MEM_MAPPED)
+	struct {
+		/** Base address of the memory mapped thread stack */
+		k_thread_stack_t *addr;
+
+		/** Size of whole mapped stack object */
+		size_t sz;
+	} mapped;
+#endif /* CONFIG_THREAD_STACK_MEM_MAPPED */
+
+#if defined(CONFIG_THREAD_RUNTIME_STACK_SAFETY)
+	struct _thread_stack_usage usage;
+#endif
 };
 
 typedef struct _thread_stack_info _thread_stack_info_t;
@@ -178,32 +185,34 @@ typedef struct _thread_stack_info _thread_stack_info_t;
 
 #if defined(CONFIG_USERSPACE)
 struct _mem_domain_info {
+#ifdef CONFIG_MEM_DOMAIN_HAS_THREAD_LIST
 	/** memory domain queue node */
-	sys_dnode_t mem_domain_q_node;
+	sys_dnode_t thread_mem_domain_node;
+#endif /* CONFIG_MEM_DOMAIN_HAS_THREAD_LIST */
 	/** memory domain of the thread */
 	struct k_mem_domain *mem_domain;
 };
 
+typedef struct _mem_domain_info _mem_domain_info_t;
 #endif /* CONFIG_USERSPACE */
 
 #ifdef CONFIG_THREAD_USERSPACE_LOCAL_DATA
 struct _thread_userspace_local_data {
 #if defined(CONFIG_ERRNO) && !defined(CONFIG_ERRNO_IN_TLS) && !defined(CONFIG_LIBC_ERRNO)
 	int errno_var;
-#endif
+#endif /* CONFIG_ERRNO && !CONFIG_ERRNO_IN_TLS && !CONFIG_LIBC_ERRNO */
 };
-#endif
+#endif /* CONFIG_THREAD_USERSPACE_LOCAL_DATA */
 
 typedef struct k_thread_runtime_stats {
 #ifdef CONFIG_SCHED_THREAD_USAGE
-	uint64_t execution_cycles;
-	uint64_t total_cycles;        /* total # of non-idle cycles */
 	/*
-	 * In the context of thread statistics, [execution_cycles] is the same
-	 * as the total # of non-idle cycles. In the context of CPU statistics,
-	 * it refers to the sum of non-idle + idle cycles.
+	 * For CPU stats, execution_cycles is the sum of non-idle + idle cycles.
+	 * For thread stats, execution_cycles = total_cycles.
 	 */
-#endif
+	uint64_t execution_cycles;    /* total # of cycles (cpu: non-idle + idle) */
+	uint64_t total_cycles;        /* total # of non-idle cycles */
+#endif /* CONFIG_SCHED_THREAD_USAGE */
 
 #ifdef CONFIG_SCHED_THREAD_USAGE_ANALYSIS
 	/*
@@ -216,7 +225,7 @@ typedef struct k_thread_runtime_stats {
 	uint64_t current_cycles;      /* current # of non-idle cycles */
 	uint64_t peak_cycles;         /* peak # of non-idle cycles */
 	uint64_t average_cycles;      /* average # of non-idle cycles */
-#endif
+#endif /* CONFIG_SCHED_THREAD_USAGE_ANALYSIS */
 
 #ifdef CONFIG_SCHED_THREAD_USAGE_ALL
 	/*
@@ -226,7 +235,7 @@ typedef struct k_thread_runtime_stats {
 	 */
 
 	uint64_t idle_cycles;
-#endif
+#endif /* CONFIG_SCHED_THREAD_USAGE_ALL */
 
 #if defined(__cplusplus) && !defined(CONFIG_SCHED_THREAD_USAGE) &&                                 \
 	!defined(CONFIG_SCHED_THREAD_USAGE_ANALYSIS) && !defined(CONFIG_SCHED_THREAD_USAGE_ALL)
@@ -262,17 +271,25 @@ struct k_thread {
 
 #if defined(CONFIG_POLL)
 	struct z_poller poller;
-#endif
+#endif /* CONFIG_POLL */
 
 #if defined(CONFIG_EVENTS)
+#if defined(CONFIG_WAITQ_SCALABLE)
+	/*
+	 * Used to build a list of threads that are
+	 * pending on a k_event and should be woken
+	 * up due to a k_event_post/set() call.
+	 *
+	 * Needed only when red-black tree is used for
+	 * wait queues because it is forbidden to mutate
+	 * an rbtree waitq while walking it.
+	 */
 	struct k_thread *next_event_link;
+#endif /* CONFIG_WAITQ_SCALABLE */
 
-	uint32_t   events;
+	uint32_t   events; /* dual purpose - wait on and then received */
 	uint32_t   event_options;
-
-	/** true if timeout should not wake the thread */
-	bool no_wake_on_timeout;
-#endif
+#endif /* CONFIG_EVENTS */
 
 #if defined(CONFIG_THREAD_MONITOR)
 	/** thread entry and parameters description */
@@ -280,28 +297,28 @@ struct k_thread {
 
 	/** next item in list of all threads */
 	struct k_thread *next_thread;
-#endif
+#endif /* CONFIG_THREAD_MONITOR */
 
 #if defined(CONFIG_THREAD_NAME)
 	/** Thread name */
 	char name[CONFIG_THREAD_MAX_NAME_LEN];
-#endif
+#endif /* CONFIG_THREAD_NAME */
 
 #ifdef CONFIG_THREAD_CUSTOM_DATA
 	/** crude thread-local storage */
 	void *custom_data;
-#endif
+#endif /* CONFIG_THREAD_CUSTOM_DATA */
 
 #ifdef CONFIG_THREAD_USERSPACE_LOCAL_DATA
 	struct _thread_userspace_local_data *userspace_local_data;
-#endif
+#endif /* CONFIG_THREAD_USERSPACE_LOCAL_DATA */
 
 #if defined(CONFIG_ERRNO) && !defined(CONFIG_ERRNO_IN_TLS) && !defined(CONFIG_LIBC_ERRNO)
 #ifndef CONFIG_USERSPACE
 	/** per-thread errno variable */
 	int errno_var;
-#endif
-#endif
+#endif /* CONFIG_USERSPACE */
+#endif /* CONFIG_ERRNO && !CONFIG_ERRNO_IN_TLS && !CONFIG_LIBC_ERRNO */
 
 #if defined(CONFIG_THREAD_STACK_INFO)
 	/** Stack Info */
@@ -311,8 +328,15 @@ struct k_thread {
 #if defined(CONFIG_USERSPACE)
 	/** memory domain info of the thread */
 	struct _mem_domain_info mem_domain_info;
-	/** Base address of thread stack */
+
+	/**
+	 * Base address of thread stack.
+	 *
+	 * If memory mapped stack (CONFIG_THREAD_STACK_MEM_MAPPED)
+	 * is enabled, this is the physical address of the stack.
+	 */
 	k_thread_stack_t *stack_obj;
+
 	/** current syscall frame pointer */
 	void *syscall_frame;
 #endif /* CONFIG_USERSPACE */
@@ -328,7 +352,7 @@ struct k_thread {
 
 	/** Context handle returned via arch_switch() */
 	void *switch_handle;
-#endif
+#endif /* CONFIG_USE_SWITCH */
 	/** resource pool */
 	struct k_heap *resource_pool;
 
@@ -340,16 +364,16 @@ struct k_thread {
 #ifdef CONFIG_DEMAND_PAGING_THREAD_STATS
 	/** Paging statistics */
 	struct k_mem_paging_stats_t paging_stats;
-#endif
-
-#ifdef CONFIG_PIPES
-	/** Pipe descriptor used with blocking k_pipe operations */
-	struct _pipe_desc pipe_desc;
-#endif
+#endif /* CONFIG_DEMAND_PAGING_THREAD_STATS */
 
 #ifdef CONFIG_OBJ_CORE_THREAD
 	struct k_obj_core  obj_core;
-#endif
+#endif /* CONFIG_OBJ_CORE_THREAD */
+
+#ifdef CONFIG_SMP
+	/** threads waiting in k_thread_suspend() */
+	_wait_q_t  halt_queue;
+#endif /* CONFIG_SMP */
 
 	/** arch-specifics: must always be at the end */
 	struct _thread_arch arch;
@@ -358,4 +382,4 @@ struct k_thread {
 typedef struct k_thread _thread_t;
 typedef struct k_thread *k_tid_t;
 
-#endif
+#endif /* ZEPHYR_INCLUDE_KERNEL_THREAD_H_ */

@@ -4,6 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief Memory barrier operations.
+ * @ingroup barrier_apis
+ */
+
 #ifndef ZEPHYR_INCLUDE_SYS_BARRIER_H_
 #define ZEPHYR_INCLUDE_SYS_BARRIER_H_
 
@@ -25,9 +31,25 @@ extern "C" {
 
 /**
  * @addtogroup barrier_apis Barrier Services APIs
+ * @since 3.4
+ * @version 0.1.0
  * @ingroup kernel_apis
  * @{
  */
+
+/**
+ * @brief Full/sequentially-consistent data memory barrier across cores.
+ *
+ * This routine acts as a synchronization fence between threads/cores and
+ * prevents re-ordering of data accesses instructions across the barrier
+ * instruction.
+ */
+static ALWAYS_INLINE void barrier_sync_synchronize(void)
+{
+#if defined(CONFIG_BARRIER_OPERATIONS_ARCH) || defined(CONFIG_BARRIER_OPERATIONS_BUILTIN)
+	z_barrier_sync_synchronize();
+#endif
+}
 
 /**
  * @brief Full/sequentially-consistent data memory barrier.

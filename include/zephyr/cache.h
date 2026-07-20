@@ -15,6 +15,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/arch/cpu.h>
+#include <zephyr/debug/sparse.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,9 @@ extern "C" {
 #elif defined(CONFIG_ARCH_CACHE)
 #include <zephyr/arch/cache.h>
 
+#elif defined(CONFIG_SOC_CACHE)
+#include <soc_cache.h>
+
 #endif
 
 /**
@@ -33,15 +37,6 @@ extern "C" {
  * @ingroup os_services
  * @{
  */
-
-/**
- * @cond INTERNAL_HIDDEN
- *
- */
-
-#define _CPU DT_PATH(cpus, cpu_0)
-
-/** @endcond */
 
 /**
  * @brief Enable the d-cache
@@ -389,7 +384,7 @@ static ALWAYS_INLINE int sys_cache_instr_flush_and_invd_range(void *addr, size_t
 
 /**
  *
- * @brief Get the the d-cache line size.
+ * @brief Get the d-cache line size.
  *
  * The API is provided to get the data cache line.
  *
@@ -397,7 +392,6 @@ static ALWAYS_INLINE int sys_cache_instr_flush_and_invd_range(void *addr, size_t
  *
  * - At run-time when @kconfig{CONFIG_DCACHE_LINE_SIZE_DETECT} is set.
  * - At compile time using the value set in @kconfig{CONFIG_DCACHE_LINE_SIZE}.
- * - At compile time using the `d-cache-line-size` CPU0 property of the DT.
  * - 0 otherwise
  *
  * @retval size Size of the d-cache line.
@@ -407,16 +401,16 @@ static ALWAYS_INLINE size_t sys_cache_data_line_size_get(void)
 {
 #ifdef CONFIG_DCACHE_LINE_SIZE_DETECT
 	return cache_data_line_size_get();
-#elif (CONFIG_DCACHE_LINE_SIZE != 0)
+#elif defined(CONFIG_DCACHE_LINE_SIZE)
 	return CONFIG_DCACHE_LINE_SIZE;
 #else
-	return DT_PROP_OR(_CPU, d_cache_line_size, 0);
+	return 0;
 #endif
 }
 
 /**
  *
- * @brief Get the the i-cache line size.
+ * @brief Get the i-cache line size.
  *
  * The API is provided to get the instruction cache line.
  *
@@ -424,7 +418,6 @@ static ALWAYS_INLINE size_t sys_cache_data_line_size_get(void)
  *
  * - At run-time when @kconfig{CONFIG_ICACHE_LINE_SIZE_DETECT} is set.
  * - At compile time using the value set in @kconfig{CONFIG_ICACHE_LINE_SIZE}.
- * - At compile time using the `i-cache-line-size` CPU0 property of the DT.
  * - 0 otherwise
  *
  * @retval size Size of the d-cache line.
@@ -434,12 +427,113 @@ static ALWAYS_INLINE size_t sys_cache_instr_line_size_get(void)
 {
 #ifdef CONFIG_ICACHE_LINE_SIZE_DETECT
 	return cache_instr_line_size_get();
-#elif (CONFIG_ICACHE_LINE_SIZE != 0)
+#elif defined(CONFIG_ICACHE_LINE_SIZE)
 	return CONFIG_ICACHE_LINE_SIZE;
 #else
-	return DT_PROP_OR(_CPU, i_cache_line_size, 0);
+	return 0;
 #endif
 }
+
+/**
+ * @brief Test if a pointer is in cached region.
+ *
+ * Some hardware may map the same physical memory twice
+ * so that it can be seen in both (incoherent) cached mappings
+ * and a coherent "shared" area. This tests if a particular
+ * pointer is within the cached, coherent area.
+ *
+ * @param ptr Pointer
+ *
+ * @retval True if pointer is in cached region.
+ * @retval False if pointer is not in cached region.
+ */
+static ALWAYS_INLINE bool sys_cache_is_ptr_cached(void *ptr)
+{
+#if defined(CONFIG_CACHE_MANAGEMENT) && defined(CONFIG_CACHE_HAS_MIRRORED_MEMORY_REGIONS)
+	return cache_is_ptr_cached(ptr);
+#else
+	ARG_UNUSED(ptr);
+
+	return false;
+#endif
+}
+
+/**
+ * @brief Test if a pointer is in un-cached region.
+ *
+ * Some hardware may map the same physical memory twice
+ * so that it can be seen in both (incoherent) cached mappings
+ * and a coherent "shared" area. This tests if a particular
+ * pointer is within the un-cached, incoherent area.
+ *
+ * @param ptr Pointer
+ *
+ * @retval True if pointer is not in cached region.
+ * @retval False if pointer is in cached region.
+ */
+static ALWAYS_INLINE bool sys_cache_is_ptr_uncached(void *ptr)
+{
+#if defined(CONFIG_CACHE_MANAGEMENT) && defined(CONFIG_CACHE_HAS_MIRRORED_MEMORY_REGIONS)
+	return cache_is_ptr_uncached(ptr);
+#else
+	ARG_UNUSED(ptr);
+
+	return false;
+#endif
+}
+
+/**
+ * @brief Return cached pointer to a RAM address
+ *
+ * This function takes a pointer to any addressable object (either in
+ * cacheable memory or not) and returns a pointer that can be used to
+ * refer to the same memory through the L1 data cache.  Data read
+ * through the resulting pointer will reflect locally cached values on
+ * the current CPU if they exist, and writes will go first into the
+ * cache and be written back later.
+ *
+ * @note This API returns the same pointer if
+ * CONFIG_CACHE_HAS_MIRRORED_MEMORY_REGIONS is not enabled.
+ *
+ * @see arch_uncached_ptr()
+ *
+ * @param ptr A pointer to a valid C object
+ * @return A pointer to the same object via the L1 dcache
+ */
+static ALWAYS_INLINE void __sparse_cache *sys_cache_cached_ptr_get(void *ptr)
+{
+#if defined(CONFIG_CACHE_MANAGEMENT) && defined(CONFIG_CACHE_HAS_MIRRORED_MEMORY_REGIONS)
+	return cache_cached_ptr(ptr);
+#else
+	return (__sparse_force void __sparse_cache *)ptr;
+#endif
+}
+
+/**
+ * @brief Return uncached pointer to a RAM address
+ *
+ * This function takes a pointer to any addressable object (either in
+ * cacheable memory or not) and returns a pointer that can be used to
+ * refer to the same memory while bypassing the L1 data cache.  Data
+ * in the L1 cache will not be inspected nor modified by the access.
+ *
+ * @note This API returns the same pointer if
+ * CONFIG_CACHE_HAS_MIRRORED_MEMORY_REGIONS is not enabled.
+ *
+ * @see arch_cached_ptr()
+ *
+ * @param ptr A pointer to a valid C object
+ * @return A pointer to the same object bypassing the L1 dcache
+ */
+static ALWAYS_INLINE void *sys_cache_uncached_ptr_get(void __sparse_cache *ptr)
+{
+#if defined(CONFIG_CACHE_MANAGEMENT) && defined(CONFIG_CACHE_HAS_MIRRORED_MEMORY_REGIONS)
+	return cache_uncached_ptr(ptr);
+#else
+	return (__sparse_force void *)ptr;
+#endif
+}
+
 
 #ifdef CONFIG_LIBMETAL
 static ALWAYS_INLINE void sys_cache_flush(void *addr, size_t size)
@@ -448,7 +542,31 @@ static ALWAYS_INLINE void sys_cache_flush(void *addr, size_t size)
 }
 #endif
 
-#include <syscalls/cache.h>
+#if defined(CONFIG_CACHE_CAN_SAY_MEM_COHERENCE) || defined(__DOXYGEN__)
+/**
+ * @brief Detect memory coherence type
+ *
+ * This function returns true if the byte pointed to lies within
+ * "coherence regions" (typically implemented with uncached memory) and
+ * can safely be used in multiprocessor code without explicit flush or
+ * invalidate operations.
+ *
+ * @note The result is for only the single byte at the specified
+ * address, this API is not required to check region boundaries or to
+ * expect aligned pointers.  The expectation is that the code above
+ * will have queried the appropriate address(es).
+ *
+ * @param ptr Pointer to be checked.
+ *
+ * @return True if pointer is in any coherence regions, false otherwise.
+ */
+static ALWAYS_INLINE bool sys_cache_is_mem_coherent(void *ptr)
+{
+	return cache_is_mem_coherent(ptr);
+}
+#endif /* CONFIG_CACHE_CAN_SAY_MEM_COHERENCE */
+
+#include <zephyr/syscalls/cache.h>
 #ifdef __cplusplus
 }
 #endif

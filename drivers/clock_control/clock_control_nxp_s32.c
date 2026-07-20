@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 NXP
+ * Copyright 2023,2025 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,6 +9,11 @@
 #include <zephyr/drivers/clock_control.h>
 
 #include <Clock_Ip.h>
+
+#if defined(CLOCK_IP_HAS_FIRC_CLK) && (CLOCK_IP_HAS_FIRC_CLK == 0)
+/*  Support newer platforms in which CLOCK_IS_OFF is undefined */
+#define CLOCK_IS_OFF -1
+#endif
 
 #define NXP_S32_CLOCK_CONFIG_IDX CONFIG_CLOCK_CONTROL_NXP_S32_CLOCK_CONFIG_IDX
 
@@ -67,14 +72,14 @@ static int nxp_s32_clock_init(const struct device *dev)
 	return (status == CLOCK_IP_SUCCESS ? 0 : -EIO);
 }
 
-static const struct clock_control_driver_api nxp_s32_clock_driver_api = {
+static DEVICE_API(clock_control, nxp_s32_clock_driver_api) = {
 	.on = nxp_s32_clock_on,
 	.off = nxp_s32_clock_off,
 	.get_rate = nxp_s32_clock_get_rate,
 };
 
 DEVICE_DT_INST_DEFINE(0,
-		      &nxp_s32_clock_init,
+		      nxp_s32_clock_init,
 		      NULL, NULL, NULL,
 		      PRE_KERNEL_1, CONFIG_CLOCK_CONTROL_INIT_PRIORITY,
 		      &nxp_s32_clock_driver_api);

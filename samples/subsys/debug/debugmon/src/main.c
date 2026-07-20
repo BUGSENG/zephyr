@@ -8,7 +8,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
 #include <cmsis_core.h>
-#include <zephyr/arch/arm/exc.h>
+#include <zephyr/arch/arm/exception.h>
 
 #define LED0_NODE DT_ALIAS(led0)
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
@@ -25,14 +25,14 @@ int debug_mon_enable(void)
 	 * Cannot enable monitor mode if C_DEBUGEN bit is set. This bit can only be
 	 * altered from debug access port. It is cleared on power-on-reset.
 	 */
-	bool is_in_halting_mode = (CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) == 1;
+	bool is_in_halting_mode = (DCB->DHCSR & DCB_DHCSR_C_DEBUGEN_Msk) == 1;
 
 	if (is_in_halting_mode) {
 		return -1;
 	}
 
 	/* Enable monitor mode debugging by setting MON_EN bit of DEMCR */
-	CoreDebug->DEMCR |= CoreDebug_DEMCR_MON_EN_Msk;
+	DCB->DEMCR |= DCB_DEMCR_MON_EN_Msk;
 	return 0;
 }
 
@@ -51,8 +51,9 @@ void z_arm_debug_monitor(void)
 	printk("Entered debug monitor interrupt\n");
 
 	/* Spin in breakpoint. Other, higher-priority interrupts will continue to execute */
-	while (true)
+	while (true) {
 		;
+	}
 }
 
 int main(void)

@@ -35,6 +35,19 @@
 #   $ cmake -DBOARD=<board> -B build -S samples/hello_world -DEXTRA_CONF_FILE=foo.conf \
 #           -DMODULES=dts -P <ZEPHYR_BASE>/cmake/package_helper.cmake
 #
+# The script can print Zephyr global variables using the `PRINT_VAR` setting.
+# For example to print the Zephyr CMake variable: "NORMALIZED_BOARD_QUALIFIERS"
+# use: `-DPRINT_VAR=NORMALIZED_BOARD_QUALIFIERS`, as:
+#
+#   $ cmake -DBOARD=<board> -B build -S samples/hello_world \
+#           -DMODULES=boards -DPRINT_VAR=NORMALIZED_BOARD_QUALIFIERS \
+#           -P <ZEPHYR_BASE>/cmake/package_helper.cmake
+#
+# Values are printed like:
+#    -- <VAR_NAME>: <value>
+# Example:
+#    -- NORMALIZED_BOARD_TARGET: plank_soc1
+#
 # Note: the samples CMakeLists.txt file is not processed by package helper, so
 #       any 'set(<var> <value>)' specified before 'find_package(Zephyr)' must be
 #       manually applied, for example if the CMakeLists.txt contains:
@@ -44,18 +57,13 @@
 
 cmake_minimum_required(VERSION 3.20.5)
 
-# add_custom_target and set_target_properties are not supported in script mode.
-# However, several Zephyr CMake modules create custom target for user convenience
-# like menuconfig, boards, shields, etc.
-# As we are not generating a build system with this tool, only running part of
-# the modules, then we simply override those functions to allow running those
-# modules.
-function(add_custom_target)
-  # This silence the error: 'add_custom_target command is not scriptable'
-endfunction()
-
-function(set_target_properties)
-  # This silence the error: 'set_target_properties command is not scriptable'
+# Function for watching print variables.
+# Watching the variables allows package_helper to monitor and print variables
+# which are scoped in modules, such as `SNIPPET_NAMES`, for later printing.
+function(ph_update_watch variable access value list_file stack)
+  if(${access} STREQUAL MODIFIED_ACCESS)
+    set_property(GLOBAL PROPERTY PH_${variable} ${value})
+  endif()
 endfunction()
 
 # Find last `-B` and `-S` instances.
@@ -63,7 +71,6 @@ foreach(i RANGE ${CMAKE_ARGC})
   if(CMAKE_ARGV${i} MATCHES "^-B(.*)")
     set(argB ${CMAKE_MATCH_1})
     set(argB_index ${i})
-  elseif()
   elseif(CMAKE_ARGV${i} MATCHES "^-S(.*)")
     set(argS_index ${i})
     set(argS ${CMAKE_MATCH_1})
@@ -111,16 +118,14 @@ if(NOT DEFINED MODULES)
   )
 endif()
 
-# Loading Zephyr CMake extension commands, which allows us to overload Zephyr
-# scoping rules.
-find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE} COMPONENTS extensions)
-
-# Zephyr scoping creates custom targets for handling of properties.
-# However, custom targets cannot be used in CMake script mode.
-# Therefore disable zephyr_set(... SCOPE ...) in package helper as it is not needed.
-function(zephyr_set variable)
-  # This silence the error: zephyr_set(...  SCOPE <scope>) doesn't exists.
-endfunction()
+foreach(var ${PRINT_VAR})
+  variable_watch(${var} ph_update_watch)
+endforeach()
 
 string(REPLACE ";" "," MODULES "${MODULES}")
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE} COMPONENTS zephyr_default:${MODULES})
+
+foreach(var ${PRINT_VAR})
+  get_property(val GLOBAL PROPERTY PH_${var})
+  message(STATUS "${var}: ${val}")
+endforeach()

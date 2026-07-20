@@ -12,12 +12,18 @@
 
 #ifdef CONFIG_ASSERT
 #ifndef __ASSERT_ON
+#ifdef CONFIG_ASSERT_LEVEL
 #define __ASSERT_ON CONFIG_ASSERT_LEVEL
+#endif
 #endif
 #endif
 
 #ifdef CONFIG_FORCE_NO_ASSERT
 #undef __ASSERT_ON
+#define __ASSERT_ON 0
+#endif
+
+#ifndef __ASSERT_ON
 #define __ASSERT_ON 0
 #endif
 
@@ -104,7 +110,7 @@ void assert_post_action(const char *file, unsigned int line);
 
 #define __ASSERT_NO_MSG(test)                                             \
 	do {                                                              \
-		if (!(test)) {                                            \
+		if (unlikely(!(test))) {                                  \
 			__ASSERT_LOC(test);                               \
 			__ASSERT_POST_ACTION();                           \
 			__ASSERT_UNREACHABLE;                             \
@@ -113,7 +119,7 @@ void assert_post_action(const char *file, unsigned int line);
 
 #define __ASSERT(test, fmt, ...)                                          \
 	do {                                                              \
-		if (!(test)) {                                            \
+		if (unlikely(!(test))) {                                  \
 			__ASSERT_LOC(test);                               \
 			__ASSERT_MSG_INFO(fmt, ##__VA_ARGS__);            \
 			__ASSERT_POST_ACTION();                           \
@@ -141,6 +147,11 @@ void assert_post_action(const char *file, unsigned int line);
 #define __ASSERT_EVAL(expr1, expr2, test, fmt, ...) expr1
 #define __ASSERT_NO_MSG(test) { }
 #define __ASSERT_POST_ACTION() { }
+#endif
+
+#ifdef CONFIG_ASSERT_CUSTOM_HEADER
+/* This include must always be at the end of __assert.h */
+#include <zephyr_custom_assert.h>
 #endif
 
 #endif /* ZEPHYR_INCLUDE_SYS___ASSERT_H_ */

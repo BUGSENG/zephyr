@@ -200,6 +200,8 @@ static int gpio_numicro_pin_interrupt_configure(const struct device *dev,
 		case GPIO_INT_TRIG_BOTH:
 			int_level = BIT(pin) | BIT(pin + 16);
 			break;
+		default:
+			return -EINVAL;
 		}
 	}
 
@@ -235,7 +237,7 @@ static void gpio_numicro_isr(const struct device *dev)
 	gpio_fire_callbacks(&data->callbacks, dev, int_status);
 }
 
-static const struct gpio_driver_api gpio_numicro_driver_api = {
+static DEVICE_API(gpio, gpio_numicro_driver_api) = {
 	.pin_configure = gpio_numicro_configure,
 	.port_get_raw = gpio_numicro_port_get_raw,
 	.port_set_masked_raw = gpio_numicro_port_set_masked_raw,
@@ -260,9 +262,7 @@ static const struct gpio_driver_api gpio_numicro_driver_api = {
 	static struct gpio_numicro_data gpio_numicro_port##n##_data;	\
 									\
 	static const struct gpio_numicro_config gpio_numicro_port##n##_config = {\
-		.common = {						\
-			.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(n),\
-		},							\
+		.common = GPIO_COMMON_CONFIG_FROM_DT_INST(n),		\
 		.regs = (GPIO_T *)DT_INST_REG_ADDR(n),			\
 	};								\
 									\

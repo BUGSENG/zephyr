@@ -1,7 +1,8 @@
-.. _bluetooth_encrypted_advertising_sample:
+.. zephyr:code-sample:: bluetooth_encrypted_advertising
+   :name: Encrypted Advertising
+   :relevant-api: bluetooth
 
-Bluetooth: Encrypted Advertising
-################################
+   Use the Bluetooth LE encrypted advertising feature.
 
 Overview
 ********
@@ -14,7 +15,7 @@ This sample demonstrates the use of the encrypted advertising feature, such as:
  - the decryption of those advertising payloads,
  - and the update of the Randomizer field whenever the RPA is changed.
 
-To use the `bt_ead_encrypt` and `bt_ead_decrypt` functions, you must enable
+To use the :c:func:`bt_ead_encrypt` and :c:func:`bt_ead_decrypt` functions, you must enable
 the Kconfig symbol :kconfig:option:`CONFIG_BT_EAD`.
 
 While this sample uses extended advertising, it is **not** mandatory when using
@@ -31,19 +32,30 @@ Requirements
 Building and Running
 ********************
 
-This sample can be found under
-:zephyr_file:`samples/bluetooth/encrypted_advertising` in the Zephyr tree.
+This sample uses two applications, so two devices need to be set up.
+Build and flash the peripheral application on the first board, replacing ``<board>``
+with your target board:
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/encrypted_advertising/peripheral
+   :board: <board>
+   :goals: build flash
+   :compact:
 
-This sample uses two applications, so two devices need to be setup.
-Flash one device with the central application, and another device with the
-peripheral application.
+Build and flash the central application on a second board:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/encrypted_advertising/central
+   :board: <board>
+   :goals: build flash
+   :compact:
 
 The two devices should automatically connect if they are close enough.
 
 After the boards are connected, you will be asked to press the configured push
-button on both boards to confirm the pairing request.
+button on both boards to confirm the pairing request. Both boards require a
+button mapped to the ``sw0`` devicetree alias. If your board does not define
+``sw0`` by default, provide a devicetree overlay before building.
 
 Here are the outputs you should get by default:
 

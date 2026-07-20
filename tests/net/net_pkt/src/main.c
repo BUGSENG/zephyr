@@ -20,7 +20,7 @@
 
 static uint8_t mac_addr[sizeof(struct net_eth_addr)];
 static struct net_if *eth_if;
-static uint8_t small_buffer[512];
+static uint8_t small_buffer[CONFIG_NET_BUF_DATA_SIZE * 2 + 3];
 
 /************************\
  * FAKE ETHERNET DEVICE *
@@ -35,7 +35,7 @@ static void fake_dev_iface_init(struct net_if *iface)
 		mac_addr[2] = 0x5E;
 		mac_addr[3] = 0x00;
 		mac_addr[4] = 0x53;
-		mac_addr[5] = sys_rand32_get();
+		mac_addr[5] = sys_rand8_get();
 	}
 
 	net_if_set_link_addr(iface, mac_addr, 6, NET_LINK_ETHERNET);
@@ -139,7 +139,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_allocate_with_buffer)
 	 * Note: we don't care of the family/protocol for now
 	 */
 	pkt = net_pkt_alloc_with_buffer(eth_if, 512,
-					AF_UNSPEC, 0, K_NO_WAIT);
+					NET_AF_UNSPEC, 0, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	/* Did we get the requested size? */
@@ -155,7 +155,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_allocate_with_buffer)
 	 * Note: again we don't care of family/protocol for now.
 	 */
 	pkt = net_pkt_alloc_with_buffer(eth_if, 1800,
-					AF_UNSPEC, 0, K_NO_WAIT);
+					NET_AF_UNSPEC, 0, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	zassert_false(pkt_is_of_size(pkt, 1800), "Pkt size is not right");
@@ -170,8 +170,8 @@ ZTEST(net_pkt_test_suite, test_net_pkt_allocate_with_buffer)
 	/*
 	 * c) - Now with 512 bytes but on IPv4/UDP
 	 */
-	pkt = net_pkt_alloc_with_buffer(eth_if, 512, AF_INET,
-					IPPROTO_UDP, K_NO_WAIT);
+	pkt = net_pkt_alloc_with_buffer(eth_if, 512, NET_AF_INET,
+					NET_IPPROTO_UDP, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	/* Because 512 + NET_IPV4UDPH_LEN fits MTU, total must be that one */
@@ -186,8 +186,8 @@ ZTEST(net_pkt_test_suite, test_net_pkt_allocate_with_buffer)
 	/*
 	 * c) - Now with 1800 bytes but on IPv4/UDP
 	 */
-	pkt = net_pkt_alloc_with_buffer(eth_if, 1800, AF_INET,
-					IPPROTO_UDP, K_NO_WAIT);
+	pkt = net_pkt_alloc_with_buffer(eth_if, 1800, NET_AF_INET,
+					NET_IPPROTO_UDP, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	/* Because 1800 + NET_IPV4UDPH_LEN won't fit MTU, payload size
@@ -202,10 +202,10 @@ ZTEST(net_pkt_test_suite, test_net_pkt_allocate_with_buffer)
 	zassert_true(atomic_get(&pkt->atomic_ref) == 0,
 		     "Pkt not properly unreferenced");
 
-	/* d) - with a zero payload but AF_INET family
+	/* d) - with a zero payload but NET_AF_INET family
 	 */
 	pkt = net_pkt_alloc_with_buffer(eth_if, 0,
-					AF_INET, 0, K_NO_WAIT);
+					NET_AF_INET, 0, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	/* Did we get the requested size? */
@@ -217,10 +217,10 @@ ZTEST(net_pkt_test_suite, test_net_pkt_allocate_with_buffer)
 	zassert_true(atomic_get(&pkt->atomic_ref) == 0,
 		     "Pkt not properly unreferenced");
 
-	/* e) - with a zero payload but AF_PACKET family
+	/* e) - with a zero payload but NET_AF_PACKET family
 	 */
 	pkt = net_pkt_alloc_with_buffer(eth_if, 0,
-					AF_PACKET, 0, K_NO_WAIT);
+					NET_AF_PACKET, 0, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	/* Did we get the requested size? */
@@ -244,7 +244,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_basics_of_rw)
 	int ret;
 
 	pkt = net_pkt_alloc_with_buffer(eth_if, 512,
-					AF_UNSPEC, 0, K_NO_WAIT);
+					NET_AF_UNSPEC, 0, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	/* Once newly allocated with buffer,
@@ -426,7 +426,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_advanced_basics)
 	int ret;
 
 	pkt = net_pkt_alloc_with_buffer(eth_if, 512,
-					AF_INET, IPPROTO_UDP, K_NO_WAIT);
+					NET_AF_INET, NET_IPPROTO_UDP, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	pkt_print_cursor(pkt);
@@ -518,7 +518,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_easier_rw_usage)
 	int ret;
 
 	pkt = net_pkt_alloc_with_buffer(eth_if, 512,
-					AF_INET, IPPROTO_UDP, K_NO_WAIT);
+					NET_AF_INET, NET_IPPROTO_UDP, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	/* In net core, all goes down in fine to header manipulation.
@@ -684,7 +684,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_pull)
 
 	dummy_pkt = net_pkt_alloc_with_buffer(eth_if,
 					      PULL_TEST_PKT_DATA_SIZE,
-					      AF_UNSPEC,
+					      NET_AF_UNSPEC,
 					      0,
 					      K_NO_WAIT);
 	zassert_true(dummy_pkt != NULL, "Pkt not allocated");
@@ -713,7 +713,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_pull)
 	zassert_equal(net_pkt_get_len(dummy_pkt),
 		      PULL_TEST_PKT_DATA_SIZE - PULL_AMOUNT -
 		      LARGE_PULL_AMOUNT,
-		      "Large pull failed to set new size (%d vs %d)",
+		      "Large pull failed to set new size (%zu vs %d)",
 		      net_pkt_get_len(dummy_pkt),
 		      PULL_TEST_PKT_DATA_SIZE - PULL_AMOUNT -
 		      LARGE_PULL_AMOUNT);
@@ -721,21 +721,21 @@ ZTEST(net_pkt_test_suite, test_net_pkt_pull)
 	net_pkt_cursor_init(dummy_pkt);
 	net_pkt_pull(dummy_pkt, net_pkt_get_len(dummy_pkt));
 	zassert_equal(net_pkt_get_len(dummy_pkt), 0,
-		      "Full pull failed to set new size (%d)",
+		      "Full pull failed to set new size (%zu)",
 		      net_pkt_get_len(dummy_pkt));
 
 	net_pkt_cursor_init(dummy_pkt);
 	ret = net_pkt_pull(dummy_pkt, 1);
 	zassert_equal(ret, -ENOBUFS, "Did not return error");
 	zassert_equal(net_pkt_get_len(dummy_pkt), 0,
-		      "Empty pull set new size (%d)",
+		      "Empty pull set new size (%zu)",
 		      net_pkt_get_len(dummy_pkt));
 
 	net_pkt_unref(dummy_pkt);
 
 	dummy_pkt = net_pkt_alloc_with_buffer(eth_if,
 					      PULL_TEST_PKT_DATA_SIZE,
-					      AF_UNSPEC,
+					      NET_AF_UNSPEC,
 					      0,
 					      K_NO_WAIT);
 	zassert_true(dummy_pkt != NULL, "Pkt not allocated");
@@ -749,14 +749,14 @@ ZTEST(net_pkt_test_suite, test_net_pkt_pull)
 	ret = net_pkt_pull(dummy_pkt, net_pkt_get_len(dummy_pkt) + 1);
 	zassert_equal(ret, -ENOBUFS, "Did not return error");
 	zassert_equal(net_pkt_get_len(dummy_pkt), 0,
-		      "Not empty after full pull (%d)",
+		      "Not empty after full pull (%zu)",
 		      net_pkt_get_len(dummy_pkt));
 
 	net_pkt_unref(dummy_pkt);
 
 	dummy_pkt = net_pkt_alloc_with_buffer(eth_if,
 					      PULL_TEST_PKT_DATA_SIZE,
-					      AF_UNSPEC,
+					      NET_AF_UNSPEC,
 					      0,
 					      K_NO_WAIT);
 	zassert_true(dummy_pkt != NULL, "Pkt not allocated");
@@ -790,7 +790,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_clone)
 	int ret;
 
 	pkt = net_pkt_alloc_with_buffer(eth_if, 64,
-					AF_UNSPEC, 0, K_NO_WAIT);
+					NET_AF_UNSPEC, 0, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	ret = net_pkt_write(pkt, buf, sizeof(buf));
@@ -805,19 +805,24 @@ ZTEST(net_pkt_test_suite, test_net_pkt_clone)
 	zassert_true(sizeof(buf) - 6 == net_pkt_remaining_data(pkt),
 		     "Pkt remaining data mismatch");
 
-	net_pkt_lladdr_src(pkt)->addr = pkt->buffer->data;
+	memcpy(net_pkt_lladdr_src(pkt)->addr,
+	       pkt->buffer->data,
+	       NET_LINK_ADDR_MAX_LENGTH);
 	net_pkt_lladdr_src(pkt)->len = NET_LINK_ADDR_MAX_LENGTH;
 	net_pkt_lladdr_src(pkt)->type = NET_LINK_ETHERNET;
 	zassert_mem_equal(net_pkt_lladdr_src(pkt)->addr, buf, NET_LINK_ADDR_MAX_LENGTH);
-	net_pkt_lladdr_dst(pkt)->addr = net_pkt_cursor_get_pos(pkt);
+	memcpy(net_pkt_lladdr_dst(pkt)->addr,
+	       net_pkt_cursor_get_pos(pkt),
+	       NET_LINK_ADDR_MAX_LENGTH);
 	net_pkt_lladdr_dst(pkt)->len = NET_LINK_ADDR_MAX_LENGTH;
 	net_pkt_lladdr_dst(pkt)->type = NET_LINK_ETHERNET;
 	zassert_mem_equal(net_pkt_lladdr_dst(pkt)->addr, &buf[6], NET_LINK_ADDR_MAX_LENGTH);
 
-	net_pkt_set_family(pkt, AF_INET6);
+	net_pkt_set_family(pkt, NET_AF_INET6);
 	net_pkt_set_captured(pkt, true);
 	net_pkt_set_eof(pkt, true);
-	net_pkt_set_ptp(pkt, true);
+	net_pkt_set_tx_timestamping(pkt, true);
+	net_pkt_set_rx_timestamping(pkt, true);
 	net_pkt_set_forwarding(pkt, true);
 
 	net_pkt_set_l2_bridged(pkt, true);
@@ -843,7 +848,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_clone)
 	zassert_false(net_pkt_is_being_overwritten(pkt),
 		     "Pkt overwrite flag not restored");
 
-	zassert_equal(net_pkt_family(cloned_pkt), AF_INET6,
+	zassert_equal(net_pkt_family(cloned_pkt), NET_AF_INET6,
 		     "Address family value mismatch");
 
 	zassert_true(net_pkt_is_captured(cloned_pkt),
@@ -852,8 +857,13 @@ ZTEST(net_pkt_test_suite, test_net_pkt_clone)
 	zassert_true(net_pkt_eof(cloned_pkt),
 		     "Cloned pkt eof flag mismatch");
 
-	zassert_true(net_pkt_is_ptp(cloned_pkt),
-		     "Cloned pkt ptp_pkt flag mismatch");
+#if CONFIG_NET_PKT_TIMESTAMP
+	zassert_true(net_pkt_is_tx_timestamping(cloned_pkt),
+		     "Cloned pkt tx_timestamping flag mismatch");
+
+	zassert_true(net_pkt_is_rx_timestamping(cloned_pkt),
+		     "Cloned pkt rx_timestamping flag mismatch");
+#endif
 
 	zassert_true(net_pkt_forwarding(cloned_pkt),
 		     "Cloned pkt forwarding flag mismatch");
@@ -865,11 +875,15 @@ ZTEST(net_pkt_test_suite, test_net_pkt_clone)
 		     "Cloned pkt l2_processed flag mismatch");
 
 	zassert_mem_equal(net_pkt_lladdr_src(cloned_pkt)->addr, buf, NET_LINK_ADDR_MAX_LENGTH);
-	zassert_true(net_pkt_lladdr_src(cloned_pkt)->addr == cloned_pkt->buffer->data,
+	zassert_true(memcmp(net_pkt_lladdr_src(cloned_pkt)->addr,
+			    cloned_pkt->buffer->data,
+			    NET_LINK_ADDR_MAX_LENGTH) == 0,
 		     "Cloned pkt ll src addr mismatch");
 
 	zassert_mem_equal(net_pkt_lladdr_dst(cloned_pkt)->addr, &buf[6], NET_LINK_ADDR_MAX_LENGTH);
-	zassert_true(net_pkt_lladdr_dst(cloned_pkt)->addr == net_pkt_cursor_get_pos(cloned_pkt),
+	zassert_true(memcmp(net_pkt_lladdr_dst(cloned_pkt)->addr,
+			    net_pkt_cursor_get_pos(cloned_pkt),
+			    NET_LINK_ADDR_MAX_LENGTH) == 0,
 		     "Cloned pkt ll dst addr mismatch");
 
 	zassert_equal(net_pkt_ll_proto_type(cloned_pkt), ETH_P_IEEE802154,
@@ -956,7 +970,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_headroom)
 	net_pkt_unref(pkt);
 }
 
-NET_BUF_POOL_FIXED_DEFINE(test_net_pkt_headroom_copy_pool, 2, 4, 4, NULL);
+NET_BUF_POOL_VAR_DEFINE(test_net_pkt_headroom_copy_pool, 2, 128, 4, NULL);
 
 ZTEST(net_pkt_test_suite, test_net_pkt_headroom_copy)
 {
@@ -968,7 +982,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_headroom_copy)
 
 	/* Create et_pkt containing the bytes "0123" */
 	pkt_src = net_pkt_alloc_with_buffer(eth_if, 4,
-					AF_UNSPEC, 0, K_NO_WAIT);
+					NET_AF_UNSPEC, 0, K_NO_WAIT);
 	zassert_true(pkt_src != NULL, "Pkt not allocated");
 	res = net_pkt_write(pkt_src, "0123", 4);
 	zassert_equal(res, 0, "Pkt write failed");
@@ -986,7 +1000,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_headroom_copy)
 	net_buf_reserve(frag2_dst, 1);
 	net_pkt_append_buffer(pkt_dst, frag2_dst);
 	zassert_equal(net_pkt_available_buffer(pkt_dst), 4, "Wrong space left");
-	zassert_equal(net_pkt_get_len(pkt_dst), 0, "Length missmatch");
+	zassert_equal(net_pkt_get_len(pkt_dst), 0, "Length mismatch");
 
 	/* Copy to net_pkt which contains fragments with reserved bytes */
 	net_pkt_cursor_init(pkt_src);
@@ -994,7 +1008,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_headroom_copy)
 	res = net_pkt_copy(pkt_dst, pkt_src, 4);
 	zassert_equal(res, 0, "Pkt copy failed");
 	zassert_equal(net_pkt_available_buffer(pkt_dst), 0, "Wrong space left");
-	zassert_equal(net_pkt_get_len(pkt_dst), 4, "Length missmatch");
+	zassert_equal(net_pkt_get_len(pkt_dst), 4, "Length mismatch");
 
 	net_pkt_cursor_init(pkt_dst);
 	zassert_true(net_pkt_read(pkt_dst, small_buffer, 4) == 0,
@@ -1012,7 +1026,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_get_contiguous_len)
 	/* Allocate pkt with 2 fragments */
 	struct net_pkt *pkt = net_pkt_rx_alloc_with_buffer(
 					   NULL, CONFIG_NET_BUF_DATA_SIZE * 2,
-					   AF_UNSPEC, 0, K_NO_WAIT);
+					   NET_AF_UNSPEC, 0, K_NO_WAIT);
 
 	zassert_not_null(pkt, "Pkt not allocated");
 
@@ -1074,7 +1088,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_remove_tail)
 
 	pkt = net_pkt_alloc_with_buffer(NULL,
 					CONFIG_NET_BUF_DATA_SIZE * 2 + 3,
-					AF_UNSPEC, 0, K_NO_WAIT);
+					NET_AF_UNSPEC, 0, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	net_pkt_cursor_init(pkt);
@@ -1122,7 +1136,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_remove_tail)
 
 	pkt = net_pkt_rx_alloc_with_buffer(NULL,
 					   CONFIG_NET_BUF_DATA_SIZE * 2 + 3,
-					   AF_UNSPEC, 0, K_NO_WAIT);
+					   NET_AF_UNSPEC, 0, K_NO_WAIT);
 
 	net_pkt_cursor_init(pkt);
 	net_pkt_write(pkt, small_buffer, CONFIG_NET_BUF_DATA_SIZE * 2 + 3);
@@ -1159,7 +1173,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_shallow_clone_noleak_buf)
 	struct net_buf_pool *tx_data;
 
 	pkt = net_pkt_alloc_with_buffer(NULL, pkt_size,
-					AF_UNSPEC, 0, K_NO_WAIT);
+					NET_AF_UNSPEC, 0, K_NO_WAIT);
 
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
@@ -1197,7 +1211,7 @@ void test_net_pkt_shallow_clone_append_buf(int extra_frag_refcounts)
 	struct net_buf *frag;
 	struct net_buf_pool *tx_data;
 
-	pkt = net_pkt_alloc_with_buffer(NULL, pkt_size, AF_UNSPEC, 0, K_NO_WAIT);
+	pkt = net_pkt_alloc_with_buffer(NULL, pkt_size, NET_AF_UNSPEC, 0, K_NO_WAIT);
 	zassert_true(pkt != NULL, "Pkt not allocated");
 
 	net_pkt_get_info(NULL, NULL, NULL, &tx_data);
@@ -1265,7 +1279,7 @@ ZTEST(net_pkt_test_suite, test_net_pkt_shallow_clone_append_buf_0)
 
 ZTEST(net_pkt_test_suite, test_net_pkt_shallow_clone_append_buf_1)
 {
-	test_net_pkt_shallow_clone_append_buf(2);
+	test_net_pkt_shallow_clone_append_buf(1);
 }
 
 ZTEST(net_pkt_test_suite, test_net_pkt_shallow_clone_append_buf_2)

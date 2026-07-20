@@ -26,12 +26,14 @@
  *
  * @return Total size of TLS data/bss areas
  */
-static inline size_t z_tls_data_size(void)
+static inline FUNC_NO_STACK_PROTECTOR size_t z_tls_data_size(void)
 {
-	size_t tdata_size = ROUND_UP(__tdata_size, __tdata_align);
-	size_t tbss_size = ROUND_UP(__tbss_size, __tbss_align);
+	size_t size = (size_t)(uintptr_t)__tdata_size + (size_t)(uintptr_t)__tbss_size;
 
-	return tdata_size + tbss_size;
+#if defined(CONFIG_STACK_CANARIES_TLS_PREPEND)
+	size += (size_t)(uintptr_t)__stack_chk_size;
+#endif
+	return size;
 }
 
 /**
@@ -42,17 +44,24 @@ static inline size_t z_tls_data_size(void)
  *
  * @param dest Pointer to destination
  */
-static inline void z_tls_copy(char *dest)
+static inline FUNC_NO_STACK_PROTECTOR void z_tls_copy(char *dest)
 {
-	size_t tdata_size = (size_t)__tdata_size;
-	size_t tbss_size = (size_t)__tbss_size;
+#if defined(CONFIG_STACK_CANARIES_TLS_PREPEND)
+	/* Copy .stack_chk.guard and .tdata separately since the linker may insert
+	 * padding between sections.
+	 */
+	memcpy(dest, __stack_chk_start, (size_t)(uintptr_t)__stack_chk_size);
+	dest += (size_t)(uintptr_t)__stack_chk_size;
 
+	memcpy(dest, __tdata_start, (size_t)(uintptr_t)__tdata_size);
+	dest += (size_t)(uintptr_t)__tdata_size;
+#else
 	/* Copy initialized data (tdata) */
-	memcpy(dest, __tdata_start, tdata_size);
-
+	memcpy(dest, __tdata_start, (size_t)(uintptr_t)__tdata_size);
+	dest += (size_t)(uintptr_t)__tdata_size;
+#endif
 	/* Clear BSS data (tbss) */
-	dest += ROUND_UP(tdata_size, __tdata_align);
-	memset(dest, 0, tbss_size);
+	memset(dest, 0, (size_t)(uintptr_t)__tbss_size);
 }
 
 #endif /* ZEPHYR_KERNEL_INCLUDE_KERNEL_TLS_H_ */

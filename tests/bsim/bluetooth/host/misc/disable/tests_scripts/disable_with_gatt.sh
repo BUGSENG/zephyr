@@ -8,16 +8,16 @@ source ${ZEPHYR_BASE}/tests/bsim/sh_common.source
 # to a peripheral acting as a GATT server. The GATT client will then attempt
 # to write and read to and from a few GATT characteristics. Both the central and
 # peripheral then disable bluetooth and the test repeats.
-simulation_id="disable_with_gatt"
+simulation_id="${BOARD_TS}_disable_with_gatt"
 verbosity_level=2
 EXECUTE_TIMEOUT=120
 
 cd ${BSIM_OUT_PATH}/bin
 
-Execute ./bs_${BOARD}_tests_bsim_bluetooth_host_misc_disable_prj_conf \
+Execute ./bs_${BOARD_TS}_tests_bsim_bluetooth_host_misc_disable_prj_conf \
   -v=${verbosity_level} -s=${simulation_id} -d=0 -testid=gatt_client
 
-Execute ./bs_${BOARD}_tests_bsim_bluetooth_host_misc_disable_prj_conf \
+Execute ./bs_${BOARD_TS}_tests_bsim_bluetooth_host_misc_disable_prj_conf \
   -v=${verbosity_level} -s=${simulation_id} -d=1 -testid=gatt_server
 
 Execute ./bs_2G4_phy_v1 -v=${verbosity_level} -s=${simulation_id} \

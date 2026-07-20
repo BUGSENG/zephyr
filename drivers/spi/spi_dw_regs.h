@@ -41,6 +41,8 @@ extern "C" {
 #define DW_SPI_REG_DR			(0x60)
 #define DW_SPI_REG_RX_SAMPLE_DLY	(0xf0)
 
+#define DW_SPI_MIN_SCKDIV		(0x2)
+
 /* Register helpers */
 DEFINE_MM_REG_WRITE(ctrlr0, DW_SPI_REG_CTRLR0, 32)
 DEFINE_MM_REG_READ(ctrlr0, DW_SPI_REG_CTRLR0, 32)
@@ -64,7 +66,7 @@ DEFINE_MM_REG_WRITE(ser, DW_SPI_REG_SER, 8)
 
 /* ICR is on a unique bit */
 DEFINE_TEST_BIT_OP(icr, DW_SPI_REG_ICR, DW_SPI_SR_ICR_BIT)
-#define clear_interrupts(info) test_bit_icr(info)
+#define clear_interrupts(dev) test_bit_icr(dev)
 
 #ifdef __cplusplus
 }

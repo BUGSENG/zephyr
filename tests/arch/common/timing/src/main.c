@@ -5,9 +5,9 @@
  */
 #include <zephyr/ztest.h>
 #include <zephyr/kernel.h>
-#include <zephyr/sys/arch_interface.h>
+#include <zephyr/arch/arch_interface.h>
 
-#if defined(CONFIG_SMP) && CONFIG_MP_MAX_NUM_CPUS > 1
+#if defined(CONFIG_SCHED_CPU_MASK) && (CONFIG_MP_MAX_NUM_CPUS > 1)
 #define SMP_TEST
 #endif
 
@@ -112,8 +112,9 @@ ZTEST(arch_timing, test_arch_timing_smp)
 		k_thread_start(&threads[i]);
 	}
 
-	for (i = 0; i < num_threads; i++)
+	for (i = 0; i < num_threads; i++) {
 		k_thread_join(&threads[i], K_FOREVER);
+	}
 }
 #else
 ZTEST(arch_timing, test_arch_timing_smp)

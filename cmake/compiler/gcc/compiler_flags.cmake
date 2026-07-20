@@ -20,6 +20,14 @@ else()
 endif()
 set_compiler_property(PROPERTY optimization_speed -O2)
 set_compiler_property(PROPERTY optimization_size  -Os)
+set_compiler_property(PROPERTY optimization_size_aggressive -Oz)
+set_compiler_property(PROPERTY optimization_fast -Ofast)
+
+if(CMAKE_C_COMPILER_VERSION GREATER_EQUAL "4.5.0")
+  set_compiler_property(PROPERTY optimization_lto -flto=auto)
+  set_compiler_property(PROPERTY optimization_lto_st -flto=1)
+  set_compiler_property(PROPERTY prohibit_lto -fno-lto)
+endif()
 
 #######################################################
 # This section covers flags related to warning levels #
@@ -32,10 +40,15 @@ check_set_compiler_property(PROPERTY warning_base
     "SHELL:-Wformat -Wno-format-zero-length"
 )
 
+# C implicit promotion rules will want to make floats into doubles very easily
+check_set_compiler_property(APPEND PROPERTY warning_base -Wdouble-promotion)
+
 check_set_compiler_property(APPEND PROPERTY warning_base -Wno-pointer-sign)
 
 # Prohibit void pointer arithmetic. Illegal in C99
 check_set_compiler_property(APPEND PROPERTY warning_base -Wpointer-arith)
+
+check_set_compiler_property(PROPERTY warning_no_misleading_indentation -Wno-misleading-indentation)
 
 # not portable
 check_set_compiler_property(APPEND PROPERTY warning_base -Wexpansion-to-defined)
@@ -50,7 +63,7 @@ set_compiler_property(PROPERTY warning_dw_1
 )
 check_set_compiler_property(APPEND PROPERTY warning_dw_1
                             -Wlogical-op
-                            -Wmissing-field-initializers
+                            -Wno-missing-field-initializers
 )
 
 set_compiler_property(PROPERTY warning_dw_2
@@ -62,6 +75,7 @@ set_compiler_property(PROPERTY warning_dw_2
                       -Wpointer-arith
                       -Wredundant-decls
                       -Wswitch-default
+                      -Wmissing-field-initializers
 )
 check_set_compiler_property(APPEND PROPERTY warning_dw_2
                             -Wpacked-bitfield-compat
@@ -102,18 +116,19 @@ set_compiler_property(PROPERTY warning_error_coding_guideline
 # GCC compiler flags for C standard. The specific standard must be appended by user.
 set_compiler_property(PROPERTY cstd -std=)
 
-if (NOT CONFIG_NEWLIB_LIBC AND
+if(NOT CONFIG_NEWLIB_LIBC AND
     NOT (CONFIG_PICOLIBC AND NOT CONFIG_PICOLIBC_USE_MODULE) AND
     NOT COMPILER STREQUAL "xcc" AND
+    NOT COMPILER STREQUAL "xt-clang" AND
     NOT CONFIG_HAS_ESPRESSIF_HAL AND
     NOT CONFIG_NATIVE_BUILD)
   set_compiler_property(PROPERTY nostdinc -nostdinc)
   set_compiler_property(APPEND PROPERTY nostdinc_include ${NOSTDINC})
 endif()
 
-set_compiler_property(PROPERTY no_printf_return_value -fno-printf-return-value)
+check_set_compiler_property(PROPERTY no_printf_return_value -fno-printf-return-value)
 
-set_compiler_property(TARGET compiler-cpp PROPERTY nostdincxx "-nostdinc++")
+set_property(TARGET compiler-cpp PROPERTY nostdincxx "-nostdinc++")
 
 # Required C++ flags when using gcc
 set_property(TARGET compiler-cpp PROPERTY required "-fcheck-new")
@@ -134,6 +149,8 @@ set_property(TARGET compiler-cpp PROPERTY dialect_cpp20 "-std=c++20"
   "-Wno-register" "-Wno-volatile")
 set_property(TARGET compiler-cpp PROPERTY dialect_cpp2b "-std=c++2b"
   "-Wno-register" "-Wno-volatile")
+set_property(TARGET compiler-cpp PROPERTY dialect_cpp23 "-std=c++23"
+  "-Wno-register" "-Wno-volatile")
 
 # Flag for disabling strict aliasing rule in C and C++
 set_compiler_property(PROPERTY no_strict_aliasing -fno-strict-aliasing)
@@ -141,6 +158,10 @@ set_compiler_property(PROPERTY no_strict_aliasing -fno-strict-aliasing)
 # Extra warning options
 set_property(TARGET compiler PROPERTY warnings_as_errors -Werror)
 set_property(TARGET asm PROPERTY warnings_as_errors -Werror -Wa,--fatal-warnings)
+
+# Deprecation warning
+set_property(TARGET compiler PROPERTY no_deprecation_warning -Wno-deprecated-declarations)
+set_property(TARGET asm PROPERTY no_deprecation_warning -Wno-deprecated-declarations)
 
 # Disable exceptions flag in C++
 set_property(TARGET compiler-cpp PROPERTY no_exceptions "-fno-exceptions")
@@ -156,24 +177,64 @@ set_property(TARGET compiler-cpp PROPERTY no_rtti "-fno-rtti")
 # gcc flags for coverage generation
 set_compiler_property(PROPERTY coverage -fprofile-arcs -ftest-coverage -fno-inline)
 
+# gcc flags for heap KASAN instrumentation.
+set_compiler_property(PROPERTY heap_kasan
+  -fsanitize=kernel-address
+  --param=asan-instrumentation-with-call-threshold=0
+  --param=asan-globals=0
+  --param=asan-stack=0
+  --param=asan-instrument-reads=0
+  -fno-tree-loop-distribute-patterns)
+# ARC and OpenRISC require an explicit shadow offset with kernel-address.
+if(CONFIG_ARC OR CONFIG_OPENRISC)
+  set_compiler_property(APPEND PROPERTY heap_kasan -fasan-shadow-offset=0)
+endif()
+
+# Flag to disable heap KASAN instrumentation on a specific source file.
+set_compiler_property(PROPERTY no_heap_kasan -fno-sanitize=kernel-address)
+
 # Security canaries.
-set_compiler_property(PROPERTY security_canaries -fstack-protector-all)
+set_compiler_property(PROPERTY security_canaries -fstack-protector)
+set_compiler_property(PROPERTY security_canaries_strong -fstack-protector-strong)
+set_compiler_property(PROPERTY security_canaries_all -fstack-protector-all)
+set_compiler_property(PROPERTY security_canaries_explicit -fstack-protector-explicit)
 
 # Only a valid option with GCC 7.x and above, so let's do check and set.
 if(CONFIG_STACK_CANARIES_TLS)
-  check_set_compiler_property(APPEND PROPERTY security_canaries -mstack-protector-guard=tls)
+  if(CONFIG_STACK_CANARIES_TLS_PREPEND)
+    # The canary is at a fixed offset from the TLS base register (see
+    # STACK_CANARIES_TLS_GUARD_REG and STACK_CANARIES_TLS_GUARD_OFFSET).
+    check_set_compiler_property(APPEND PROPERTY security_canaries "SHELL:-mstack-protector-guard=tls -mstack-protector-guard-reg=${CONFIG_STACK_CANARIES_TLS_GUARD_REG} -mstack-protector-guard-offset=${CONFIG_STACK_CANARIES_TLS_GUARD_OFFSET}")
+    check_set_compiler_property(APPEND PROPERTY security_canaries_strong "SHELL:-mstack-protector-guard=tls -mstack-protector-guard-reg=${CONFIG_STACK_CANARIES_TLS_GUARD_REG} -mstack-protector-guard-offset=${CONFIG_STACK_CANARIES_TLS_GUARD_OFFSET}")
+    check_set_compiler_property(APPEND PROPERTY security_canaries_all "SHELL:-mstack-protector-guard=tls -mstack-protector-guard-reg=${CONFIG_STACK_CANARIES_TLS_GUARD_REG} -mstack-protector-guard-offset=${CONFIG_STACK_CANARIES_TLS_GUARD_OFFSET}")
+    check_set_compiler_property(APPEND PROPERTY security_canaries_explicit "SHELL:-mstack-protector-guard=tls -mstack-protector-guard-reg=${CONFIG_STACK_CANARIES_TLS_GUARD_REG} -mstack-protector-guard-offset=${CONFIG_STACK_CANARIES_TLS_GUARD_OFFSET}")
+  else()
+    check_set_compiler_property(APPEND PROPERTY security_canaries -mstack-protector-guard=tls)
+    check_set_compiler_property(APPEND PROPERTY security_canaries_strong -mstack-protector-guard=tls)
+    check_set_compiler_property(APPEND PROPERTY security_canaries_all -mstack-protector-guard=tls)
+    check_set_compiler_property(APPEND PROPERTY security_canaries_explicit -mstack-protector-guard=tls)
+  endif()
 else()
   check_set_compiler_property(APPEND PROPERTY security_canaries -mstack-protector-guard=global)
+  check_set_compiler_property(APPEND PROPERTY security_canaries_global -mstack-protector-guard=global)
+  check_set_compiler_property(APPEND PROPERTY security_canaries_all -mstack-protector-guard=global)
+  check_set_compiler_property(APPEND PROPERTY security_canaries_explicit -mstack-protector-guard=global)
 endif()
 
 
 if(NOT CONFIG_NO_OPTIMIZATIONS)
   # _FORTIFY_SOURCE: Detect common-case buffer overflows for certain functions
-  # _FORTIFY_SOURCE=1 : Compile-time checks (requires -O1 at least)
-  # _FORTIFY_SOURCE=2 : Additional lightweight run-time checks
-  set_compiler_property(PROPERTY security_fortify_compile_time _FORTIFY_SOURCE=1)
+  # _FORTIFY_SOURCE=1 : Loose checking (use wide bounds checks)
+  # _FORTIFY_SOURCE=2 : Tight checking (use narrow bounds checks)
+  # GCC always does compile-time bounds checking for string/mem functions, so
+  # there's no additional value to set here
+  set_compiler_property(PROPERTY security_fortify_compile_time)
   set_compiler_property(PROPERTY security_fortify_run_time _FORTIFY_SOURCE=2)
 endif()
+
+check_set_compiler_property(PROPERTY sanitizer_undefined -fsanitize=undefined)
+check_set_compiler_property(PROPERTY sanitizer_undefined_trap -fsanitize-undefined-trap-on-error)
+check_set_compiler_property(PROPERTY sanitizer_undefined_library)
 
 # gcc flag for a hosted (no-freestanding) application
 check_set_compiler_property(APPEND PROPERTY hosted -fno-freestanding)
@@ -210,10 +271,11 @@ set_property(TARGET compiler-cpp PROPERTY no_threadsafe_statics "-fno-threadsafe
 # Required ASM flags when using gcc
 set_property(TARGET asm PROPERTY required "-xassembler-with-cpp")
 
+# GCC compiler flags for imacros. The specific header must be appended by user.
+set_property(TARGET asm PROPERTY imacros "-imacros")
+
 # gcc flag for colourful diagnostic messages
-if (NOT COMPILER STREQUAL "xcc")
-set_compiler_property(PROPERTY diagnostic -fdiagnostics-color=always)
-endif()
+check_set_compiler_property(PROPERTY diagnostic -fdiagnostics-color=always)
 
 # Compiler flag for disabling pointer arithmetic warnings
 set_compiler_property(PROPERTY warning_no_pointer_arithmetic "-Wno-pointer-arith")
@@ -227,3 +289,28 @@ set_compiler_property(PROPERTY no_position_independent
 set_compiler_property(PROPERTY no_global_merge "")
 
 set_compiler_property(PROPERTY warning_shadow_variables -Wshadow)
+set_compiler_property(PROPERTY warning_no_array_bounds -Wno-array-bounds)
+
+set_compiler_property(PROPERTY no_builtin -fno-builtin)
+set_compiler_property(PROPERTY no_builtin_malloc -fno-builtin-malloc)
+
+set_compiler_property(PROPERTY specs -specs=)
+
+set_compiler_property(PROPERTY include_file -include)
+
+set_compiler_property(PROPERTY cmse -mcmse)
+
+set_property(TARGET asm PROPERTY cmse -mcmse)
+
+# Compiler flag for not placing functions in their own sections:
+set_compiler_property(PROPERTY no_function_sections "-fno-function-sections")
+
+# Compiler flag for not placing variables in their own sections:
+set_compiler_property(PROPERTY no_data_sections "-fno-data-sections")
+
+# Compiler flag to enable function instrumentation
+set_compiler_property(PROPERTY func_instrumentation "-finstrument-functions")
+set_compiler_property(PROPERTY func_instrumentation_exclude_function_list
+  "-finstrument-functions-exclude-function-list=${CONFIG_INSTRUMENTATION_EXCLUDE_FUNCTION_LIST}")
+set_compiler_property(PROPERTY func_instrumentation_exclude_file_list
+  "-finstrument-functions-exclude-file-list=${CONFIG_INSTRUMENTATION_EXCLUDE_FILE_LIST}")

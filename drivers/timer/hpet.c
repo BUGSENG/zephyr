@@ -8,7 +8,6 @@
 #include <zephyr/init.h>
 #include <zephyr/drivers/timer/system_timer.h>
 #include <zephyr/sys_clock.h>
-#include <zephyr/spinlock.h>
 #include <zephyr/irq.h>
 #include <zephyr/linker/sections.h>
 
@@ -99,6 +98,13 @@ static inline uint64_t hpet_counter_get(void)
 #else
 	uint32_t high;
 	uint32_t low;
+
+#ifdef CONFIG_MMU
+	/* If base address is not mapped yet then return 0 to avoid page faults */
+	if (DEVICE_MMIO_TOPLEVEL_GET(hpet_regs) == 0) {
+		return 0;
+	}
+#endif
 
 	do {
 		high = sys_read32(MAIN_COUNTER_HIGH_REG);
@@ -213,31 +219,28 @@ static inline void hpet_timer_comparator_set(uint64_t val)
 /*
  * HPET_INT_LEVEL_TRIGGER is used to set HPET interrupt as level trigger
  * for ARM CPU with NVIC like EHL PSE, whose DTS interrupt setting
- * has no "sense" cell.
+ * has no "flags" cell.
  */
-#if (DT_INST_IRQ_HAS_CELL(0, sense))
+#if (DT_INST_IRQ_HAS_CELL(0, flags))
 #ifdef HPET_INT_LEVEL_TRIGGER
 __WARN("HPET_INT_LEVEL_TRIGGER has no effect, DTS setting is used instead")
 #undef HPET_INT_LEVEL_TRIGGER
 #endif
-#if ((DT_INST_IRQ(0, sense) & IRQ_TYPE_LEVEL) == IRQ_TYPE_LEVEL)
+#if ((DT_INST_IRQ(0, flags) & IRQ_TYPE_LEVEL) == IRQ_TYPE_LEVEL)
 #define HPET_INT_LEVEL_TRIGGER
 #endif
-#endif /* (DT_INST_IRQ_HAS_CELL(0, sense)) */
+#endif /* (DT_INST_IRQ_HAS_CELL(0, flags)) */
 
-static __pinned_bss struct k_spinlock lock;
-static __pinned_bss uint64_t last_count;
-static __pinned_bss uint64_t last_tick;
-static __pinned_bss uint32_t last_elapsed;
+static uint64_t last_count;
+static uint64_t last_tick;
+static uint32_t last_elapsed;
 
 #ifdef CONFIG_TIMER_READS_ITS_FREQUENCY_AT_RUNTIME
-static __pinned_bss unsigned int cyc_per_tick;
+static unsigned int cyc_per_tick;
 #else
 #define cyc_per_tick			\
 	(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC / CONFIG_SYS_CLOCK_TICKS_PER_SEC)
 #endif /* CONFIG_TIMER_READS_ITS_FREQUENCY_AT_RUNTIME */
-
-#define HPET_MAX_TICKS ((int32_t)0x7fffffff)
 
 #ifdef HPET_INT_LEVEL_TRIGGER
 /**
@@ -277,7 +280,7 @@ static void hpet_isr(const void *arg)
 {
 	ARG_UNUSED(arg);
 
-	k_spinlock_key_t key = k_spin_lock(&lock);
+	k_spinlock_key_t key = sys_clock_lock();
 
 	uint64_t now = hpet_counter_get();
 
@@ -315,17 +318,15 @@ static void hpet_isr(const void *arg)
 		hpet_timer_comparator_set_safe(next);
 	}
 
-	k_spin_unlock(&lock, key);
-	sys_clock_announce(dticks);
+	sys_clock_announce_locked(dticks, key);
 }
 
-__pinned_func
 static void config_timer0(unsigned int irq)
 {
 	uint32_t val = hpet_timer_conf_get();
 
 	/* 5-bit IRQ field starting at bit 9 */
-	val = (val & ~(0x1f << 9)) | ((irq & 0x1f) << 9);
+	val = (val & ~(0x1fU << 9U)) | (((uint32_t)irq & 0x1fU) << 9U);
 
 #ifdef HPET_INT_LEVEL_TRIGGER
 	/* Set level trigger if selected */
@@ -348,61 +349,54 @@ void smp_timer_init(void)
 	 */
 }
 
-__pinned_func
-void sys_clock_set_timeout(int32_t ticks, bool idle)
+void sys_clock_set_timeout(uint32_t ticks, bool idle)
 {
 	ARG_UNUSED(idle);
+
+	__ASSERT(sys_clock_is_locked(), "system clock lock not held");
 
 #if defined(CONFIG_TICKLESS_KERNEL)
 	uint32_t reg;
 
-	if (ticks == K_TICKS_FOREVER && idle) {
+	if (IS_ENABLED(CONFIG_SYSTEM_CLOCK_SLOPPY_IDLE) && ticks == SYS_CLOCK_MAX_WAIT) {
 		reg = hpet_gconf_get();
 		reg &= ~GCONF_ENABLE;
 		hpet_gconf_set(reg);
 		return;
 	}
 
-	ticks = ticks == K_TICKS_FOREVER ? HPET_MAX_TICKS : ticks;
-	ticks = CLAMP(ticks, 0, HPET_MAX_TICKS/2);
-
-	k_spinlock_key_t key = k_spin_lock(&lock);
+	/* The comparator is 64-bit, so the requested timeout needs no clamp. */
 	uint64_t cyc = (last_tick + last_elapsed + ticks) * cyc_per_tick;
 
 	hpet_timer_comparator_set_safe(cyc);
-	k_spin_unlock(&lock, key);
 #endif
 }
 
-__pinned_func
 uint32_t sys_clock_elapsed(void)
 {
-	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
+	__ASSERT(sys_clock_is_locked(), "system clock lock not held");
+
+	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL) || cyc_per_tick == 0) {
 		return 0;
 	}
 
-	k_spinlock_key_t key = k_spin_lock(&lock);
 	uint64_t now = hpet_counter_get();
 	uint32_t ret = (uint32_t)((now - last_count) / cyc_per_tick);
 
 	last_elapsed = ret;
-	k_spin_unlock(&lock, key);
 	return ret;
 }
 
-__pinned_func
 uint32_t sys_clock_cycle_get_32(void)
 {
 	return (uint32_t)hpet_counter_get();
 }
 
-__pinned_func
 uint64_t sys_clock_cycle_get_64(void)
 {
 	return hpet_counter_get();
 }
 
-__pinned_func
 void sys_clock_idle_exit(void)
 {
 	uint32_t reg;
@@ -415,7 +409,7 @@ void sys_clock_idle_exit(void)
 __boot_func
 static int sys_clock_driver_init(void)
 {
-	extern int z_clock_hw_cycles_per_sec;
+	extern unsigned int z_clock_hw_cycles_per_sec;
 	uint32_t hz, reg;
 
 	ARG_UNUSED(hz);
@@ -423,10 +417,10 @@ static int sys_clock_driver_init(void)
 
 	DEVICE_MMIO_TOPLEVEL_MAP(hpet_regs, K_MEM_CACHE_NONE);
 
-#if DT_INST_IRQ_HAS_CELL(0, sense)
+#if DT_INST_IRQ_HAS_CELL(0, flags)
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		    DT_INST_IRQ(0, priority),
-		    hpet_isr, 0, DT_INST_IRQ(0, sense));
+		    hpet_isr, 0, DT_INST_IRQ(0, flags));
 #else
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		    DT_INST_IRQ(0, priority),

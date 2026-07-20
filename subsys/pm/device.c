@@ -6,7 +6,6 @@
 
 #include <zephyr/device.h>
 #include <zephyr/pm/device.h>
-#include <zephyr/pm/device_runtime.h>
 #include <zephyr/sys/iterable_sections.h>
 
 #include <zephyr/logging/log.h>
@@ -23,6 +22,12 @@ static const enum pm_device_state action_expected_state[] = {
 	[PM_DEVICE_ACTION_RESUME] = PM_DEVICE_STATE_SUSPENDED,
 	[PM_DEVICE_ACTION_TURN_OFF] = PM_DEVICE_STATE_SUSPENDED,
 	[PM_DEVICE_ACTION_TURN_ON] = PM_DEVICE_STATE_OFF,
+};
+
+enum pm_device_deps_region {
+	PM_DEVICE_DEPS_REGION_REQUIRES  = 0,
+	PM_DEVICE_DEPS_REGION_SUPPORTS  = 1,
+	PM_DEVICE_DEPS_REGION_SUPPORTED = 2,
 };
 
 const char *pm_device_state_str(enum pm_device_state state)
@@ -42,15 +47,11 @@ const char *pm_device_state_str(enum pm_device_state state)
 int pm_device_action_run(const struct device *dev,
 			 enum pm_device_action action)
 {
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 	int ret;
 
 	if (pm == NULL) {
 		return -ENOSYS;
-	}
-
-	if (pm_device_state_is_locked(dev)) {
-		return -EPERM;
 	}
 
 	/* Validate action against current state */
@@ -91,8 +92,9 @@ int pm_device_action_run(const struct device *dev,
 	}
 
 	pm->state = action_target_state[action];
-	/* Power up failure flag is no longer relevant */
+	/* Power up flags are no longer relevant */
 	if (action == PM_DEVICE_ACTION_TURN_OFF) {
+		atomic_clear_bit(&pm->flags, PM_DEVICE_FLAG_PD_CLAIMED);
 		atomic_clear_bit(&pm->flags, PM_DEVICE_FLAG_TURN_ON_FAILED);
 	}
 
@@ -127,7 +129,7 @@ static int power_domain_add_or_remove(const struct device *dev,
 	 * supported section of handles array and replace it
 	 * with the device handle.
 	 */
-	while (region != 2) {
+	while (region != PM_DEVICE_DEPS_REGION_SUPPORTED) {
 		if (*rv == Z_DEVICE_DEPS_SEP) {
 			region++;
 		}
@@ -135,24 +137,45 @@ static int power_domain_add_or_remove(const struct device *dev,
 	}
 
 	i = 0;
+
+	bool first_empty_slot_found = false;
+	size_t first_empty_slot = 0;
+
 	while (rv[i] != Z_DEVICE_DEPS_ENDS) {
-		if (add == false) {
-			if (rv[i] == dev_handle) {
-				dev->pm->domain = NULL;
+		/* Check if the device is already in the power domain */
+		if (rv[i] == dev_handle) {
+			if (add == false) {
+				/* Remove the device from the power domain */
+				dev->pm_base->domain = NULL;
 				rv[i] = DEVICE_HANDLE_NULL;
 				return 0;
 			}
-		} else {
-			if (rv[i] == DEVICE_HANDLE_NULL) {
-				dev->pm->domain = domain;
-				rv[i] = dev_handle;
-				return 0;
-			}
+			/* Device is already in the power domain */
+			dev->pm_base->domain = domain;
+			return -EALREADY;
+		}
+
+		/* Find the first available slot for adding a new device */
+		if (add && (rv[i] == DEVICE_HANDLE_NULL) && !first_empty_slot_found) {
+			first_empty_slot_found = true;
+			first_empty_slot = i;
 		}
 		++i;
 	}
 
-	return add ? -ENOSPC : -ENOENT;
+	if (add) {
+		/* No available slot found */
+		if (!first_empty_slot_found) {
+			return -ENOSPC;
+		}
+
+		/* Add the device to the power domain */
+		dev->pm_base->domain = domain;
+		rv[first_empty_slot] = dev_handle;
+		return 0;
+	}
+
+	return -ENOENT;
 #else
 	ARG_UNUSED(dev);
 	ARG_UNUSED(domain);
@@ -211,7 +234,7 @@ void pm_device_children_action_run(const struct device *dev,
 int pm_device_state_get(const struct device *dev,
 			enum pm_device_state *state)
 {
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	if (pm == NULL) {
 		return -ENOSYS;
@@ -230,7 +253,7 @@ bool pm_device_is_any_busy(void)
 	devc = z_device_get_all_static(&devs);
 
 	for (const struct device *dev = devs; dev < (devs + devc); dev++) {
-		struct pm_device *pm = dev->pm;
+		struct pm_device_base *pm = dev->pm_base;
 
 		if (pm == NULL) {
 			continue;
@@ -246,7 +269,7 @@ bool pm_device_is_any_busy(void)
 
 bool pm_device_is_busy(const struct device *dev)
 {
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	if (pm == NULL) {
 		return false;
@@ -257,7 +280,7 @@ bool pm_device_is_busy(const struct device *dev)
 
 void pm_device_busy_set(const struct device *dev)
 {
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	if (pm == NULL) {
 		return;
@@ -268,7 +291,7 @@ void pm_device_busy_set(const struct device *dev)
 
 void pm_device_busy_clear(const struct device *dev)
 {
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	if (pm == NULL) {
 		return;
@@ -280,7 +303,7 @@ void pm_device_busy_clear(const struct device *dev)
 bool pm_device_wakeup_enable(const struct device *dev, bool enable)
 {
 	atomic_val_t flags, new_flags;
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	if (pm == NULL) {
 		return false;
@@ -304,7 +327,7 @@ bool pm_device_wakeup_enable(const struct device *dev, bool enable)
 
 bool pm_device_wakeup_is_enabled(const struct device *dev)
 {
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	if (pm == NULL) {
 		return false;
@@ -316,7 +339,7 @@ bool pm_device_wakeup_is_enabled(const struct device *dev)
 
 bool pm_device_wakeup_is_capable(const struct device *dev)
 {
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	if (pm == NULL) {
 		return false;
@@ -326,40 +349,10 @@ bool pm_device_wakeup_is_capable(const struct device *dev)
 			       PM_DEVICE_FLAG_WS_CAPABLE);
 }
 
-void pm_device_state_lock(const struct device *dev)
-{
-	struct pm_device *pm = dev->pm;
-
-	if ((pm != NULL) && !pm_device_runtime_is_enabled(dev)) {
-		atomic_set_bit(&pm->flags, PM_DEVICE_FLAG_STATE_LOCKED);
-	}
-}
-
-void pm_device_state_unlock(const struct device *dev)
-{
-	struct pm_device *pm = dev->pm;
-
-	if (pm != NULL) {
-		atomic_clear_bit(&pm->flags, PM_DEVICE_FLAG_STATE_LOCKED);
-	}
-}
-
-bool pm_device_state_is_locked(const struct device *dev)
-{
-	struct pm_device *pm = dev->pm;
-
-	if (pm == NULL) {
-		return false;
-	}
-
-	return atomic_test_bit(&pm->flags,
-			       PM_DEVICE_FLAG_STATE_LOCKED);
-}
-
 bool pm_device_on_power_domain(const struct device *dev)
 {
 #ifdef CONFIG_PM_DEVICE_POWER_DOMAIN
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	if (pm == NULL) {
 		return false;
@@ -371,57 +364,84 @@ bool pm_device_on_power_domain(const struct device *dev)
 #endif
 }
 
+__boot_func
 bool pm_device_is_powered(const struct device *dev)
 {
 #ifdef CONFIG_PM_DEVICE_POWER_DOMAIN
-	struct pm_device *pm = dev->pm;
+	struct pm_device_base *pm = dev->pm_base;
 
 	/* If a device doesn't support PM or is not under a PM domain,
 	 * assume it is always powered on.
 	 */
 	return (pm == NULL) ||
 	       (pm->domain == NULL) ||
-	       (pm->domain->pm->state == PM_DEVICE_STATE_ACTIVE);
+	       (pm->domain->pm_base->state == PM_DEVICE_STATE_ACTIVE);
 #else
 	ARG_UNUSED(dev);
 	return true;
 #endif
 }
 
+__boot_func
 int pm_device_driver_init(const struct device *dev,
 			  pm_device_action_cb_t action_cb)
 {
-	struct pm_device *pm = dev->pm;
-	int rc = 0;
+	struct pm_device_base *pm = dev->pm_base;
+	int rc;
+
+	/* Device is currently in the OFF state */
+	if (pm) {
+		pm->state = PM_DEVICE_STATE_OFF;
+	}
 
 	/* Work only needs to be performed if the device is powered */
-	if (pm_device_is_powered(dev)) {
-		/* Run power-up logic */
-		rc = action_cb(dev, PM_DEVICE_ACTION_TURN_ON);
-		if (rc != 0) {
-			return rc;
-		}
-		/* If device has no PM structure */
-		if (pm == NULL) {
-			/* Device should always be active */
-			return action_cb(dev, PM_DEVICE_ACTION_RESUME);
-		}
-		/* If device will have PM device runtime enabled */
-		if (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME) &&
-		    atomic_test_bit(&pm->flags, PM_DEVICE_FLAG_RUNTIME_AUTO)) {
-			/* Init into suspend mode.
-			 * This saves a SUSPENDED->ACTIVE->SUSPENDED cycle.
-			 */
-			pm_device_init_suspended(dev);
-		}
-		/* No PM enabled on the device by default */
-		else {
-			/* Startup into active mode */
-			return action_cb(dev, PM_DEVICE_ACTION_RESUME);
-		}
-	} else {
-		/* Start in off mode */
-		pm_device_init_off(dev);
+	if (!pm_device_is_powered(dev)) {
+		return 0;
 	}
-	return rc;
+
+	/* Run power-up logic */
+	rc = action_cb(dev, PM_DEVICE_ACTION_TURN_ON);
+	if ((rc < 0) && (rc != -ENOTSUP)) {
+		return rc;
+	}
+
+	/* If device has no PM structure */
+	if (pm == NULL) {
+		/* Device should always be active */
+		return action_cb(dev, PM_DEVICE_ACTION_RESUME);
+	}
+
+	/* Device is currently in the SUSPENDED state */
+	pm->state = PM_DEVICE_STATE_SUSPENDED;
+
+	/* If device will have PM device runtime enabled */
+	if (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME) &&
+	    (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME_DEFAULT_ENABLE) ||
+	     atomic_test_bit(&pm->flags, PM_DEVICE_FLAG_RUNTIME_AUTO))) {
+		return 0;
+	}
+
+	/* Startup into active mode */
+	rc = action_cb(dev, PM_DEVICE_ACTION_RESUME);
+	if (rc < 0) {
+		return rc;
+	}
+
+	/* Device is now in the ACTIVE state */
+	pm->state = PM_DEVICE_STATE_ACTIVE;
+
+	return 0;
+}
+
+int pm_device_driver_deinit(const struct device *dev,
+			    pm_device_action_cb_t action_cb)
+{
+	ARG_UNUSED(action_cb);
+
+	struct pm_device_base *pm = dev->pm_base;
+
+	return pm->state == PM_DEVICE_STATE_SUSPENDED ||
+	       pm->state == PM_DEVICE_STATE_OFF ?
+	       0 :
+	       -EBUSY;
 }

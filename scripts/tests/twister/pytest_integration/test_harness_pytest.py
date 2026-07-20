@@ -2,34 +2,48 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import pytest
 import textwrap
-
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
+import pytest
+import yaml
 from twisterlib.harness import Pytest
-from twisterlib.testsuite import TestSuite
-from twisterlib.testinstance import TestInstance
 from twisterlib.platform import Platform
+from twisterlib.testinstance import TestInstance
+from twisterlib.testsuite import TestSuite
+from twisterlib.testsuitedata import HarnessConfig
 
 
 @pytest.fixture
-def testinstance() -> TestInstance:
+def testinstance(tmp_path: Path) -> TestInstance:
     testsuite = TestSuite('.', 'samples/hello', 'unit.test')
-    testsuite.harness_config = {}
+    testsuite.harness_config = HarnessConfig()
+    testsuite.harness = 'pytest'
     testsuite.ignore_faults = False
+    testsuite.sysbuild = False
+    testsuite.build = True
     platform = Platform()
 
-    testinstance = TestInstance(testsuite, platform, 'outdir')
+    testinstance = TestInstance(testsuite, platform, 'zephyr', 'outdir')
     testinstance.handler = mock.Mock()
-    testinstance.handler.options = mock.Mock()
-    testinstance.handler.options.verbose = 1
+    testinstance.handler.get_test_timeout = mock.Mock(return_value=60)
+    testinstance.handler.options = mock.Mock(
+        verbose=1,
+        pytest_args=None,
+        extra_test_args=None,
+        west_flash=None,
+        west_runner=None,
+        flash_command=None,
+        west_flash_cmd=None
+    )
+    testinstance.handler.options.fixture = ['fixture1:option1', 'fixture2']
     testinstance.handler.type_str = 'native'
+    testinstance.build_dir = tmp_path
     return testinstance
 
 
-@pytest.mark.parametrize('device_type', ['native', 'qemu'])
+@pytest.mark.parametrize('device_type', ['native', 'qemu', 'device'])
 def test_pytest_command(testinstance: TestInstance, device_type):
     pytest_harness = Pytest()
     pytest_harness.configure(testinstance)
@@ -38,14 +52,73 @@ def test_pytest_command(testinstance: TestInstance, device_type):
     ref_command = [
         'pytest',
         'samples/hello/pytest',
-        f'--build-dir={testinstance.build_dir}',
-        f'--junit-xml={testinstance.build_dir}/report.xml',
-        f'--device-type={device_type}'
+        f'--twister-config={pytest_harness.pytest_config_file}',
+        f'--junit-xml={testinstance.build_dir}/report.xml'
     ]
 
     command = pytest_harness.generate_command()
+    assert Path(pytest_harness.pytest_config_file).exists()
     for c in ref_command:
         assert c in command
+    with open(pytest_harness.pytest_config_file) as f:
+        data = yaml.safe_load(f)
+    assert data['device_type'] == pytest_harness._get_pytest_device_type(device_type)
+    if device_type == 'device':
+        assert 'twister_fixtures' not in data
+    else:
+        assert data['twister_fixtures'] == ['fixture1:option1', 'fixture2']
+
+
+def test_pytest_command_dut_scope(testinstance: TestInstance):
+    pytest_harness = Pytest()
+    dut_scope = 'session'
+    testinstance.testsuite.harness_config.pytest_dut_scope = dut_scope
+    pytest_harness.configure(testinstance)
+    command = pytest_harness.generate_command()
+    assert f'--dut-scope={dut_scope}' in command
+
+
+def test_pytest_command_extra_args(testinstance: TestInstance):
+    pytest_harness = Pytest()
+    pytest_args = ['-k test1', '-m mark1']
+    testinstance.testsuite.harness_config.pytest_args = pytest_args
+    pytest_harness.configure(testinstance)
+    command = pytest_harness.generate_command()
+    for c in pytest_args:
+        assert c in command
+
+
+def test_pytest_command_extra_test_args(testinstance: TestInstance):
+    pytest_harness = Pytest()
+    extra_test_args = ['-stop_at=3', '-no-rt']
+    testinstance.handler.options.extra_test_args = extra_test_args
+    pytest_harness.configure(testinstance)
+    pytest_harness.generate_command()
+    assert pytest_harness.pytest_params.extra_test_args == ' '.join(extra_test_args)
+
+
+def test_pytest_command_extra_args_in_options(testinstance: TestInstance):
+    pytest_harness = Pytest()
+    pytest_args_from_yaml = '--extra-option'
+    pytest_args_from_cmd = ['-k', 'test_from_cmd']
+    testinstance.testsuite.harness_config.pytest_args = [pytest_args_from_yaml]
+    testinstance.handler.options.pytest_args = pytest_args_from_cmd
+    pytest_harness.configure(testinstance)
+    command = pytest_harness.generate_command()
+    assert pytest_args_from_cmd[0] in command
+    assert pytest_args_from_cmd[1] in command
+    assert pytest_args_from_yaml in command
+    assert command.index(pytest_args_from_yaml) < command.index(pytest_args_from_cmd[1])
+
+
+def test_pytest_command_required_build_args(testinstance: TestInstance):
+    """ Test that required build dirs are passed to pytest harness """
+    pytest_harness = Pytest()
+    required_builds = ['/req/build/dir', 'another/req/dir']
+    testinstance.required_build_dirs = required_builds
+    pytest_harness.configure(testinstance)
+    pytest_harness.generate_command()
+    assert pytest_harness.pytest_params.required_builds == required_builds
 
 
 @pytest.mark.parametrize(
@@ -101,7 +174,7 @@ def test_pytest_command(testinstance: TestInstance, device_type):
 def test_pytest_handle_source_list(testinstance: TestInstance, monkeypatch, pytest_root, expected):
     monkeypatch.setenv('ZEPHYR_BASE', '/zephyr_base')
     monkeypatch.setenv('HOME', '/home/joe')
-    testinstance.testsuite.harness_config['pytest_root'] = pytest_root
+    testinstance.testsuite.harness_config.pytest_root = pytest_root
     pytest_harness = Pytest()
     pytest_harness.configure(testinstance)
     command = pytest_harness.generate_command()
@@ -132,7 +205,7 @@ def test_if_report_is_parsed(pytester, testinstance: TestInstance):
 
     pytest_harness._update_test_status()
 
-    assert pytest_harness.state == "passed"
+    assert pytest_harness.status == "passed"
     assert testinstance.status == "passed"
     assert len(testinstance.testcases) == 2
     for tc in testinstance.testcases:
@@ -162,13 +235,15 @@ def test_if_report_with_error(pytester, testinstance: TestInstance):
 
     pytest_harness._update_test_status()
 
-    assert pytest_harness.state == "failed"
+    assert pytest_harness.status == "failed"
     assert testinstance.status == "failed"
     assert len(testinstance.testcases) == 2
     for tc in testinstance.testcases:
         assert tc.status == "failed"
         assert tc.output
         assert tc.reason
+    assert testinstance.reason
+    assert '2/2' in testinstance.reason
 
 
 def test_if_report_with_skip(pytester, testinstance: TestInstance):
@@ -196,8 +271,61 @@ def test_if_report_with_skip(pytester, testinstance: TestInstance):
 
     pytest_harness._update_test_status()
 
-    assert pytest_harness.state == "skipped"
+    assert pytest_harness.status == "skipped"
     assert testinstance.status == "skipped"
     assert len(testinstance.testcases) == 2
     for tc in testinstance.testcases:
         assert tc.status == "skipped"
+
+
+def test_if_report_with_filter(pytester, testinstance: TestInstance):
+    test_file_content = textwrap.dedent("""
+        import pytest
+        def test_A():
+            pass
+        def test_B():
+            pass
+    """)
+    test_file = pytester.path / 'test_filter.py'
+    test_file.write_text(test_file_content)
+    report_file = pytester.path / 'report.xml'
+    result = pytester.runpytest(
+        str(test_file),
+        '-k', 'test_B',
+        f'--junit-xml={str(report_file)}'
+    )
+    result.assert_outcomes(passed=1)
+    assert report_file.is_file()
+
+    pytest_harness = Pytest()
+    pytest_harness.configure(testinstance)
+    pytest_harness.report_file = report_file
+    pytest_harness._update_test_status()
+    assert pytest_harness.status == "passed"
+    assert testinstance.status == "passed"
+    assert len(testinstance.testcases) == 1
+
+
+def test_if_report_with_no_collected(pytester, testinstance: TestInstance):
+    test_file_content = textwrap.dedent("""
+        import pytest
+        def test_A():
+            pass
+    """)
+    test_file = pytester.path / 'test_filter.py'
+    test_file.write_text(test_file_content)
+    report_file = pytester.path / 'report.xml'
+    result = pytester.runpytest(
+        str(test_file),
+        '-k', 'test_B',
+        f'--junit-xml={str(report_file)}'
+    )
+    result.assert_outcomes(passed=0)
+    assert report_file.is_file()
+
+    pytest_harness = Pytest()
+    pytest_harness.configure(testinstance)
+    pytest_harness.report_file = report_file
+    pytest_harness._update_test_status()
+    assert pytest_harness.status == "skipped"
+    assert testinstance.status == "skipped"

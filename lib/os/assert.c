@@ -7,7 +7,7 @@
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/kernel.h>
-
+#include <zephyr/llext/symbol.h>
 
 /**
  * @brief Assert Action Handler
@@ -42,8 +42,19 @@ __weak void assert_post_action(const char *file, unsigned int line)
 
 	k_panic();
 }
+EXPORT_SYMBOL(assert_post_action);
 
-void assert_print(const char *fmt, ...)
+/**
+ * @brief Assert Print Handler
+ *
+ * This routine implements printing the assertion message.
+ *
+ * System designers may wish to substitute this implementation to store the
+ * assertion, or otherwise change the behavior of the assertion print
+ *
+ * @param N/A
+ */
+__weak void assert_print(const char *fmt, ...)
 {
 	va_list ap;
 
@@ -53,3 +64,4 @@ void assert_print(const char *fmt, ...)
 
 	va_end(ap);
 }
+EXPORT_SYMBOL(assert_print);

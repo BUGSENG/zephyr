@@ -9,12 +9,23 @@
 #include <zephyr/sys/reboot.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/debug/gcov.h>
 
 extern void sys_arch_reboot(int type);
 
 FUNC_NORETURN void sys_reboot(int type)
 {
+#ifdef CONFIG_COVERAGE_DUMP
+	gcov_coverage_dump();
+#elif defined(CONFIG_COVERAGE_SEMIHOST)
+	gcov_coverage_semihost();
+#endif /* CONFIG_COVERAGE_DUMP */
+
 	(void)irq_lock();
+
+#if defined(CONFIG_ZERO_LATENCY_IRQS)
+	(void)arch_zli_lock();
+#endif /* CONFIG_ZERO_LATENCY_IRQS */
 
 	/* Disable caches to ensure all data is flushed */
 #if defined(CONFIG_ARCH_CACHE)

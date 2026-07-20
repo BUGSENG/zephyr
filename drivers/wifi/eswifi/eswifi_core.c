@@ -10,6 +10,8 @@
 #define DT_DRV_COMPAT inventek_eswifi
 #endif
 
+#define _POSIX_C_SOURCE 200809L
+
 #include "eswifi_log.h"
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
@@ -23,11 +25,11 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/net_context.h>
 #include <zephyr/net/net_offload.h>
 #include <zephyr/net/wifi_mgmt.h>
+#include <zephyr/net/conn_mgr/connectivity_wifi_mgmt.h>
 
 #include <zephyr/net/ethernet.h>
 #include <net_private.h>
 #include <zephyr/net/net_core.h>
-#include <zephyr/net/net_pkt.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,9 +83,11 @@ static inline int __parse_ssid(char *str, char *ssid)
 	return i;
 }
 
-static void __parse_scan_res(char *str, struct wifi_scan_result *res)
+static int __parse_scan_res(char *str, struct wifi_scan_result *res)
 {
 	int field = 0;
+	char *endptr;
+	long v;
 
 	/* fmt => #001,"SSID",MACADDR,RSSI,BITRATE,MODE,SECURITY,BAND,CHANNEL */
 
@@ -105,7 +109,13 @@ static void __parse_scan_res(char *str, struct wifi_scan_result *res)
 		case 2: /* mac addr */
 			break;
 		case 3: /* RSSI */
-			res->rssi = atoi(str);
+			errno = 0;
+			v = strtol(str, &endptr, 10);
+			if (errno || endptr == str || v < INT8_MIN || v > INT8_MAX) {
+				LOG_ERR("Invalid RSSI value");
+				return -EINVAL;
+			}
+			res->rssi = (int8_t)v;
 			break;
 		case 4: /* bitrate */
 			break;
@@ -121,11 +131,18 @@ static void __parse_scan_res(char *str, struct wifi_scan_result *res)
 		case 7: /* band */
 			break;
 		case 8: /* channel */
-			res->channel = atoi(str);
+			errno = 0;
+			v = strtol(str, &endptr, 10);
+			if (errno || endptr == str || v < 0 || v > UINT8_MAX) {
+				LOG_ERR("Invalid channel value");
+				return -EINVAL;
+			}
+			res->channel = (uint8_t)v;
 			break;
 		}
 
 	}
+	return 0;
 }
 
 int eswifi_at_cmd_rsp(struct eswifi_dev *eswifi, char *cmd, char **rsp)
@@ -138,6 +155,13 @@ int eswifi_at_cmd_rsp(struct eswifi_dev *eswifi, char *cmd, char **rsp)
 			     sizeof(eswifi->buf));
 	if (len < 0) {
 		return -EIO;
+	}
+
+	if (len >= CONFIG_WIFI_ESWIFI_MAX_DATA_SIZE) {
+		LOG_WRN("Buffer might be too small for response!");
+		LOG_WRN("Data length %d", len);
+		LOG_WRN("See CONFIG_WIFI_ESWIFI_MAX_DATA_SIZE (in build: %d)",
+			CONFIG_WIFI_ESWIFI_MAX_DATA_SIZE);
 	}
 
 	/*
@@ -186,6 +210,8 @@ struct eswifi_dev *eswifi_by_iface_idx(uint8_t iface)
 static int __parse_ipv4_address(char *str, char *ssid, uint8_t ip[4])
 {
 	int byte = -1;
+	char *endptr;
+	long v;
 
 	/* fmt => [JOIN   ] SSID,192.168.2.18,0,0 */
 	while (*str && byte < 4) {
@@ -198,9 +224,20 @@ static int __parse_ipv4_address(char *str, char *ssid, uint8_t ip[4])
 			continue;
 		}
 
-		ip[byte++] = atoi(str);
+		errno = 0;
+		v = strtol(str, &endptr, 10);
+
+		if (errno || endptr == str || v < 0 || v > 255) {
+			return -EINVAL;
+		}
+
+		ip[byte++] = (uint8_t)v;
 		while (*str && (*str++ != '.')) {
 		}
+	}
+
+	if (byte != 4) {
+		return -EINVAL;
 	}
 
 	return 0;
@@ -227,7 +264,10 @@ static void eswifi_scan(struct eswifi_dev *eswifi)
 		if (data[i] == '#') {
 			struct wifi_scan_result res = {0};
 
-			__parse_scan_res(&data[i], &res);
+			if (__parse_scan_res(&data[i], &res) < 0) {
+				eswifi->scan_cb(eswifi->iface, -EINVAL, NULL);
+				goto unlock_wifi;
+			}
 
 			eswifi->scan_cb(eswifi->iface, 0, &res);
 			k_yield();
@@ -241,13 +281,14 @@ static void eswifi_scan(struct eswifi_dev *eswifi)
 	/* WiFi scan is done. */
 	eswifi->scan_cb(eswifi->iface, 0, NULL);
 
+unlock_wifi:
 	eswifi_unlock(eswifi);
 }
 
 static int eswifi_connect(struct eswifi_dev *eswifi)
 {
 	char connect[] = "C0\r";
-	struct in_addr addr;
+	struct net_in_addr addr;
 	char *rsp;
 	int err;
 
@@ -289,8 +330,8 @@ static int eswifi_connect(struct eswifi_dev *eswifi)
 	}
 
 	/* Any IP assigned ? (dhcp offload or manually) */
-	err = __parse_ipv4_address(rsp, eswifi->sta.ssid,
-				   (uint8_t *)&addr.s4_addr);
+	err = __parse_ipv4_address(rsp, eswifi->sta.ssid, (uint8_t *)&addr.s4_addr);
+
 	if (err < 0) {
 		LOG_ERR("Unable to retrieve IP address");
 		goto error;
@@ -343,6 +384,8 @@ static void eswifi_status_work(struct k_work *work)
 	char rssi[] = "CR\r";
 	char *rsp;
 	int ret;
+	long v;
+	char *endptr;
 
 	eswifi = CONTAINER_OF(dwork, struct eswifi_dev, status_work);
 
@@ -372,7 +415,13 @@ static void eswifi_status_work(struct k_work *work)
 		LOG_ERR("Unable to retrieve rssi");
 		/* continue */
 	} else {
-		eswifi->sta.rssi = atoi(rsp);
+		errno = 0;
+		v = strtol(rsp, &endptr, 10);
+		if (errno || endptr == rsp || v < INT8_MIN || v > INT8_MAX) {
+			LOG_ERR("Invalid RSSI value");
+		} else {
+			eswifi->sta.rssi = (int8_t)v;
+		}
 	}
 
 	k_work_reschedule_for_queue(&eswifi->work_q, &eswifi->status_work,
@@ -416,6 +465,8 @@ static int eswifi_get_mac_addr(struct eswifi_dev *eswifi, uint8_t addr[6])
 	char cmd[] = "Z5\r";
 	int ret, i, byte = 0;
 	char *rsp;
+	char *endptr;
+	long v;
 
 	ret = eswifi_at_cmd_rsp(eswifi, cmd, &rsp);
 	if (ret < 0) {
@@ -424,7 +475,17 @@ static int eswifi_get_mac_addr(struct eswifi_dev *eswifi, uint8_t addr[6])
 
 	/* format is "ff:ff:ff:ff:ff:ff" */
 	for (i = 0; i < ret && byte < 6; i++) {
-		addr[byte++] = strtol(&rsp[i], NULL, 16);
+		/* Ensure at least two hex characters remain */
+		if (ret - i < 2) {
+			return -EIO;
+		}
+
+		errno = 0;
+		v = strtol(&rsp[i], &endptr, 16);
+		if (errno || endptr != &rsp[i + 2] || v < 0 || v > 0xff) {
+			return -EIO;
+		}
+		addr[byte++] = (uint8_t)v;
 		i += 2;
 	}
 
@@ -476,6 +537,7 @@ static void eswifi_iface_init(struct net_if *iface)
 }
 
 int eswifi_mgmt_iface_status(const struct device *dev,
+			     struct net_if *iface __unused,
 			     struct wifi_iface_status *status)
 {
 	struct eswifi_dev *eswifi = dev->data;
@@ -521,6 +583,7 @@ int eswifi_mgmt_iface_status(const struct device *dev,
 }
 
 static int eswifi_mgmt_scan(const struct device *dev,
+			    struct net_if *iface __unused,
 			    struct wifi_scan_params *params,
 			    scan_result_cb_t cb)
 {
@@ -541,7 +604,7 @@ static int eswifi_mgmt_scan(const struct device *dev,
 	return 0;
 }
 
-static int eswifi_mgmt_disconnect(const struct device *dev)
+static int eswifi_mgmt_disconnect(const struct device *dev, struct net_if *iface __unused)
 {
 	struct eswifi_dev *eswifi = dev->data;
 
@@ -587,6 +650,7 @@ static int __eswifi_sta_config(struct eswifi_dev *eswifi,
 }
 
 static int eswifi_mgmt_connect(const struct device *dev,
+			       struct net_if *iface __unused,
 			       struct wifi_connect_req_params *params)
 {
 	struct eswifi_dev *eswifi = dev->data;
@@ -615,10 +679,11 @@ void eswifi_async_msg(struct eswifi_dev *eswifi, char *msg, size_t len)
 
 #if defined(CONFIG_NET_IPV4)
 static int eswifi_mgmt_ap_enable(const struct device *dev,
+				 struct net_if *iface,
 				 struct wifi_connect_req_params *params)
 {
 	struct eswifi_dev *eswifi = dev->data;
-	struct net_if_ipv4 *ipv4 = eswifi->iface->config.ip.ipv4;
+	struct net_if_ipv4 *ipv4 = iface->config.ip.ipv4;
 	struct net_if_addr *unicast = NULL;
 	int err = -EIO, i;
 
@@ -676,8 +741,8 @@ static int eswifi_mgmt_ap_enable(const struct device *dev,
 
 	/* Set IP Address */
 	for (i = 0; ipv4 && i < NET_IF_MAX_IPV4_ADDR; i++) {
-		if (ipv4->unicast[i].is_used) {
-			unicast = &ipv4->unicast[i];
+		if (ipv4->unicast[i].ipv4.is_used) {
+			unicast = &ipv4->unicast[i].ipv4;
 			break;
 		}
 	}
@@ -714,6 +779,7 @@ error:
 }
 #else
 static int eswifi_mgmt_ap_enable(const struct device *dev,
+				 struct net_if *iface __unused,
 				 struct wifi_connect_req_params *params)
 {
 	LOG_ERR("IPv4 requested for AP mode");
@@ -721,7 +787,7 @@ static int eswifi_mgmt_ap_enable(const struct device *dev,
 }
 #endif /* CONFIG_NET_IPV4 */
 
-static int eswifi_mgmt_ap_disable(const struct device *dev)
+static int eswifi_mgmt_ap_disable(const struct device *dev, struct net_if *iface __unused)
 {
 	struct eswifi_dev *eswifi = dev->data;
 	char cmd[] = "AE\r";
@@ -806,3 +872,5 @@ NET_DEVICE_DT_INST_OFFLOAD_DEFINE(0, eswifi_init, NULL,
 				  CONFIG_WIFI_INIT_PRIORITY,
 				  &eswifi_offload_api,
 				  1500);
+
+CONNECTIVITY_WIFI_MGMT_BIND(Z_DEVICE_DT_DEV_ID(DT_DRV_INST(0)));

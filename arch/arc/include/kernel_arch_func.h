@@ -26,6 +26,8 @@
 
 #include <v2/irq.h>
 
+#include <zephyr/platform/hooks.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -33,6 +35,8 @@ extern "C" {
 static ALWAYS_INLINE void arch_kernel_init(void)
 {
 	z_irq_setup();
+
+	soc_per_core_init_hook();
 }
 
 
@@ -62,9 +66,7 @@ extern void z_arc_userspace_enter(k_thread_entry_t user_entry, void *p1,
 		 void *p2, void *p3, uint32_t stack, uint32_t size,
 		 struct k_thread *thread);
 
-extern void z_arc_fatal_error(unsigned int reason, const z_arch_esf_t *esf);
-
-extern void arch_sched_ipi(void);
+extern void z_arc_fatal_error(unsigned int reason, const struct arch_esf *esf);
 
 extern void z_arc_switch(void *switch_to, void **switched_from);
 

@@ -68,6 +68,9 @@ https://docs.zephyrproject.org/latest/security/vulnerabilities.html
 * CVE-2023-5563 `Zephyr project bug tracker GHSA-98mc-rj7w-7rpv
   <https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-98mc-rj7w-7rpv>`_
 
+* CVE-2023-5753 `Zephyr project bug tracker GHSA-hmpr-px56-rvww
+  <https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-hmpr-px56-rvww>`_
+
 Kernel
 ******
 
@@ -257,7 +260,7 @@ Bluetooth
   * Fixed BIS payload sliding window overrun check
   * Fixed CIS Central FT calculation
   * Fixed CIS Central error handling
-  * Fixed CIS assymmetric PHY usage
+  * Fixed CIS asymmetric PHY usage
   * Fixed CIS encryption when DF support enabled
   * Fixed ISO-AL for quality tests and time stamps
   * Fixed PHY value in HCI LE CIS Established Event
@@ -341,7 +344,7 @@ Boards & SoC Support
 
 * Added support for these POSIX boards:
 
-  * :ref:`native_sim(_64) <native_sim>`
+  * :zephyr:board:`native_sim(_64) <native_sim>`
   * nrf5340bsim_nrf5340_cpu(net|app). A simulated nrf5340 SOC, which uses Babblesim for its radio
     traffic.
 
@@ -427,7 +430,7 @@ Build system and infrastructure
 * Build time priority checking: enable build time priority checking by default.
   This fails the build if the initialization sequence in the final ELF file
   does not match the devicetree hierarchy. It can be turned off by disabling
-  the :kconfig:option:`COFNIG_CHECK_INIT_PRIORITIES` option.
+  the :kconfig:option:`CONFIG_CHECK_INIT_PRIORITIES` option.
 
 * Added a new ``initlevels`` target for printing the final device and
   :c:macro:`SYS_INIT` initialization sequence from the final ELF file.
@@ -837,7 +840,7 @@ Networking
     When :kconfig:option:`CONFIG_LWM2M_COAP_BLOCK_TRANSFER` is enabled, any content that is larger
     than :kconfig:option:`CONFIG_LWM2M_COAP_MAX_MSG_SIZE` is split into a block-wise transfer.
   * Block-wise transfers don't require tokens to match anymore as this was not in line
-    with CoAP specification (CoAP doesn't require tokens re-use).
+    with CoAP specification (CoAP doesn't require tokens reuse).
   * Various fixes to bootstrap. Now client ensures that Bootstrap-Finish command is sent,
     before closing the DTLS pipe. Also allows Bootstrap server to close the DTLS pipe.
     Added timeout when waiting for bootstrap commands.
@@ -1019,7 +1022,7 @@ Bindings
     * The ``riscv,isa`` property used by RISC-V CPU bindings no longer has an
       ``enum`` value.
 
-    * :dtcompatible:`neorv32-cpu`:
+    * :dtcompatible:`neorv32,cpu`:
 
           * new property: ``mmu-type``
           * new property: ``riscv,isa``
@@ -2091,7 +2094,7 @@ Libraries / Subsystems
     :kconfig:option:`CONFIG_MCUMGR_MGMT_HANDLER_USER_DATA` is enabled.
 
   * Added optional ``force`` parameter to os mgmt reset command, this can be checked in the
-    :c:enum:`MGMT_EVT_OP_OS_MGMT_RESET` notification callback whose data structure is
+    :c:enumerator:`MGMT_EVT_OP_OS_MGMT_RESET` notification callback whose data structure is
     :c:struct:`os_mgmt_reset_data`.
 
   * Added configurable number of SMP encoding levels via
@@ -2112,7 +2115,7 @@ Libraries / Subsystems
   * Added support of mounting littlefs on the block device from the shell/fs.
   * Added alignment parameter to FS_LITTLEFS_DECLARE_CUSTOM_CONFIG macro, it can speed up read/write
     operation for SDMMC devices in case when we align buffers on CONFIG_SDHC_BUFFER_ALIGNMENT,
-    because we can avoid extra copy of data from card bffer to read/prog buffer.
+    because we can avoid extra copy of data from card buffer to read/prog buffer.
 
 * Random
 
@@ -2177,7 +2180,7 @@ Libraries / Subsystems
     the heap.
   * Added a new type of observer called Message Subscriber. ZBus' VDED will send a copy of the
     message during the publication/notification process.
-  * Changed the VDED delivery sequence. Check the ref:`documentation<zbus delivery sequence>`.
+  * Changed the VDED delivery sequence. Check the :ref:`documentation <zbus delivery sequence>`.
   * ZBus runtime observers now rely on the heap instead of a memory pool.
   * Added new iterable section iterators APIs (for channels and observers) can now receive a
     ``user_data`` pointer to keep context between the function calls.
@@ -2319,8 +2322,8 @@ Documentation
 Tests and Samples
 *****************
 
-* Created common sample for file systems (`fs_sample`). It originates from sample for FAT
-  (`fat_fs`) and supports both FAT and ext2 file systems.
+* Created common sample for file systems (``fs_sample``). It originates from sample for FAT
+  (``fat_fs``) and supports both FAT and ext2 file systems.
 
 * Created the zbus confirmed channel sample to demonstrate how to implement a delivery-guaranteed
   channel using subscribers.

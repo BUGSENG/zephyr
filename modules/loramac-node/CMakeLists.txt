@@ -30,6 +30,8 @@ if(${CONFIG_HAS_SEMTECH_LORAMAC})
   zephyr_library_include_directories(
     ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac
     ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region
+    # required for FUOTA FragDecoder.h
+    ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/apps/LoRaMac/common/LmHandler/packages
   )
 endif()
 
@@ -53,31 +55,35 @@ zephyr_library_sources_ifdef(CONFIG_HAS_SEMTECH_LORAMAC
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/LoRaMacSerializer.c
 )
 
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_FRAG_TRANSPORT_DECODER_SEMTECH
+  ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/apps/LoRaMac/common/LmHandler/packages/FragDecoder.c
+)
+
 zephyr_library_sources_ifdef(CONFIG_HAS_SEMTECH_LORAMAC
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/Region.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCommon.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_EU868
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_EU868
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionEU868.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_US915
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_US915
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionBaseUS.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionUS915.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_CN779
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_CN779
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN779.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_EU433
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_EU433
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionEU433.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_AU915
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_AU915
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionBaseUS.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionAU915.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_AS923
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_AS923
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionAS923.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_CN470
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_CN470
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionBaseUS.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470A20.c
@@ -85,13 +91,13 @@ zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_CN470
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470B20.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470B26.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_KR920
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_KR920
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionKR920.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_IN865
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_IN865
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionIN865.c
 )
-zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_RU864
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_REGION_RU864
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionRU864.c
 )
 

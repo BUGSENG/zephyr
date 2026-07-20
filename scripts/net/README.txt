@@ -31,14 +31,14 @@ The scripts/net/run-sample-tests.sh shell script can be used in two ways:
 1. From a Zephyr network sample test directory.
    Example:
 
-   cd samples/net/gptp
+   cd samples/net/ethernet/gptp
    $ZEPHYR_BASE/scripts/net/run-sample-tests.sh
 
 2. By giving the test directories as parameters to the runner script.
    Example:
 
    cd $ZEPHYR_BASE
-   ./scripts/net/run-sample-tests.sh samples/net/gptp \
+   ./scripts/net/run-sample-tests.sh samples/net/ethernet/gptp \
                                      samples/net/sockets/echo_server
 
 User can see what samples are supported like this:
@@ -46,7 +46,7 @@ User can see what samples are supported like this:
    $ZEPHYR_BASE/scripts/net/run-sample-tests.sh --scan
 
 The Docker container and a corresponding 'net-tools0' Docker network is started
-by the script, as well as Zephyr using native_posix board. IP addresses are
+by the script, as well as Zephyr using native_sim board. IP addresses are
 assigned to the Docker network, which is a Linux network bridge interface.
 The default IP addresses are:
 

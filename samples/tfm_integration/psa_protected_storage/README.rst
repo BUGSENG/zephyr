@@ -1,7 +1,7 @@
-.. psa_protected_storage:
+.. zephyr:code-sample:: psa_protected_storage
+   :name: TF-M PSA Protected Storage
 
-PSA Protected Storage
-#####################
+   Use the Protected Storage (PS) API to store encrypted data.
 
 Overview
 ********
@@ -26,7 +26,7 @@ Secure Storage API: https://developer.arm.com/architectures/architecture-securit
 
 This sample is available for platforms that are supported in the trusted-firmware-m repo:
 https://git.trustedfirmware.org/TF-M/trusted-firmware-m.git/
-See sample.yaml for a list of supported platforms.
+See tests.yaml for a list of supported platforms.
 
 Building and Running
 ********************
@@ -41,12 +41,12 @@ run as the overwrite protection will not be removed with a power reset.
 On QEMU
 ========
 
-Refer to :ref:`tfm_ipc` for detailed instructions.
+Refer to :zephyr:code-sample:`tfm_ipc` for detailed instructions.
 Following is an example based on ``west build``
 
    .. code-block:: bash
 
-      $ west build samples/tfm_integration/psa_protected_storage/ -p -b mps2_an521_ns -t run
+      $ west build samples/tfm_integration/psa_protected_storage/ -p -b mps2/an521/cpu0/ns -t run
 
 Sample Output
 =============

@@ -11,16 +11,16 @@
 #include <string.h>
 
 #include <zephyr/settings/settings.h>
-#include "settings/settings_fcb.h"
+#include <settings/settings_fcb.h>
 #include "settings_priv.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(settings, CONFIG_SETTINGS_LOG_LEVEL);
 
 #if DT_HAS_CHOSEN(zephyr_settings_partition)
-#define SETTINGS_PARTITION DT_FIXED_PARTITION_ID(DT_CHOSEN(zephyr_settings_partition))
+#define SETTINGS_PARTITION DT_PARTITION_ID(DT_CHOSEN(zephyr_settings_partition))
 #else
-#define SETTINGS_PARTITION FIXED_PARTITION_ID(storage_partition)
+#define SETTINGS_PARTITION PARTITION_ID(storage_partition)
 #endif
 
 #define SETTINGS_FCB_VERS		1
@@ -74,7 +74,7 @@ int settings_fcb_src(struct settings_fcb *cf)
 		 */
 		if (fcb_free_sector_cnt(&cf->cf_fcb) < 1) {
 
-			rc = flash_area_erase(cf->cf_fcb.fap,
+			rc = flash_area_flatten(cf->cf_fcb.fap,
 					cf->cf_fcb.f_active.fe_sector->fs_off,
 					cf->cf_fcb.f_active.fe_sector->fs_size);
 
@@ -424,7 +424,7 @@ int settings_backend_init(void)
 			return rc;
 		}
 
-		rc = flash_area_erase(fap, 0, fap->fa_size);
+		rc = flash_area_flatten(fap, 0, fap->fa_size);
 		flash_area_close(fap);
 
 		if (rc != 0) {

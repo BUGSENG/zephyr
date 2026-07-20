@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef _ADC_NPCX_THRESHOLD_H_
-#define _ADC_NPCX_THRESHOLD_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_ADC_ADC_NPCX_THRESHOLD_H_
+#define ZEPHYR_INCLUDE_DRIVERS_ADC_ADC_NPCX_THRESHOLD_H_
 
 #include <zephyr/device.h>
 
@@ -19,7 +19,7 @@ enum adc_npcx_threshold_param_type {
 	ADC_NPCX_THRESHOLD_PARAM_CHNSEL,
 	/* Sets relation between measured value and assetion threshold value.*/
 	ADC_NPCX_THRESHOLD_PARAM_L_H,
-	/* Sets the threshol value to which measured data is compared. */
+	/* Sets the threshold value to which measured data is compared. */
 	ADC_NPCX_THRESHOLD_PARAM_THVAL,
 	/* Sets worker queue thread to be notified */
 	ADC_NPCX_THRESHOLD_PARAM_WORK,
@@ -82,9 +82,9 @@ int adc_npcx_threshold_ctrl_set_param(const struct device *dev,
  *
  * @returns 0 on success, negative error code otherwise.
  *            all parameters must be configure prior enabling threshold
- *            interruption, otherwhise error will be returned.
+ *            interruption, otherwise error will be returned.
  */
 int adc_npcx_threshold_ctrl_enable(const struct device *dev, uint8_t th_sel,
 				   const bool enable);
 
-#endif /*_ADC_NPCX_THRESHOLD_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_ADC_ADC_NPCX_THRESHOLD_H_ */

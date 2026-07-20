@@ -162,7 +162,6 @@ void pcie_conf_write(pcie_bdf_t bdf, unsigned int reg, uint32_t data)
 #ifdef CONFIG_INTEL_VTD_ICTL
 
 #include <zephyr/drivers/interrupt_controller/intel_vtd.h>
-#include <zephyr/arch/x86/acpi.h>
 
 static const struct device *const vtd = DEVICE_DT_GET_ONE(intel_vt_d);
 
@@ -250,18 +249,24 @@ uint8_t arch_pcie_msi_vectors_allocate(unsigned int priority,
 
 	for (i = 0; i < n_vector; i++) {
 		if (n_vector == 1) {
-			/* This path is taken by PCIE device with fixed
-			 * or single MSI: IRQ has been already allocated
-			 * and/or set on the PCIe bus. Thus we only require
-			 * to get it.
+			/* For PCIE device with fixed or single MSI: IRQ has
+			 * been already allocated and/or set on the PCIe bus.
+			 * We only need to retrieve it.
 			 */
 			irq = pcie_get_irq(vectors->bdf);
+
+			/* If that is not the case, we will need to allocate
+			 * IRQ before proceeding.
+			 */
+			if (irq == PCIE_CONF_INTR_IRQ_NONE) {
+				irq = arch_irq_allocate();
+			}
 		} else {
 			irq = arch_irq_allocate();
 		}
 
 		if ((irq == PCIE_CONF_INTR_IRQ_NONE) || (irq == -1)) {
-			return -1;
+			return 0;
 		}
 
 		vector = z_x86_allocate_vector(priority, prev_vector);

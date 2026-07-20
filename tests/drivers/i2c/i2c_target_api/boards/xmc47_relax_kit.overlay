@@ -41,6 +41,7 @@
 
 	scl-src = "DX1B";
 	sda-src = "DX0A";
+
 	eeprom1: eeprom@56 {
 		compatible = "zephyr,i2c-target-eeprom";
 		reg = <0x56>;
@@ -67,8 +68,8 @@
 };
 
 &i2c_sda_p3_15_u1c1 {
-    /delete-property/ drive-open-drain;
-    bias-pull-up;
+	/delete-property/ drive-open-drain;
+	bias-pull-up;
 };
 
 &i2c_sda_dout0_p1_9_u1c1 {

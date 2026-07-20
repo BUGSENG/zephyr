@@ -9,7 +9,7 @@ Overview
 The link board ETH is an ethernet expansion board based on ENC424J600
 ethernet controller and compatible with the Arduino UNO R3 connector.
 It was developed as an expansion component for the reel board.
-See :ref:`reel_board` documentation for more information about
+See :zephyr:board:`reel_board` documentation for more information about
 link board family and how to connect it to the reel board.
 
 .. image:: img/link_board_eth.jpg
@@ -102,7 +102,7 @@ For more information about the link board ETH and ENC424J600:
 Programming
 ***********
 
-Set ``-DSHIELD=link_board_eth`` when you invoke ``west build`` or ``cmake`` in your
+Set ``--shield link_board_eth`` when you invoke ``west build`` or ``cmake`` in your
 Zephyr application. For example:
 
 .. zephyr-app-commands::

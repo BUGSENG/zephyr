@@ -2,29 +2,45 @@
 
 /*
  * Copyright (c) 2020 Intel Corporation
- * Copyright (c) 2021 Nordic Semiconductor ASA
+ * Copyright (c) 2021-2026 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/kernel.h>
-#include <zephyr/sys/byteorder.h>
-#include <zephyr/sys/check.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
+#include <zephyr/arch/common/ffs.h>
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/buf.h>
+#include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/bluetooth/iso.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/net_buf.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/sys/atomic.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/slist.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/sys_clock.h>
+#include <zephyr/toolchain.h>
 
+#include "common/assert.h"
+#include "host/buf_view.h"
 #include "host/hci_core.h"
 #include "host/conn_internal.h"
 #include "iso_internal.h"
 
-#include "common/assert.h"
-
-#define LOG_LEVEL CONFIG_BT_ISO_LOG_LEVEL
-#include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(bt_iso);
+LOG_MODULE_REGISTER(bt_iso, CONFIG_BT_ISO_LOG_LEVEL);
 
 #if defined(CONFIG_BT_DEBUG_ISO_DATA)
 #define BT_ISO_DATA_DBG(fmt, ...) LOG_DBG(fmt, ##__VA_ARGS__)
@@ -34,25 +50,29 @@ LOG_MODULE_REGISTER(bt_iso);
 
 #define iso_chan(_iso) ((_iso)->iso.chan);
 
-#if defined(CONFIG_BT_ISO_UNICAST) || defined(CONFIG_BT_ISO_SYNC_RECEIVER)
+#if defined(CONFIG_BT_ISO_RX)
+static atomic_ptr_t buf_rx_freed_cb;
+
+static void iso_rx_buf_destroy(struct net_buf *buf)
+{
+	bt_iso_buf_rx_freed_cb_t cb;
+
+	cb = (bt_iso_buf_rx_freed_cb_t)atomic_ptr_get(&buf_rx_freed_cb);
+
+	net_buf_destroy(buf);
+
+	if (cb != NULL) {
+		cb();
+	}
+}
+
 NET_BUF_POOL_FIXED_DEFINE(iso_rx_pool, CONFIG_BT_ISO_RX_BUF_COUNT,
-			  BT_ISO_SDU_BUF_SIZE(CONFIG_BT_ISO_RX_MTU), 8, NULL);
+			  BT_ISO_SDU_BUF_SIZE(CONFIG_BT_ISO_RX_MTU), sizeof(struct bt_conn_rx),
+			  iso_rx_buf_destroy);
 
 static struct bt_iso_recv_info iso_info_data[CONFIG_BT_ISO_RX_BUF_COUNT];
 #define iso_info(buf) (&iso_info_data[net_buf_id(buf)])
-#endif /* CONFIG_BT_ISO_UNICAST || CONFIG_BT_ISO_SYNC_RECEIVER */
-
-#if defined(CONFIG_BT_ISO_UNICAST) || defined(CONFIG_BT_ISO_BROADCAST)
-NET_BUF_POOL_FIXED_DEFINE(iso_tx_pool, CONFIG_BT_ISO_TX_BUF_COUNT,
-			  BT_ISO_SDU_BUF_SIZE(CONFIG_BT_ISO_TX_MTU),
-			  CONFIG_BT_CONN_TX_USER_DATA_SIZE, NULL);
-
-#if CONFIG_BT_ISO_TX_FRAG_COUNT > 0
-NET_BUF_POOL_FIXED_DEFINE(iso_frag_pool, CONFIG_BT_ISO_TX_FRAG_COUNT,
-			  BT_ISO_SDU_BUF_SIZE(CONFIG_BT_ISO_TX_MTU),
-			  CONFIG_BT_CONN_TX_USER_DATA_SIZE, NULL);
-#endif /* CONFIG_BT_ISO_TX_FRAG_COUNT > 0 */
-#endif /* CONFIG_BT_ISO_UNICAST || CONFIG_BT_ISO_BROADCAST */
+#endif /* CONFIG_BT_ISO_RX */
 
 struct bt_conn iso_conns[CONFIG_BT_ISO_MAX_CHAN];
 
@@ -61,9 +81,7 @@ struct bt_conn iso_conns[CONFIG_BT_ISO_MAX_CHAN];
 struct bt_iso_cig cigs[CONFIG_BT_ISO_MAX_CIG];
 
 static struct bt_iso_cig *get_cig(const struct bt_iso_chan *iso_chan);
-static void bt_iso_remove_data_path(struct bt_conn *iso);
-static int hci_le_create_cis(const struct bt_iso_connect_param *param,
-			     size_t count);
+static int hci_le_create_cis(const struct bt_iso_connect_param *param, size_t count);
 
 #endif /* CONFIG_BT_ISO_CENTRAL */
 
@@ -79,9 +97,9 @@ struct bt_iso_big bigs[CONFIG_BT_ISO_MAX_BIG];
 static struct bt_iso_big *lookup_big_by_handle(uint8_t big_handle);
 #endif /* CONFIG_BT_ISO_BROADCAST */
 
-#if defined(CONFIG_BT_ISO_UNICAST) || defined(CONFIG_BT_ISO_BROADCASTER)
-static void bt_iso_send_cb(struct bt_conn *iso, void *user_data, int err)
+static void bt_iso_sent_cb(struct bt_conn *iso, void *user_data, int err)
 {
+#if defined(CONFIG_BT_ISO_TX)
 	struct bt_iso_chan *chan = iso->iso.chan;
 	struct bt_iso_chan_ops *ops;
 
@@ -92,9 +110,8 @@ static void bt_iso_send_cb(struct bt_conn *iso, void *user_data, int err)
 	if (!err && ops != NULL && ops->sent != NULL) {
 		ops->sent(chan);
 	}
+#endif /* CONFIG_BT_ISO_TX */
 }
-#endif /* CONFIG_BT_ISO_UNICAST || CONFIG_BT_ISO_BROADCASTER */
-
 
 void hci_iso(struct net_buf *buf)
 {
@@ -119,8 +136,7 @@ void hci_iso(struct net_buf *buf)
 	iso(buf)->handle = bt_iso_handle(handle);
 	iso(buf)->index = BT_CONN_INDEX_INVALID;
 
-	BT_ISO_DATA_DBG("handle %u len %u flags %u",
-			iso(buf)->handle, len, flags);
+	BT_ISO_DATA_DBG("handle %u len %u flags %u", iso(buf)->handle, len, flags);
 
 	if (buf->len != len) {
 		LOG_ERR("ISO data length mismatch (%u != %u)", buf->len, len);
@@ -141,63 +157,38 @@ void hci_iso(struct net_buf *buf)
 	bt_conn_unref(iso);
 }
 
+/* Pull data from the ISO layer */
+static struct net_buf *iso_data_pull(struct bt_conn *conn, size_t amount, size_t *length);
+
+/* Returns true if the ISO layer has data to send on this conn */
+static bool iso_has_data(struct bt_conn *conn);
+
+static void iso_get_and_clear_cb(struct bt_conn *conn, struct net_buf *buf, bt_conn_tx_cb_t *cb,
+				 void **ud)
+{
+	if (IS_ENABLED(CONFIG_BT_ISO_TX)) {
+		*cb = bt_iso_sent_cb;
+	} else {
+		*cb = NULL;
+	}
+
+	*ud = NULL;
+}
+
 static struct bt_conn *iso_new(void)
 {
 	struct bt_conn *iso = bt_conn_new(iso_conns, ARRAY_SIZE(iso_conns));
 
 	if (iso) {
 		iso->type = BT_CONN_TYPE_ISO;
+		iso->tx_data_pull = iso_data_pull;
+		iso->get_and_clear_cb = iso_get_and_clear_cb;
+		iso->has_data = iso_has_data;
 	} else {
 		LOG_DBG("Could not create new ISO");
 	}
 
 	return iso;
-}
-
-#if defined(CONFIG_NET_BUF_LOG)
-struct net_buf *bt_iso_create_pdu_timeout_debug(struct net_buf_pool *pool,
-						size_t reserve,
-						k_timeout_t timeout,
-						const char *func, int line)
-#else
-struct net_buf *bt_iso_create_pdu_timeout(struct net_buf_pool *pool,
-					  size_t reserve, k_timeout_t timeout)
-#endif
-{
-	if (!pool) {
-		pool = &iso_tx_pool;
-	}
-
-	reserve += sizeof(struct bt_hci_iso_data_hdr);
-
-#if defined(CONFIG_NET_BUF_LOG)
-	return bt_conn_create_pdu_timeout_debug(pool, reserve, timeout, func,
-						line);
-#else
-	return bt_conn_create_pdu_timeout(pool, reserve, timeout);
-#endif
-}
-
-#if defined(CONFIG_NET_BUF_LOG)
-struct net_buf *bt_iso_create_frag_timeout_debug(size_t reserve,
-						 k_timeout_t timeout,
-						 const char *func, int line)
-#else
-struct net_buf *bt_iso_create_frag_timeout(size_t reserve, k_timeout_t timeout)
-#endif
-{
-	struct net_buf_pool *pool = NULL;
-
-#if CONFIG_BT_ISO_TX_FRAG_COUNT > 0
-	pool = &iso_frag_pool;
-#endif /* CONFIG_BT_ISO_TX_FRAG_COUNT > 0 */
-
-#if defined(CONFIG_NET_BUF_LOG)
-	return bt_conn_create_pdu_timeout_debug(pool, reserve, timeout, func,
-						line);
-#else
-	return bt_conn_create_pdu_timeout(pool, reserve, timeout);
-#endif
 }
 
 static int hci_le_setup_iso_data_path(const struct bt_conn *iso, uint8_t dir,
@@ -209,17 +200,7 @@ static int hci_le_setup_iso_data_path(const struct bt_conn *iso, uint8_t dir,
 	uint8_t *cc;
 	int err;
 
-	__ASSERT(dir == BT_HCI_DATAPATH_DIR_HOST_TO_CTLR ||
-		 dir == BT_HCI_DATAPATH_DIR_CTLR_TO_HOST,
-		 "invalid ISO data path dir: %u", dir);
-
-	if ((path->cc == NULL && path->cc_len != 0)) {
-		LOG_DBG("Invalid ISO data path CC: %p %u", path->cc, path->cc_len);
-
-		return -EINVAL;
-	}
-
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SETUP_ISO_PATH, sizeof(*cp) + path->cc_len);
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -233,9 +214,10 @@ static int hci_le_setup_iso_data_path(const struct bt_conn *iso, uint8_t dir,
 	cp->codec_id.vs_codec_id = sys_cpu_to_le16(path->vid);
 	sys_put_le24(path->delay, cp->controller_delay);
 	cp->codec_config_len = path->cc_len;
-	cc = net_buf_add(buf, cp->codec_config_len);
-	memcpy(cc, path->cc, cp->codec_config_len);
-
+	cc = net_buf_add(buf, path->cc_len);
+	if (path->cc_len) {
+		memcpy(cc, path->cc, path->cc_len);
+	}
 	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_SETUP_ISO_PATH, buf, &rsp);
 	if (err) {
 		return err;
@@ -256,110 +238,199 @@ static void bt_iso_chan_add(struct bt_conn *iso, struct bt_iso_chan *chan)
 	/* Attach ISO channel to the connection */
 	chan->iso = iso;
 	iso->iso.chan = chan;
+	k_fifo_init(&iso->iso.txq);
 
 	LOG_DBG("iso %p chan %p", iso, chan);
 }
 
-static int bt_iso_setup_data_path(struct bt_iso_chan *chan)
+static int validate_iso_setup_data_path_parms(const struct bt_iso_chan *chan, uint8_t dir,
+					      const struct bt_iso_chan_path *path)
 {
-	int err;
-	struct bt_iso_chan_path default_hci_path = { .pid = BT_ISO_DATA_PATH_HCI,
-						     .format = BT_HCI_CODING_FORMAT_TRANSPARENT,
-						     .cc_len = 0x00 };
-	struct bt_iso_chan_path *out_path = NULL;
-	struct bt_iso_chan_path *in_path = NULL;
-	struct bt_iso_chan_io_qos *tx_qos;
-	struct bt_iso_chan_io_qos *rx_qos;
 	struct bt_conn *iso;
-	uint8_t dir;
 
-	iso = chan->iso;
+	if (chan == NULL) {
+		LOG_DBG("chan is NULL");
 
-	tx_qos = chan->qos->tx;
-	rx_qos = chan->qos->rx;
-
-	/* The following code sets the in and out paths for ISO data.
-	 * If the application provides a path for a direction (tx/rx) we use
-	 * that, otherwise we simply fall back to HCI.
-	 *
-	 * If the direction is not set (by whether tx_qos or rx_qos is NULL),
-	 * then we fallback to the HCI path object, but we disable the direction
-	 * in the controller.
-	 */
-
-	if (tx_qos != NULL && iso->iso.info.can_send) {
-		if (tx_qos->path != NULL) { /* Use application path */
-			in_path = tx_qos->path;
-		} else { /* else fallback to HCI path */
-			in_path = &default_hci_path;
-		}
-	}
-
-	if (rx_qos != NULL && iso->iso.info.can_recv) {
-		if (rx_qos->path != NULL) { /* Use application path */
-			out_path = rx_qos->path;
-		} else { /* else fallback to HCI path */
-			out_path = &default_hci_path;
-		}
-	}
-
-	__ASSERT(in_path || out_path,
-		 "At least one path shall be shell: in %p out %p",
-		 in_path, out_path);
-
-	if (IS_ENABLED(CONFIG_BT_ISO_BROADCASTER) &&
-	    iso->iso.info.type == BT_ISO_CHAN_TYPE_BROADCASTER && in_path) {
-		dir = BT_HCI_DATAPATH_DIR_HOST_TO_CTLR;
-		err = hci_le_setup_iso_data_path(iso, dir, in_path);
-		if (err != 0) {
-			LOG_DBG("Failed to set broadcaster data path: %d", err);
-		}
-
-		return err;
-	} else if (IS_ENABLED(CONFIG_BT_ISO_SYNC_RECEIVER) &&
-		   iso->iso.info.type == BT_ISO_CHAN_TYPE_SYNC_RECEIVER &&
-		   out_path) {
-		dir = BT_HCI_DATAPATH_DIR_CTLR_TO_HOST;
-		err = hci_le_setup_iso_data_path(iso, dir, out_path);
-		if (err != 0) {
-			LOG_DBG("Failed to set sync receiver data path: %d", err);
-		}
-
-		return err;
-	} else if (IS_ENABLED(CONFIG_BT_ISO_UNICAST) &&
-		   iso->iso.info.type == BT_ISO_CHAN_TYPE_CONNECTED) {
-		if (in_path != NULL) {
-			/* Enable TX */
-			dir = BT_HCI_DATAPATH_DIR_HOST_TO_CTLR;
-			err = hci_le_setup_iso_data_path(iso, dir, in_path);
-			if (err) {
-				LOG_DBG("Failed to setup host-to-ctrl path: %d", err);
-				return err;
-			}
-		}
-
-		if (out_path != NULL) {
-			/* Enable RX */
-			dir = BT_HCI_DATAPATH_DIR_CTLR_TO_HOST;
-			err = hci_le_setup_iso_data_path(iso, dir, out_path);
-			if (err) {
-				LOG_DBG("Failed to setup ctlr-to-host path: %d", err);
-				return err;
-			}
-		}
-
-		return 0;
-	} else {
-		__ASSERT(false, "Invalid iso.info.type: %u",
-			 iso->iso.info.type);
 		return -EINVAL;
 	}
+
+	if (path == NULL) {
+		LOG_DBG("path is NULL");
+
+		return -EINVAL;
+	}
+
+	if (dir != BT_HCI_DATAPATH_DIR_HOST_TO_CTLR && dir != BT_HCI_DATAPATH_DIR_CTLR_TO_HOST) {
+		LOG_DBG("Invalid dir: %u", dir);
+
+		return -EINVAL;
+	}
+
+	iso = chan->iso;
+	if (iso == NULL) {
+		LOG_DBG("chan %p not associated with a CIS/BIS handle", chan);
+
+		return -ENODEV;
+	}
+
+	if (!iso->iso.info.can_recv && dir == BT_HCI_DATAPATH_DIR_CTLR_TO_HOST) {
+		LOG_DBG("Invalid dir %u for chan %p that cannot receive data", dir, chan);
+
+		return -EINVAL;
+	}
+
+	if (!iso->iso.info.can_send && dir == BT_HCI_DATAPATH_DIR_HOST_TO_CTLR) {
+		LOG_DBG("Invalid dir %u for chan %p that cannot send data", dir, chan);
+
+		return -EINVAL;
+	}
+
+	if (path->pid != BT_ISO_DATA_PATH_HCI &&
+	    !IN_RANGE(path->pid, BT_ISO_DATA_PATH_VS_ID_MIN, BT_ISO_DATA_PATH_VS_ID_MAX)) {
+		LOG_DBG("Invalid pid %u", path->pid);
+
+		return -EINVAL;
+	}
+
+	if (path->format > BT_HCI_CODING_FORMAT_G729A && path->format != BT_HCI_CODING_FORMAT_VS) {
+		LOG_DBG("Invalid format %u", path->format);
+
+		return -EINVAL;
+	}
+
+	if (path->delay > BT_ISO_CONTROLLER_DELAY_MAX) {
+		LOG_DBG("Invalid delay: %u", path->delay);
+
+		return -EINVAL;
+	}
+
+	if (path->cc_len > 0U && path->cc == NULL) {
+		LOG_DBG("No CC provided for CC length %u", path->cc_len);
+
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int bt_iso_setup_data_path(const struct bt_iso_chan *chan, uint8_t dir,
+			   const struct bt_iso_chan_path *path)
+{
+	int err;
+
+	err = validate_iso_setup_data_path_parms(chan, dir, path);
+	if (err != 0) {
+		return err;
+	}
+
+	err = hci_le_setup_iso_data_path(chan->iso, dir, path);
+	if (err != 0) {
+		LOG_DBG("Failed to set data path: %d", err);
+
+		/* Return known possible errors */
+		if (err == -ENOBUFS || err == -EIO || err == -EACCES) {
+			return err;
+		}
+
+		LOG_DBG("Unknown error from hci_le_setup_iso_data_path: %d", err);
+
+		return -ENOEXEC;
+	}
+
+	return 0;
+}
+
+static int hci_le_remove_iso_data_path(struct bt_conn *iso, uint8_t dir)
+{
+	struct bt_hci_cp_le_remove_iso_path *cp;
+	struct bt_hci_rp_le_remove_iso_path *rp;
+	struct net_buf *buf, *rsp;
+	int err;
+
+	buf = bt_hci_cmd_alloc(K_FOREVER);
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	cp->handle = sys_cpu_to_le16(iso->handle);
+	/* The path_dir is a bitfield and it's technically possible to do BIT(0) | BIT(1) but for
+	 * simplicity our API only supports removing a single ISO data path at a time.
+	 * We can convert from BT_HCI_DATAPATH_DIR_HOST_TO_CTLR and BT_HCI_DATAPATH_DIR_CTLR_TO_HOST
+	 * to the proper values just by using `BIT`
+	 */
+	cp->path_dir = BIT(dir);
+
+	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_REMOVE_ISO_PATH, buf, &rsp);
+	if (err) {
+		return err;
+	}
+
+	rp = (void *)rsp->data;
+	if (rp->status || (sys_le16_to_cpu(rp->handle) != iso->handle)) {
+		err = -EIO;
+	}
+
+	net_buf_unref(rsp);
+
+	return err;
+}
+
+static int validate_iso_remove_data_path(const struct bt_iso_chan *chan, uint8_t dir)
+{
+	struct bt_conn *iso;
+
+	if (chan == NULL) {
+		LOG_DBG("chan is NULL");
+
+		return -EINVAL;
+	}
+
+	if (dir != BT_HCI_DATAPATH_DIR_HOST_TO_CTLR && dir != BT_HCI_DATAPATH_DIR_CTLR_TO_HOST) {
+		LOG_DBG("Invalid dir: %u", dir);
+
+		return -EINVAL;
+	}
+
+	iso = chan->iso;
+	if (iso == NULL) {
+		LOG_DBG("chan %p not associated with a CIS/BIS handle", chan);
+
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
+int bt_iso_remove_data_path(const struct bt_iso_chan *chan, uint8_t dir)
+{
+	int err;
+
+	err = validate_iso_remove_data_path(chan, dir);
+	if (err != 0) {
+		return err;
+	}
+
+	err = hci_le_remove_iso_data_path(chan->iso, dir);
+	if (err != 0) {
+		LOG_DBG("Failed to remove data path: %d", err);
+
+		/* Return known possible errors */
+		if (err == -ENOBUFS || err == -EIO || err == -EACCES) {
+			return err;
+		}
+
+		LOG_DBG("Unknown error from hci_le_remove_iso_data_path: %d", err);
+
+		return -ENOEXEC;
+	}
+
+	return 0;
 }
 
 void bt_iso_connected(struct bt_conn *iso)
 {
 	struct bt_iso_chan *chan;
-	int err;
 
 	if (iso == NULL || iso->type != BT_CONN_TYPE_ISO) {
 		LOG_DBG("Invalid parameters: iso %p iso->type %u", iso, iso ? iso->type : 0);
@@ -374,34 +445,6 @@ void bt_iso_connected(struct bt_conn *iso)
 		return;
 	}
 
-	err = bt_iso_setup_data_path(chan);
-	if (err != 0) {
-		if (false) {
-
-#if defined(CONFIG_BT_ISO_BROADCAST)
-		} else if (iso->iso.info.type == BT_ISO_CHAN_TYPE_BROADCASTER ||
-			   iso->iso.info.type == BT_ISO_CHAN_TYPE_SYNC_RECEIVER) {
-			struct bt_iso_big *big;
-
-			big = lookup_big_by_handle(iso->iso.big_handle);
-
-			err = bt_iso_big_terminate(big);
-			if (err != 0) {
-				LOG_ERR("Could not terminate BIG: %d", err);
-			}
-#endif /* CONFIG_BT_ISO_BROADCAST */
-
-		} else if (IS_ENABLED(CONFIG_BT_ISO_UNICAST) &&
-		    iso->iso.info.type == BT_ISO_CHAN_TYPE_CONNECTED) {
-			bt_conn_disconnect(iso,
-					   BT_HCI_ERR_REMOTE_USER_TERM_CONN);
-		} else {
-			__ASSERT(false, "Invalid iso.info.type: %u",
-				 iso->iso.info.type);
-		}
-		return;
-	}
-
 	bt_iso_chan_set_state(chan, BT_ISO_STATE_CONNECTED);
 
 	if (chan->ops->connected) {
@@ -411,29 +454,43 @@ void bt_iso_connected(struct bt_conn *iso)
 
 static void bt_iso_chan_disconnected(struct bt_iso_chan *chan, uint8_t reason)
 {
+	uint8_t conn_type;
+	struct net_buf *buf;
+
 	LOG_DBG("%p, reason 0x%02x", chan, reason);
 
 	__ASSERT(chan->iso != NULL, "NULL conn for iso chan %p", chan);
 
+	/* release buffers from tx_queue */
+	while ((buf = k_fifo_get(&chan->iso->iso.txq, K_NO_WAIT))) {
+		__ASSERT_NO_MSG(!bt_buf_has_view(buf));
+		net_buf_unref(buf);
+	}
+
 	bt_iso_chan_set_state(chan, BT_ISO_STATE_DISCONNECTED);
+	bt_conn_set_state(chan->iso, BT_CONN_DISCONNECT_COMPLETE);
+
+	/* Calling disconnected before final cleanup allows users to use bt_iso_chan_get_info in
+	 * the callback and to be more similar to the ACL disconnected callback. This also means
+	 * that the channel cannot be reused or memset in the callback
+	 */
+	if (chan->ops->disconnected) {
+		chan->ops->disconnected(chan, reason);
+	}
+
+	conn_type = chan->iso->iso.info.type;
 
 	/* The peripheral does not have the concept of a CIG, so once a CIS
 	 * disconnects it is completely freed by unref'ing it
 	 */
 	if (IS_ENABLED(CONFIG_BT_ISO_UNICAST) &&
-	    chan->iso->iso.info.type == BT_ISO_CHAN_TYPE_CONNECTED) {
+	    (conn_type == BT_ISO_CHAN_TYPE_CENTRAL || conn_type == BT_ISO_CHAN_TYPE_PERIPHERAL)) {
 		bt_iso_cleanup_acl(chan->iso);
 
-		if (chan->iso->role == BT_HCI_ROLE_PERIPHERAL) {
-			bt_conn_unref(chan->iso);
-			chan->iso = NULL;
+		if (conn_type == BT_ISO_CHAN_TYPE_PERIPHERAL) {
+			bt_conn_drop(&chan->iso);
 #if defined(CONFIG_BT_ISO_CENTRAL)
 		} else {
-			/* ISO data paths are automatically removed when the
-			 * peripheral disconnects, so we only need to
-			 * move it for the central
-			 */
-			bt_iso_remove_data_path(chan->iso);
 			bool is_chan_connected;
 			struct bt_iso_cig *cig;
 			struct bt_iso_chan *cis_chan;
@@ -444,8 +501,7 @@ static void bt_iso_chan_disconnected(struct bt_iso_chan *chan, uint8_t reason)
 
 			is_chan_connected = false;
 			SYS_SLIST_FOR_EACH_CONTAINER(&cig->cis_channels, cis_chan, node) {
-				if (cis_chan->state == BT_ISO_STATE_CONNECTED ||
-				    cis_chan->state == BT_ISO_STATE_CONNECTING) {
+				if (cis_chan->state != BT_ISO_STATE_DISCONNECTED) {
 					is_chan_connected = true;
 					break;
 				}
@@ -456,10 +512,15 @@ static void bt_iso_chan_disconnected(struct bt_iso_chan *chan, uint8_t reason)
 			}
 #endif /* CONFIG_BT_ISO_CENTRAL */
 		}
-	}
-
-	if (chan->ops->disconnected) {
-		chan->ops->disconnected(chan, reason);
+	} else if (IS_ENABLED(CONFIG_BT_ISO_BROADCASTER) &&
+		   conn_type == BT_ISO_CHAN_TYPE_BROADCASTER) {
+		/* BIS do not get a HCI Disconnected event and will not handle cleanup of pending TX
+		 * complete in the same way as ACL and CIS do. Call bt_conn_tx_notify directly here
+		 * to flush the chan->iso->tx_complete for each disconnected BIS
+		 */
+		bt_conn_tx_notify(chan->iso, true);
+	} else {
+		/* No special handling for BT_ISO_CHAN_TYPE_SYNC_RECEIVER */
 	}
 }
 
@@ -491,8 +552,6 @@ const char *bt_iso_chan_state_str(uint8_t state)
 		return "disconnected";
 	case BT_ISO_STATE_CONNECTING:
 		return "connecting";
-	case BT_ISO_STATE_ENCRYPT_PENDING:
-		return "encryption pending";
 	case BT_ISO_STATE_CONNECTED:
 		return "connected";
 	case BT_ISO_STATE_DISCONNECTING:
@@ -502,8 +561,7 @@ const char *bt_iso_chan_state_str(uint8_t state)
 	}
 }
 
-void bt_iso_chan_set_state_debug(struct bt_iso_chan *chan,
-				 enum bt_iso_state state,
+void bt_iso_chan_set_state_debug(struct bt_iso_chan *chan, enum bt_iso_state state,
 				 const char *func, int line)
 {
 	LOG_DBG("chan %p iso %p %s -> %s", chan, chan->iso, bt_iso_chan_state_str(chan->state),
@@ -514,8 +572,6 @@ void bt_iso_chan_set_state_debug(struct bt_iso_chan *chan,
 	case BT_ISO_STATE_DISCONNECTED:
 		/* regardless of old state always allows this states */
 		break;
-	case BT_ISO_STATE_ENCRYPT_PENDING:
-		__fallthrough;
 	case BT_ISO_STATE_CONNECTING:
 		if (chan->state != BT_ISO_STATE_DISCONNECTED) {
 			LOG_WRN("%s()%d: invalid transition", func, line);
@@ -546,20 +602,19 @@ void bt_iso_chan_set_state(struct bt_iso_chan *chan, enum bt_iso_state state)
 }
 #endif /* CONFIG_BT_ISO_LOG_LEVEL_DBG */
 
-int bt_iso_chan_get_info(const struct bt_iso_chan *chan,
-			 struct bt_iso_info *info)
+int bt_iso_chan_get_info(const struct bt_iso_chan *chan, struct bt_iso_info *info)
 {
-	CHECKIF(chan == NULL) {
+	if (chan == NULL) {
 		LOG_DBG("chan is NULL");
 		return -EINVAL;
 	}
 
-	CHECKIF(chan->iso == NULL) {
+	if (chan->iso == NULL) {
 		LOG_DBG("chan->iso is NULL");
 		return -EINVAL;
 	}
 
-	CHECKIF(info == NULL) {
+	if (info == NULL) {
 		LOG_DBG("info is NULL");
 		return -EINVAL;
 	}
@@ -569,22 +624,26 @@ int bt_iso_chan_get_info(const struct bt_iso_chan *chan,
 	return 0;
 }
 
-#if defined(CONFIG_BT_ISO_UNICAST) || defined(CONFIG_BT_ISO_SYNC_RECEIVER)
+#if defined(CONFIG_BT_ISO_RX)
 struct net_buf *bt_iso_get_rx(k_timeout_t timeout)
 {
 	struct net_buf *buf = net_buf_alloc(&iso_rx_pool, timeout);
 
 	if (buf) {
-		net_buf_reserve(buf, BT_BUF_RESERVE);
-		bt_buf_set_type(buf, BT_BUF_ISO_IN);
+		net_buf_add_u8(buf, BT_HCI_H4_ISO);
 	}
 
 	return buf;
 }
 
+void bt_iso_buf_rx_freed_cb_set(bt_iso_buf_rx_freed_cb_t cb)
+{
+	atomic_ptr_set(&buf_rx_freed_cb, (void *)cb);
+}
+
 void bt_iso_recv(struct bt_conn *iso, struct net_buf *buf, uint8_t flags)
 {
-	struct bt_hci_iso_data_hdr *hdr;
+	struct bt_hci_iso_sdu_hdr *hdr;
 	struct bt_iso_chan *chan;
 	uint8_t pb, ts;
 	uint16_t len, pkt_seq_no;
@@ -592,8 +651,8 @@ void bt_iso_recv(struct bt_conn *iso, struct net_buf *buf, uint8_t flags)
 	pb = bt_iso_flags_pb(flags);
 	ts = bt_iso_flags_ts(flags);
 
-	BT_ISO_DATA_DBG("handle %u len %u flags 0x%02x pb 0x%02x ts 0x%02x",
-			iso->handle, buf->len, flags, pb, ts);
+	BT_ISO_DATA_DBG("handle %u len %u flags 0x%02x pb 0x%02x ts 0x%02x", iso->handle, buf->len,
+			flags, pb, ts);
 
 	/* When the PB_Flag does not equal BT_ISO_START or BT_ISO_SINGLE,
 	 * the fields Time_Stamp, Packet_Sequence_Number, Packet_Status_Flag
@@ -608,14 +667,28 @@ void bt_iso_recv(struct bt_conn *iso, struct net_buf *buf, uint8_t flags)
 		 * of an SDU or a complete SDU.
 		 */
 		if (ts) {
-			struct bt_hci_iso_ts_data_hdr *ts_hdr;
+			struct bt_hci_iso_sdu_ts_hdr *ts_hdr;
+
+			if (buf->len < sizeof(*ts_hdr)) {
+				LOG_ERR("Unexpected ISO buffer size %u (< %zu)", buf->len,
+					sizeof(*ts_hdr));
+				net_buf_unref(buf);
+				return;
+			}
 
 			ts_hdr = net_buf_pull_mem(buf, sizeof(*ts_hdr));
 			iso_info(buf)->ts = sys_le32_to_cpu(ts_hdr->ts);
 
-			hdr = &ts_hdr->data;
+			hdr = &ts_hdr->sdu;
 			iso_info(buf)->flags |= BT_ISO_FLAGS_TS;
 		} else {
+			if (buf->len < sizeof(*hdr)) {
+				LOG_ERR("Unexpected ISO buffer size %u (< %zu)", buf->len,
+					sizeof(*hdr));
+				net_buf_unref(buf);
+				return;
+			}
+
 			hdr = net_buf_pull_mem(buf, sizeof(*hdr));
 			/* TODO: Generate a timestamp? */
 			iso_info(buf)->ts = 0x00000000;
@@ -638,8 +711,8 @@ void bt_iso_recv(struct bt_conn *iso, struct net_buf *buf, uint8_t flags)
 		}
 
 		BT_ISO_DATA_DBG("%s, len %u total %u flags 0x%02x timestamp %u",
-				pb == BT_ISO_START ? "Start" : "Single",
-				buf->len, len, flags, iso_info(buf)->ts);
+				pb == BT_ISO_START ? "Start" : "Single", buf->len, len, flags,
+				iso_info(buf)->ts);
 
 		if (iso->rx) {
 			LOG_ERR("Unexpected ISO %s fragment",
@@ -671,8 +744,7 @@ void bt_iso_recv(struct bt_conn *iso, struct net_buf *buf, uint8_t flags)
 			return;
 		}
 
-		BT_ISO_DATA_DBG("Cont, len %u rx_len %u",
-				buf->len, iso->rx_len);
+		BT_ISO_DATA_DBG("Cont, len %u rx_len %u", buf->len, iso->rx_len);
 
 		if (buf->len > net_buf_tailroom(iso->rx)) {
 			LOG_ERR("Not enough buffer space for ISO data");
@@ -726,11 +798,77 @@ void bt_iso_recv(struct bt_conn *iso, struct net_buf *buf, uint8_t flags)
 
 	bt_conn_reset_rx_state(iso);
 }
-#endif /* CONFIG_BT_ISO_UNICAST) || defined(CONFIG_BT_ISO_SYNC_RECEIVER */
+#endif /* CONFIG_BT_ISO_RX */
 
-#if defined(CONFIG_BT_ISO_UNICAST) || defined(CONFIG_BT_ISO_BROADCASTER)
-static uint16_t iso_chan_max_data_len(const struct bt_iso_chan *chan,
-				      uint32_t ts)
+static bool iso_has_data(struct bt_conn *conn)
+{
+#if defined(CONFIG_BT_ISO_TX)
+	return ((conn->iso.chan->state == BT_ISO_STATE_CONNECTED) &&
+		!k_fifo_is_empty(&conn->iso.txq));
+#else  /* !CONFIG_BT_ISO_TX */
+	return false;
+#endif /* CONFIG_BT_ISO_TX */
+}
+
+static struct net_buf *iso_data_pull(struct bt_conn *conn, size_t amount, size_t *length)
+{
+#if defined(CONFIG_BT_ISO_TX)
+	BT_ISO_DATA_DBG("conn %p amount %d", conn, amount);
+
+	/* Leave the PDU buffer in the queue until we have sent all its
+	 * fragments.
+	 */
+	struct net_buf *q_frag = k_fifo_peek_head(&conn->iso.txq);
+
+	if (!q_frag) {
+		BT_ISO_DATA_DBG("signaled ready but no frag available");
+		/* Service other connections */
+		bt_tx_irq_raise();
+
+		return NULL;
+	}
+
+	__ASSERT_NO_MSG(conn->state == BT_CONN_CONNECTED);
+
+	if (conn->iso.chan->state != BT_ISO_STATE_CONNECTED) {
+		LOG_DBG("channel has been disconnected");
+
+		/* Service other connections */
+		bt_tx_irq_raise();
+
+		return NULL;
+	}
+
+	if (bt_buf_has_view(q_frag)) {
+		/* This should not happen. conn.c should wait until the view is
+		 * destroyed before requesting more data.
+		 */
+		LOG_DBG("already have view");
+		return NULL;
+	}
+
+	struct net_buf *frag = net_buf_ref(q_frag);
+	bool last_frag = amount >= frag->len;
+
+	if (last_frag) {
+		q_frag = k_fifo_get(&conn->iso.txq, K_NO_WAIT);
+
+		BT_ISO_DATA_DBG("last frag, pop buf");
+		__ASSERT_NO_MSG(q_frag == frag);
+
+		net_buf_unref(q_frag);
+	}
+
+	*length = frag->len;
+
+	return frag;
+#else
+	return NULL;
+#endif
+}
+
+#if defined(CONFIG_BT_ISO_TX)
+static uint16_t iso_chan_max_data_len(const struct bt_iso_chan *chan)
 {
 	size_t max_controller_data_len;
 	uint16_t max_data_len;
@@ -750,93 +888,135 @@ static uint16_t iso_chan_max_data_len(const struct bt_iso_chan *chan,
 	return max_data_len;
 }
 
-int bt_iso_chan_send(struct bt_iso_chan *chan, struct net_buf *buf,
-		     uint16_t seq_num, uint32_t ts)
+int conn_iso_send(struct bt_conn *conn, struct net_buf *buf, enum bt_iso_timestamp has_ts)
 {
-	uint16_t max_data_len;
-	struct bt_conn *iso_conn;
+	if (buf->user_data_size < CONFIG_BT_CONN_TX_USER_DATA_SIZE) {
+		LOG_ERR("not enough room in user_data %d < %d pool %u", buf->user_data_size,
+			CONFIG_BT_CONN_TX_USER_DATA_SIZE, buf->pool_id);
+		return -EINVAL;
+	}
 
-	CHECKIF(!chan || !buf) {
+	k_fifo_put(&conn->iso.txq, buf);
+	BT_ISO_DATA_DBG("%p put on list", buf);
+
+	/* only one ISO channel per conn-object */
+	bt_conn_data_ready(conn);
+
+	return 0;
+}
+
+static int validate_send(const struct bt_iso_chan *chan, const struct net_buf *buf,
+			 uint8_t hdr_size)
+{
+	const struct bt_conn *iso_conn;
+	uint16_t max_data_len;
+
+	if (!chan || !buf) {
 		LOG_DBG("Invalid parameters: chan %p buf %p", chan, buf);
 		return -EINVAL;
 	}
 
 	BT_ISO_DATA_DBG("chan %p len %zu", chan, net_buf_frags_len(buf));
 
-	if (chan->state != BT_ISO_STATE_CONNECTED) {
-		LOG_DBG("Not connected");
+	iso_conn = chan->iso;
+	if (iso_conn == NULL || iso_conn->state != BT_CONN_CONNECTED ||
+	    chan->state != BT_ISO_STATE_CONNECTED) {
+		LOG_DBG("Channel %p not connected", chan);
 		return -ENOTCONN;
 	}
 
-	iso_conn = chan->iso;
 	if (!iso_conn->iso.info.can_send) {
-		LOG_DBG("Channel not able to send");
+		LOG_DBG("Channel %p not able to send", chan);
 		return -EINVAL;
 	}
 
-	if (ts == BT_ISO_TIMESTAMP_NONE &&
-	    buf->size < BT_HCI_ISO_DATA_HDR_SIZE) {
-		LOG_DBG("Cannot send ISO packet with buffer size %u", buf->size);
+	if (net_buf_headroom(buf) != BT_BUF_ISO_SIZE(0)) {
+		LOG_DBG("Buffer headroom (%d) != BT_BUF_ISO_SIZE(0) (%d) bytes",
+			net_buf_headroom(buf), BT_BUF_ISO_SIZE(0));
 
-		return -EMSGSIZE;
-	} else if (buf->size < BT_HCI_ISO_TS_DATA_HDR_SIZE) {
-		LOG_DBG("Cannot send ISO packet with timestamp with buffer size %u", buf->size);
+		/* DO NOT remove this check. We rely on precise headroom further
+		 * below in the stack to determine if `buf` contains a timestamp
+		 * field or not. See conn.c:contains_iso_timestamp.
+		 */
 
 		return -EMSGSIZE;
 	}
 
-	max_data_len = iso_chan_max_data_len(chan, ts);
+	if (buf->size < hdr_size) {
+		LOG_DBG("Channel %p cannot send ISO packet with buffer size %u", chan, buf->size);
+
+		return -EMSGSIZE;
+	}
+
+	max_data_len = iso_chan_max_data_len(chan);
 	if (buf->len > max_data_len) {
-		LOG_DBG("Cannot send %u octets, maximum %u", buf->len, max_data_len);
+		LOG_DBG("Channel %p cannot send %u octets, maximum %u", chan, buf->len,
+			max_data_len);
 		return -EMSGSIZE;
 	}
 
-	if (ts == BT_ISO_TIMESTAMP_NONE) {
-		struct bt_hci_iso_data_hdr *hdr;
+	return 0;
+}
 
-		hdr = net_buf_push(buf, sizeof(*hdr));
-		hdr->sn = sys_cpu_to_le16(seq_num);
-		hdr->slen = sys_cpu_to_le16(bt_iso_pkt_len_pack(net_buf_frags_len(buf)
-								- sizeof(*hdr),
-								BT_ISO_DATA_VALID));
-	} else {
-		struct bt_hci_iso_ts_data_hdr *hdr;
+int bt_iso_chan_send(struct bt_iso_chan *chan, struct net_buf *buf, uint16_t seq_num)
+{
+	struct bt_hci_iso_sdu_hdr *hdr;
+	struct bt_conn *iso_conn;
+	int err;
 
-		hdr = net_buf_push(buf, sizeof(*hdr));
-		hdr->ts = ts;
-		hdr->data.sn = sys_cpu_to_le16(seq_num);
-		hdr->data.slen = sys_cpu_to_le16(bt_iso_pkt_len_pack(net_buf_frags_len(buf)
-								     - sizeof(*hdr),
-								     BT_ISO_DATA_VALID));
+	err = validate_send(chan, buf, BT_HCI_ISO_SDU_HDR_SIZE);
+	if (err != 0) {
+		return err;
 	}
 
-	return bt_conn_send_iso_cb(iso_conn,
-				   buf,
-				   bt_iso_send_cb,
-				   ts != BT_ISO_TIMESTAMP_NONE);
+	BT_ISO_DATA_DBG("chan %p len %zu", chan, net_buf_frags_len(buf));
+
+	hdr = net_buf_push(buf, sizeof(*hdr));
+	hdr->sn = sys_cpu_to_le16(seq_num);
+	hdr->slen = sys_cpu_to_le16(
+		bt_iso_pkt_len_pack(net_buf_frags_len(buf) - sizeof(*hdr), BT_ISO_DATA_VALID));
+
+	iso_conn = chan->iso;
+
+	return conn_iso_send(iso_conn, buf, BT_ISO_TS_ABSENT);
+}
+
+int bt_iso_chan_send_ts(struct bt_iso_chan *chan, struct net_buf *buf, uint16_t seq_num,
+			uint32_t ts)
+{
+	struct bt_hci_iso_sdu_ts_hdr *hdr;
+	struct bt_conn *iso_conn;
+	int err;
+
+	err = validate_send(chan, buf, BT_HCI_ISO_SDU_TS_HDR_SIZE);
+	if (err != 0) {
+		return err;
+	}
+
+	BT_ISO_DATA_DBG("chan %p len %zu ts %u", chan, net_buf_frags_len(buf), ts);
+
+	hdr = net_buf_push(buf, sizeof(*hdr));
+	hdr->ts = sys_cpu_to_le32(ts);
+	hdr->sdu.sn = sys_cpu_to_le16(seq_num);
+	hdr->sdu.slen = sys_cpu_to_le16(
+		bt_iso_pkt_len_pack(net_buf_frags_len(buf) - sizeof(*hdr), BT_ISO_DATA_VALID));
+
+	iso_conn = chan->iso;
+
+	return conn_iso_send(iso_conn, buf, BT_ISO_TS_PRESENT);
 }
 
 #if defined(CONFIG_BT_ISO_CENTRAL) || defined(CONFIG_BT_ISO_BROADCASTER)
-static bool valid_chan_io_qos(const struct bt_iso_chan_io_qos *io_qos,
-			      bool is_tx, bool is_broadcast, bool advanced)
+static bool valid_chan_io_qos(const struct bt_iso_chan_io_qos *io_qos, bool is_tx,
+			      bool is_broadcast, bool advanced)
 {
-	const size_t max_mtu = (is_tx ? CONFIG_BT_ISO_TX_MTU : CONFIG_BT_ISO_RX_MTU);
-	const size_t max_sdu = MIN(max_mtu, BT_ISO_MAX_SDU);
-
-	if (io_qos->sdu > max_sdu) {
-		LOG_DBG("sdu (%u) shall be smaller or equal to %zu", io_qos->sdu, max_sdu);
-
-		return false;
-	}
-
 	if (!IN_RANGE(io_qos->phy, BT_GAP_LE_PHY_1M, BT_GAP_LE_PHY_CODED)) {
 		LOG_DBG("Invalid PHY %u", io_qos->phy);
 
 		return false;
 	}
 
-	if (IS_ENABLED(CONFIG_BT_ISO_BROADCASTER) &&
-	    is_broadcast &&
+	if (IS_ENABLED(CONFIG_BT_ISO_BROADCASTER) && is_broadcast &&
 	    io_qos->rtn > BT_ISO_BROADCAST_RTN_MAX) {
 		LOG_DBG("Invalid RTN %u", io_qos->phy);
 
@@ -846,26 +1026,20 @@ static bool valid_chan_io_qos(const struct bt_iso_chan_io_qos *io_qos,
 #if defined(CONFIG_BT_ISO_TEST_PARAMS)
 	if (advanced) {
 		if (IS_ENABLED(CONFIG_BT_ISO_BROADCASTER) && is_broadcast) {
-			if (!IN_RANGE(io_qos->max_pdu,
-				      BT_ISO_BROADCAST_PDU_MIN,
-				      BT_ISO_PDU_MAX)) {
-				LOG_DBG("Invalid PDU %u", io_qos->max_pdu);
+			if (!IN_RANGE(io_qos->max_pdu, BT_ISO_BROADCAST_PDU_MIN, BT_ISO_PDU_MAX)) {
+				LOG_DBG("Invalid broadcast PDU %u", io_qos->max_pdu);
 
 				return false;
 			}
 		} else if (IS_ENABLED(CONFIG_BT_ISO_CENTRAL)) {
-			if (!IN_RANGE(io_qos->max_pdu,
-				      BT_ISO_CONNECTED_PDU_MIN,
-				      BT_ISO_PDU_MAX)) {
-				LOG_DBG("Invalid PDU %u", io_qos->max_pdu);
+			if (!IN_RANGE(io_qos->max_pdu, BT_ISO_CONNECTED_PDU_MIN, BT_ISO_PDU_MAX)) {
+				LOG_DBG("Invalid unicast PDU %u", io_qos->max_pdu);
 
 				return false;
 			}
 		}
 
-		if (!IN_RANGE(io_qos->burst_number,
-			      BT_ISO_BN_MIN,
-			      BT_ISO_BN_MAX)) {
+		if (!IN_RANGE(io_qos->burst_number, BT_ISO_BN_MIN, BT_ISO_BN_MAX)) {
 			LOG_DBG("Invalid BN %u", io_qos->burst_number);
 
 			return false;
@@ -887,26 +1061,26 @@ int bt_iso_chan_get_tx_sync(const struct bt_iso_chan *chan, struct bt_iso_tx_inf
 	struct net_buf *rsp = NULL;
 	int err;
 
-	CHECKIF(chan == NULL) {
+	if (chan == NULL) {
 		LOG_DBG("chan is NULL");
 		return -EINVAL;
 	}
 
-	CHECKIF(chan->iso == NULL) {
+	if (chan->iso == NULL) {
 		LOG_DBG("chan->iso is NULL");
 		return -EINVAL;
 	}
 
-	CHECKIF(info == NULL) {
+	if (info == NULL) {
 		LOG_DBG("info is NULL");
 		return -EINVAL;
 	}
 
-	CHECKIF(chan->state != BT_ISO_STATE_CONNECTED) {
+	if (chan->state != BT_ISO_STATE_CONNECTED) {
 		return -ENOTCONN;
 	}
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_READ_ISO_TX_SYNC, sizeof(*cp));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOMEM;
 	}
@@ -933,39 +1107,26 @@ int bt_iso_chan_get_tx_sync(const struct bt_iso_chan *chan, struct bt_iso_tx_inf
 
 	return 0;
 }
-#endif /* CONFIG_BT_ISO_UNICAST) || CONFIG_BT_ISO_BROADCASTER */
+#endif /* CONFIG_BT_ISO_TX */
 
 #if defined(CONFIG_BT_ISO_UNICAST)
 int bt_iso_chan_disconnect(struct bt_iso_chan *chan)
 {
 	int err;
 
-	CHECKIF(!chan) {
+	if (!chan) {
 		LOG_DBG("Invalid parameter: chan %p", chan);
 		return -EINVAL;
 	}
 
-	CHECKIF(chan->iso == NULL) {
+	if (chan->iso == NULL) {
 		LOG_DBG("Channel has not been initialized in a CIG");
 		return -EINVAL;
 	}
 
-	if (chan->iso->iso.acl == NULL ||
-	    chan->state == BT_ISO_STATE_DISCONNECTED) {
+	if (chan->iso->iso.acl == NULL || chan->state == BT_ISO_STATE_DISCONNECTED) {
 		LOG_DBG("Channel is not connected");
 		return -ENOTCONN;
-	}
-
-	if (chan->state == BT_ISO_STATE_ENCRYPT_PENDING) {
-		LOG_DBG("Channel already disconnected");
-		bt_iso_chan_set_state(chan, BT_ISO_STATE_DISCONNECTED);
-
-		if (chan->ops->disconnected) {
-			chan->ops->disconnected(chan,
-						BT_HCI_ERR_LOCALHOST_TERM_CONN);
-		}
-
-		return 0;
 	}
 
 	if (chan->state == BT_ISO_STATE_DISCONNECTING) {
@@ -990,42 +1151,259 @@ int bt_iso_chan_disconnect(struct bt_iso_chan *chan)
 	return err;
 }
 
+static bool bt_iso_acl_has_cis(const struct bt_conn *acl)
+{
+	ARRAY_FOR_EACH_PTR(iso_conns, iso_conn) {
+		struct bt_conn *iso = bt_conn_ref(iso_conn);
+
+		if (iso == NULL) {
+			continue;
+		}
+
+		if (iso->iso.acl == acl) {
+			bt_conn_unref(iso);
+
+			return true;
+		}
+
+		bt_conn_unref(iso);
+	}
+
+	return false;
+}
+
 void bt_iso_cleanup_acl(struct bt_conn *iso)
 {
+	struct bt_conn *acl = bt_conn_take(&iso->iso.acl);
 	LOG_DBG("%p", iso);
 
-	if (iso->iso.acl) {
-		bt_conn_unref(iso->iso.acl);
-		iso->iso.acl = NULL;
+	if (acl != NULL) {
+		/* If we have removed the last ACL reference, trigger the deferred work to finalize
+		 * the ACL disconnection
+		 */
+		if (acl->state == BT_CONN_DISCONNECTED && !bt_iso_acl_has_cis(acl)) {
+			LOG_DBG("Trigger disconnect work for ACL %p", acl);
+
+			__maybe_unused const int err =
+				k_work_schedule(&acl->deferred_work, K_NO_WAIT);
+
+			__ASSERT(err >= 0, "Failed to retrigger conn->deferred_work for %p", acl);
+		}
+
+		bt_conn_unref(acl);
 	}
 }
 
-static void store_cis_info(const struct bt_hci_evt_le_cis_established *evt,
-			   struct bt_iso_info *info)
+static void log_cis_info(const struct bt_conn_iso *iso_conn)
 {
+	const struct bt_iso_info *info = &iso_conn->info;
+	const struct bt_iso_unicast_info *unicast_info = &info->unicast;
+	const struct bt_iso_unicast_tx_info *peripheral = &unicast_info->peripheral;
+	const struct bt_iso_unicast_tx_info *central = &unicast_info->central;
+	const struct bt_iso_chan *chan = iso_conn->chan;
+
+	__ASSERT_NO_MSG(chan != NULL);
+
+	const struct bt_iso_chan_io_qos *tx = chan->qos == NULL ? NULL : chan->qos->tx;
+	const struct bt_iso_chan_io_qos *rx = chan->qos == NULL ? NULL : chan->qos->rx;
+
+	LOG_DBG("iso_chan %p established: tx %p, rx %p, iso_interval 0x%04X, max_subevent 0x%02X, "
+		"cig_id 0x%02X, cis_id 0x%02X, cig_sync_delay 0x%06X, cis_sync_delay 0x%06X, "
+		"subinterval 0x%08X%s",
+		chan, tx, rx, info->iso_interval, info->max_subevent, unicast_info->cig_id,
+		unicast_info->cis_id, unicast_info->cig_sync_delay, unicast_info->cis_sync_delay,
+		unicast_info->subinterval,
+		unicast_info->subinterval == BT_ISO_SUBINTERVAL_UNKNOWN ? " (unknown)" : "");
+
+	LOG_DBG("\tC to P: latency 0x%06X, flush_timeout 0x%06X, max_pdu 0x%04X, phy 0x%02X, "
+		"bn 0x%02X, max_sdu 0x%04X, sdu_interval 0x%06X%s",
+		central->latency, central->flush_timeout, central->max_pdu, central->phy,
+		central->bn, central->max_sdu, central->sdu_interval,
+		central->sdu_interval == BT_ISO_SDU_INTERVAL_UNKNOWN ? " (unknown)" : "");
+
+	LOG_DBG("\tP to C: latency 0x%06X, flush_timeout 0x%06X, max_pdu 0x%04X, phy 0x%02X, "
+		"bn 0x%02X, max_sdu 0x%04X, sdu_interval 0x%06X%s",
+		peripheral->latency, peripheral->flush_timeout, peripheral->max_pdu,
+		peripheral->phy, peripheral->bn, peripheral->max_sdu, peripheral->sdu_interval,
+		peripheral->sdu_interval == BT_ISO_SDU_INTERVAL_UNKNOWN ? " (unknown)" : "");
+}
+
+static void store_cis_info(const struct bt_hci_evt_le_cis_established *evt, struct bt_conn *iso)
+{
+	struct bt_conn_iso *iso_conn = &iso->iso;
+	struct bt_iso_info *info = &iso_conn->info;
 	struct bt_iso_unicast_info *unicast_info = &info->unicast;
-	struct bt_iso_unicast_tx_info *central = &unicast_info->central;
 	struct bt_iso_unicast_tx_info *peripheral = &unicast_info->peripheral;
+	struct bt_iso_unicast_tx_info *central = &unicast_info->central;
+	const uint8_t c_phy = bt_get_phy(evt->c_phy);
+	const uint8_t p_phy = bt_get_phy(evt->p_phy);
+	struct bt_iso_chan_io_qos *tx;
+	struct bt_iso_chan_io_qos *rx;
+	struct bt_iso_chan *chan;
+
+	iso_conn = &iso->iso;
+	chan = iso_conn->chan;
+	rx = chan->qos->rx;
+	tx = chan->qos->tx;
+
+	if (iso->role == BT_HCI_ROLE_PERIPHERAL) {
+		/* As of BT Core 6.0, we can only get the SDU size if the controller
+		 * supports bt_hci_evt_le_cis_established_v2. Since this is not guaranteeds,
+		 * we fallback to using the PDU size as the SDU size.
+		 */
+		if (rx != NULL) {
+			rx->phy = c_phy;
+			rx->sdu = sys_le16_to_cpu(evt->c_max_pdu);
+		}
+
+		if (tx != NULL) {
+			tx->phy = p_phy;
+			tx->sdu = sys_le16_to_cpu(evt->p_max_pdu);
+		}
+
+		iso_conn->info.type = BT_ISO_CHAN_TYPE_PERIPHERAL;
+	} else {
+		/* values are already set for central - Verify */
+		if (tx != NULL && tx->phy != c_phy) {
+			LOG_WRN("Unexpected C to P PHY: %u != %u", c_phy, tx->phy);
+			/* We assume that tx->phy has become invalid, and will use the event from
+			 * the controller as the truth
+			 */
+			tx->phy = c_phy;
+		}
+
+		if (rx != NULL && rx->phy != p_phy) {
+			LOG_WRN("Unexpected P to C max SDU: %u != %u", p_phy, rx->phy);
+			/* We assume that rx->phy has become invalid, and will use the event from
+			 * the controller as the truth
+			 */
+			rx->phy = p_phy;
+		}
+	}
+
+	/* Verify if device can send */
+	iso_conn->info.can_send = false;
+	if (tx != NULL) {
+		if (iso->role == BT_HCI_ROLE_PERIPHERAL && evt->p_bn > 0) {
+			iso_conn->info.can_send = true;
+		} else if (iso->role == BT_HCI_ROLE_CENTRAL && evt->c_bn > 0) {
+			iso_conn->info.can_send = true;
+		}
+	}
+
+	/* Verify if device can recv */
+	iso_conn->info.can_recv = false;
+	if (rx != NULL) {
+		if (iso->role == BT_HCI_ROLE_PERIPHERAL && evt->c_bn > 0) {
+			iso_conn->info.can_recv = true;
+		} else if (iso->role == BT_HCI_ROLE_CENTRAL && evt->p_bn > 0) {
+			iso_conn->info.can_recv = true;
+		}
+	}
 
 	info->iso_interval = sys_le16_to_cpu(evt->interval);
 	info->max_subevent = evt->nse;
 
 	unicast_info->cig_sync_delay = sys_get_le24(evt->cig_sync_delay);
 	unicast_info->cis_sync_delay = sys_get_le24(evt->cis_sync_delay);
+	unicast_info->cig_id = iso_conn->info.unicast.cig_id;
+	unicast_info->cis_id = iso_conn->info.unicast.cis_id;
 
 	central->bn = evt->c_bn;
 	central->phy = bt_get_phy(evt->c_phy);
-	central->latency = sys_get_le16(evt->c_latency);
+	central->latency = sys_get_le24(evt->c_latency);
 	central->max_pdu = sys_le16_to_cpu(evt->c_max_pdu);
 	/* Transform to n * 1.25ms */
 	central->flush_timeout = info->iso_interval * evt->c_ft;
 
 	peripheral->bn = evt->p_bn;
 	peripheral->phy = bt_get_phy(evt->p_phy);
-	peripheral->latency = sys_get_le16(evt->p_latency);
+	peripheral->latency = sys_get_le24(evt->p_latency);
 	peripheral->max_pdu = sys_le16_to_cpu(evt->p_max_pdu);
 	/* Transform to n * 1.25ms */
 	peripheral->flush_timeout = info->iso_interval * evt->p_ft;
+
+	/* The following values are only available with bt_hci_evt_le_cis_established_v2 so
+	 * initialize them to the "unknown" values
+	 */
+	unicast_info->subinterval = BT_ISO_SUBINTERVAL_UNKNOWN;
+
+	if (iso->role == BT_HCI_ROLE_PERIPHERAL) {
+		central->max_sdu = central->max_pdu;
+		central->sdu_interval = BT_ISO_SDU_INTERVAL_UNKNOWN;
+
+		peripheral->max_sdu = peripheral->max_pdu;
+		peripheral->sdu_interval = BT_ISO_SDU_INTERVAL_UNKNOWN;
+	} else {
+		central->max_sdu = tx == NULL ? 0 : tx->sdu;
+		central->sdu_interval = BT_ISO_SDU_INTERVAL_UNKNOWN;
+
+		peripheral->max_sdu = rx == NULL ? 0 : rx->sdu;
+		peripheral->sdu_interval = BT_ISO_SDU_INTERVAL_UNKNOWN;
+	}
+}
+
+/** Only store information that is not stored by store_cis_info
+ * Assumes that store_cis_info has been called first
+ */
+static void store_cis_info_v2(const struct bt_hci_evt_le_cis_established_v2 *evt,
+			      struct bt_conn *iso)
+{
+	struct bt_conn_iso *iso_conn = &iso->iso;
+	struct bt_iso_info *info = &iso_conn->info;
+	struct bt_iso_unicast_info *unicast_info = &info->unicast;
+	struct bt_iso_unicast_tx_info *peripheral = &unicast_info->peripheral;
+	struct bt_iso_unicast_tx_info *central = &unicast_info->central;
+	const uint16_t c_max_sdu = sys_le16_to_cpu(evt->c_max_sdu);
+	const uint16_t p_max_sdu = sys_le16_to_cpu(evt->p_max_sdu);
+	struct bt_iso_chan_io_qos *tx;
+	struct bt_iso_chan_io_qos *rx;
+	struct bt_iso_chan *chan;
+
+	/* The v1 version of the event is a subset of the v2 version - We can thus use the
+	 * store_cis_info function for the majority of the info
+	 */
+	store_cis_info((const struct bt_hci_evt_le_cis_established *)evt, iso);
+
+	chan = iso_conn->chan;
+	rx = chan->qos->rx;
+	tx = chan->qos->tx;
+
+	if (iso->role == BT_HCI_ROLE_PERIPHERAL) {
+		/* Update the SDU sizes in the IO QoS fields stored by store_cis_info */
+		if (rx != NULL) {
+			rx->sdu = c_max_sdu;
+		}
+
+		if (tx != NULL) {
+			tx->sdu = p_max_sdu;
+		}
+	} else {
+		/* values are already set for central - Verify */
+		if (tx != NULL && tx->sdu != c_max_sdu) {
+			LOG_WRN("Unexpected C to P max SDU: %u != %u", c_max_sdu, tx->sdu);
+			/* We assume that tx->sdu has become invalid, and will use the event from
+			 * the controller as the truth
+			 */
+			tx->sdu = c_max_sdu;
+		}
+
+		if (rx != NULL && rx->sdu != p_max_sdu) {
+			LOG_WRN("Unexpected P to C max SDU: %u != %u", p_max_sdu, rx->sdu);
+			/* We assume that rx->sdu has become invalid, and will use the event from
+			 * the controller as the truth
+			 */
+			rx->sdu = p_max_sdu;
+		}
+	}
+
+	unicast_info->subinterval = sys_get_le24(evt->sub_interval);
+
+	central->max_sdu = sys_le16_to_cpu(evt->c_max_sdu);
+	central->sdu_interval = sys_get_le24(evt->c_sdu_interval);
+
+	peripheral->max_sdu = sys_le16_to_cpu(evt->p_max_sdu);
+	peripheral->sdu_interval = sys_get_le24(evt->p_sdu_interval);
 }
 
 void hci_le_cis_established(struct net_buf *buf)
@@ -1034,7 +1412,7 @@ void hci_le_cis_established(struct net_buf *buf)
 	uint16_t handle = sys_le16_to_cpu(evt->conn_handle);
 	struct bt_conn *iso;
 
-	LOG_DBG("status 0x%02x handle %u", evt->status, handle);
+	LOG_DBG("status 0x%02x %s handle %u", evt->status, bt_hci_err_to_str(evt->status), handle);
 
 	/* ISO connection handles are already assigned at this point */
 	iso = bt_conn_lookup_handle(handle, BT_CONN_TYPE_ISO);
@@ -1050,74 +1428,47 @@ void hci_le_cis_established(struct net_buf *buf)
 		return;
 	}
 
-	if (!evt->status) {
-		struct bt_iso_chan_io_qos *tx;
-		struct bt_iso_chan_io_qos *rx;
-		struct bt_conn_iso *iso_conn;
-		struct bt_iso_chan *chan;
-
-		iso_conn = &iso->iso;
-		chan = iso_conn->chan;
-
-		__ASSERT(chan != NULL && chan->qos != NULL, "Invalid ISO chan");
-
-		tx = chan->qos->tx;
-		rx = chan->qos->rx;
-
-		LOG_DBG("iso_chan %p tx %p rx %p", chan, tx, rx);
-
-		if (iso->role == BT_HCI_ROLE_PERIPHERAL) {
-			rx = chan->qos->rx;
-			tx = chan->qos->tx;
-
-			/* As of BT Core 5.4, there is no way for the peripheral to get the actual
-			 * SDU size or SDU interval without the use of higher layer profiles such as
-			 * the Basic Audio Profile (BAP). The best we can do is use the PDU size
-			 * until https://bluetooth.atlassian.net/browse/ES-18552 has been resolved
-			 * and incorporated
-			 */
-			if (rx != NULL) {
-				rx->phy = bt_get_phy(evt->c_phy);
-				rx->sdu = sys_le16_to_cpu(evt->c_max_pdu);
-			}
-
-			if (tx != NULL) {
-				tx->phy = bt_get_phy(evt->p_phy);
-				tx->sdu = sys_le16_to_cpu(evt->p_max_pdu);
-			}
-
-			iso_conn->info.type = BT_ISO_CHAN_TYPE_CONNECTED;
-		} /* values are already set for central */
-
-		/* Verify if device can send */
-		iso_conn->info.can_send = false;
-		if (tx != NULL) {
-			if (iso->role == BT_HCI_ROLE_PERIPHERAL &&
-			    evt->p_bn > 0) {
-				iso_conn->info.can_send = true;
-			} else if (iso->role == BT_HCI_ROLE_CENTRAL &&
-				   evt->c_bn > 0) {
-				iso_conn->info.can_send = true;
-			}
-		}
-
-		/* Verify if device can recv */
-		iso_conn->info.can_recv = false;
-		if (rx != NULL) {
-			if (iso->role == BT_HCI_ROLE_PERIPHERAL &&
-			    evt->c_bn > 0) {
-				iso_conn->info.can_recv = true;
-			} else if (iso->role == BT_HCI_ROLE_CENTRAL &&
-				   evt->p_bn > 0) {
-				iso_conn->info.can_recv = true;
-			}
-		}
-
-		store_cis_info(evt, &iso_conn->info);
+	if (evt->status == BT_HCI_ERR_SUCCESS) {
+		store_cis_info(evt, iso);
+		log_cis_info(&iso->iso);
 		bt_conn_set_state(iso, BT_CONN_CONNECTED);
-		bt_conn_unref(iso);
+	} else if (iso->role == BT_HCI_ROLE_PERIPHERAL ||
+		   evt->status != BT_HCI_ERR_OP_CANCELLED_BY_HOST) {
+		iso->err = evt->status;
+		bt_iso_disconnected(iso);
+	} /* else we wait for disconnect event */
+
+	bt_conn_unref(iso);
+}
+
+void hci_le_cis_established_v2(struct net_buf *buf)
+{
+	struct bt_hci_evt_le_cis_established_v2 *evt = (void *)buf->data;
+	uint16_t handle = sys_le16_to_cpu(evt->conn_handle);
+	struct bt_conn *iso;
+
+	LOG_DBG("status 0x%02x %s handle %u", evt->status, bt_hci_err_to_str(evt->status), handle);
+
+	/* ISO connection handles are already assigned at this point */
+	iso = bt_conn_lookup_handle(handle, BT_CONN_TYPE_ISO);
+	if (!iso) {
+		/* If it is a local disconnect, then we may have received the disconnect complete
+		 * event before this event, and in which case we do not expect to find the CIS
+		 * object
+		 */
+		if (evt->status != BT_HCI_ERR_OP_CANCELLED_BY_HOST) {
+			LOG_ERR("No connection found for handle %u", handle);
+		}
+
 		return;
-	} else if (evt->status != BT_HCI_ERR_OP_CANCELLED_BY_HOST) {
+	}
+
+	if (evt->status == BT_HCI_ERR_SUCCESS) {
+		store_cis_info_v2(evt, iso);
+		log_cis_info(&iso->iso);
+		bt_conn_set_state(iso, BT_CONN_CONNECTED);
+	} else if (iso->role == BT_HCI_ROLE_PERIPHERAL ||
+		   evt->status != BT_HCI_ERR_OP_CANCELLED_BY_HOST) {
 		iso->err = evt->status;
 		bt_iso_disconnected(iso);
 	} /* else we wait for disconnect event */
@@ -1128,7 +1479,7 @@ void hci_le_cis_established(struct net_buf *buf)
 #if defined(CONFIG_BT_ISO_PERIPHERAL)
 int bt_iso_server_register(struct bt_iso_server *server)
 {
-	CHECKIF(!server) {
+	if (!server) {
 		LOG_DBG("Invalid parameter: server %p", server);
 		return -EINVAL;
 	}
@@ -1146,15 +1497,6 @@ int bt_iso_server_register(struct bt_iso_server *server)
 		return -EINVAL;
 	}
 
-#if defined(CONFIG_BT_SMP)
-	if (server->sec_level > BT_SECURITY_L3) {
-		return -EINVAL;
-	} else if (server->sec_level < BT_SECURITY_L1) {
-		/* Level 0 is only applicable for BR/EDR */
-		server->sec_level = BT_SECURITY_L1;
-	}
-#endif /* CONFIG_BT_SMP */
-
 	LOG_DBG("%p", server);
 
 	iso_server = server;
@@ -1164,7 +1506,7 @@ int bt_iso_server_register(struct bt_iso_server *server)
 
 int bt_iso_server_unregister(struct bt_iso_server *server)
 {
-	CHECKIF(!server) {
+	if (!server) {
 		LOG_DBG("Invalid parameter: server %p", server);
 		return -EINVAL;
 	}
@@ -1184,7 +1526,7 @@ static int iso_accept(struct bt_conn *acl, struct bt_conn *iso)
 	struct bt_iso_chan *chan;
 	int err;
 
-	CHECKIF(!iso || iso->type != BT_CONN_TYPE_ISO) {
+	if (!iso || iso->type != BT_CONN_TYPE_ISO) {
 		LOG_DBG("Invalid parameters: iso %p iso->type %u", iso, iso ? iso->type : 0);
 		return -EINVAL;
 	}
@@ -1192,18 +1534,14 @@ static int iso_accept(struct bt_conn *acl, struct bt_conn *iso)
 	LOG_DBG("%p", iso);
 
 	accept_info.acl = acl;
-	accept_info.cig_id = iso->iso.cig_id;
-	accept_info.cis_id = iso->iso.cis_id;
+	accept_info.cig_id = iso->iso.info.unicast.cig_id;
+	accept_info.cis_id = iso->iso.info.unicast.cis_id;
 
 	err = iso_server->accept(&accept_info, &chan);
 	if (err < 0) {
 		LOG_ERR("Server failed to accept: %d", err);
 		return err;
 	}
-
-#if defined(CONFIG_BT_SMP)
-	chan->required_sec_level = iso_server->sec_level;
-#endif /* CONFIG_BT_SMP */
 
 	bt_iso_chan_add(iso, chan);
 	bt_iso_chan_set_state(chan, BT_ISO_STATE_CONNECTING);
@@ -1217,7 +1555,7 @@ static int hci_le_reject_cis(uint16_t handle, uint8_t reason)
 	struct net_buf *buf;
 	int err;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_REJECT_CIS, sizeof(*cp));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -1240,7 +1578,7 @@ static int hci_le_accept_cis(uint16_t handle)
 	struct net_buf *buf;
 	int err;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_ACCEPT_CIS, sizeof(*cp));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -1256,30 +1594,12 @@ static int hci_le_accept_cis(uint16_t handle)
 	return 0;
 }
 
-static uint8_t iso_server_check_security(struct bt_conn *conn)
-{
-	if (IS_ENABLED(CONFIG_BT_CONN_DISABLE_SECURITY)) {
-		return BT_HCI_ERR_SUCCESS;
-	}
-
-#if defined(CONFIG_BT_SMP)
-	if (conn->sec_level >= iso_server->sec_level) {
-		return BT_HCI_ERR_SUCCESS;
-	}
-
-	return BT_HCI_ERR_INSUFFICIENT_SECURITY;
-#else
-	return BT_HCI_ERR_SUCCESS;
-#endif /* CONFIG_BT_SMP */
-}
-
 void hci_le_cis_req(struct net_buf *buf)
 {
 	struct bt_hci_evt_le_cis_req *evt = (void *)buf->data;
 	uint16_t acl_handle = sys_le16_to_cpu(evt->acl_handle);
 	uint16_t cis_handle = sys_le16_to_cpu(evt->cis_handle);
 	struct bt_conn *acl, *iso;
-	uint8_t sec_err;
 	int err;
 
 	LOG_DBG("acl_handle %u cis_handle %u cig_id %u cis %u", acl_handle, cis_handle, evt->cig_id,
@@ -1308,18 +1628,6 @@ void hci_le_cis_req(struct net_buf *buf)
 		return;
 	}
 
-	sec_err = iso_server_check_security(acl);
-	if (sec_err != BT_HCI_ERR_SUCCESS) {
-		LOG_DBG("Insufficient security %u", sec_err);
-		err = hci_le_reject_cis(cis_handle, sec_err);
-		if (err != 0) {
-			LOG_ERR("Failed to reject CIS");
-		}
-
-		bt_conn_unref(acl);
-		return;
-	}
-
 	/* Add ISO connection */
 	iso = bt_conn_add_iso(acl);
 
@@ -1327,14 +1635,13 @@ void hci_le_cis_req(struct net_buf *buf)
 
 	if (!iso) {
 		LOG_ERR("Could not create and add ISO to ACL %u", acl_handle);
-		hci_le_reject_cis(cis_handle,
-				  BT_HCI_ERR_INSUFFICIENT_RESOURCES);
+		hci_le_reject_cis(cis_handle, BT_HCI_ERR_INSUFFICIENT_RESOURCES);
 		return;
 	}
 
-	iso->iso.info.type = BT_ISO_CHAN_TYPE_CONNECTED;
-	iso->iso.cig_id = evt->cig_id;
-	iso->iso.cis_id = evt->cis_id;
+	iso->iso.info.type = BT_ISO_CHAN_TYPE_PERIPHERAL;
+	iso->iso.info.unicast.cig_id = evt->cig_id;
+	iso->iso.info.unicast.cis_id = evt->cis_id;
 
 	/* Request application to accept */
 	err = iso_accept(acl, iso);
@@ -1342,21 +1649,19 @@ void hci_le_cis_req(struct net_buf *buf)
 		LOG_DBG("App rejected ISO %d", err);
 		bt_iso_cleanup_acl(iso);
 		bt_conn_unref(iso);
-		hci_le_reject_cis(cis_handle,
-				  BT_HCI_ERR_INSUFFICIENT_RESOURCES);
+		hci_le_reject_cis(cis_handle, BT_HCI_ERR_INSUFFICIENT_RESOURCES);
 		return;
 	}
 
 	iso->handle = cis_handle;
 	iso->role = BT_HCI_ROLE_PERIPHERAL;
-	bt_conn_set_state(iso, BT_CONN_CONNECTING);
+	bt_conn_set_state(iso, BT_CONN_INITIATING);
 
 	err = hci_le_accept_cis(cis_handle);
 	if (err) {
 		bt_iso_cleanup_acl(iso);
 		bt_conn_unref(iso);
-		hci_le_reject_cis(cis_handle,
-				  BT_HCI_ERR_INSUFFICIENT_RESOURCES);
+		hci_le_reject_cis(cis_handle, BT_HCI_ERR_INSUFFICIENT_RESOURCES);
 		return;
 	}
 }
@@ -1377,109 +1682,28 @@ static struct bt_conn *bt_conn_add_iso(struct bt_conn *acl)
 #endif /* CONFIG_BT_ISO_PERIPHERAL */
 
 #if defined(CONFIG_BT_ISO_CENTRAL)
-static int hci_le_remove_iso_data_path(struct bt_conn *iso, uint8_t dir)
-{
-	struct bt_hci_cp_le_remove_iso_path *cp;
-	struct bt_hci_rp_le_remove_iso_path *rp;
-	struct net_buf *buf, *rsp;
-	int err;
-
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_REMOVE_ISO_PATH, sizeof(*cp));
-	if (!buf) {
-		return -ENOBUFS;
-	}
-
-	cp = net_buf_add(buf, sizeof(*cp));
-	cp->handle = sys_cpu_to_le16(iso->handle);
-	cp->path_dir = dir;
-
-	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_REMOVE_ISO_PATH, buf, &rsp);
-	if (err) {
-		return err;
-	}
-
-	rp = (void *)rsp->data;
-	if (rp->status || (sys_le16_to_cpu(rp->handle) != iso->handle)) {
-		err = -EIO;
-	}
-
-	net_buf_unref(rsp);
-
-	return err;
-}
-
-static void bt_iso_remove_data_path(struct bt_conn *iso)
-{
-	enum bt_iso_chan_type type = iso->iso.info.type;
-
-	LOG_DBG("%p", iso);
-
-	/* TODO: Removing the ISO data path is never used for broadcast:
-	 * Remove the following broadcast implementation?
-	 */
-	if ((IS_ENABLED(CONFIG_BT_ISO_BROADCASTER) &&
-		type == BT_ISO_CHAN_TYPE_BROADCASTER) ||
-	    (IS_ENABLED(CONFIG_BT_ISO_SYNC_RECEIVER) &&
-		type == BT_ISO_CHAN_TYPE_SYNC_RECEIVER)) {
-		struct bt_iso_chan *chan;
-		struct bt_iso_chan_io_qos *tx_qos;
-		uint8_t dir;
-
-		chan = iso_chan(iso);
-		if (chan == NULL) {
-			return;
-		}
-
-		tx_qos = chan->qos->tx;
-
-		/* Only remove one data path for BIS as per the spec */
-		if (tx_qos) {
-			dir = BIT(BT_HCI_DATAPATH_DIR_HOST_TO_CTLR);
-		} else {
-			dir = BIT(BT_HCI_DATAPATH_DIR_CTLR_TO_HOST);
-		}
-
-		(void)hci_le_remove_iso_data_path(iso, dir);
-	} else if (IS_ENABLED(CONFIG_BT_ISO_UNICAST) &&
-		   type == BT_ISO_CHAN_TYPE_CONNECTED) {
-		/* Remove both directions for CIS*/
-
-		/* TODO: Check which has been setup first to avoid removing
-		 * data paths that are not setup
-		 */
-		(void)hci_le_remove_iso_data_path(iso, BIT(BT_HCI_DATAPATH_DIR_HOST_TO_CTLR));
-		(void)hci_le_remove_iso_data_path(iso, BIT(BT_HCI_DATAPATH_DIR_CTLR_TO_HOST));
-	} else {
-		__ASSERT(false, "Invalid iso.type: %u", type);
-	}
-}
-
 static bool valid_chan_qos(const struct bt_iso_chan_qos *qos, bool advanced)
 {
 #if defined(CONFIG_BT_ISO_TEST_PARAMS)
-	if (advanced &&
-	    !IN_RANGE(qos->num_subevents, BT_ISO_NSE_MIN, BT_ISO_NSE_MAX)) {
+	if (advanced && !IN_RANGE(qos->num_subevents, BT_ISO_NSE_MIN, BT_ISO_NSE_MAX)) {
 		LOG_DBG("Invalid NSE: %u", qos->num_subevents);
 
 		return false;
 	}
 #endif /* CONFIG_BT_ISO_TEST_PARAMS */
-
-	if (qos->rx != NULL) {
-		if (!valid_chan_io_qos(qos->rx, false, false, advanced)) {
-			LOG_DBG("Invalid rx qos");
-			return false;
-		}
-	} else if (qos->tx == NULL) {
+	if (qos->rx == NULL && qos->tx == NULL) {
 		LOG_DBG("Both rx and tx qos are NULL");
 		return false;
 	}
 
-	if (qos->tx != NULL) {
-		if (!valid_chan_io_qos(qos->tx, true, false, advanced)) {
-			LOG_DBG("Invalid tx qos");
-			return false;
-		}
+	if (qos->rx != NULL && !valid_chan_io_qos(qos->rx, false, false, advanced)) {
+		LOG_DBG("Invalid rx qos");
+		return false;
+	}
+
+	if (qos->tx != NULL && !valid_chan_io_qos(qos->tx, true, false, advanced)) {
+		LOG_DBG("Invalid tx qos");
+		return false;
 	}
 
 	return true;
@@ -1490,7 +1714,7 @@ static int hci_le_remove_cig(uint8_t cig_id)
 	struct bt_hci_cp_le_remove_cig *req;
 	struct net_buf *buf;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_REMOVE_CIG, sizeof(*req));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -1513,8 +1737,7 @@ static struct net_buf *hci_le_set_cig_params(const struct bt_iso_cig *cig,
 	struct net_buf *rsp;
 	int i, err;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_CIG_PARAMS,
-				sizeof(*req) + sizeof(*cis_param) * param->num_cis);
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return NULL;
 	}
@@ -1524,19 +1747,21 @@ static struct net_buf *hci_le_set_cig_params(const struct bt_iso_cig *cig,
 	memset(req, 0, sizeof(*req));
 
 	req->cig_id = cig->id;
-	req->c_latency = sys_cpu_to_le16(param->latency);
-	req->p_latency = sys_cpu_to_le16(param->latency);
-	sys_put_le24(param->interval, req->c_interval);
-	sys_put_le24(param->interval, req->p_interval);
+	req->c_latency = sys_cpu_to_le16(param->c_to_p_latency);
+	req->p_latency = sys_cpu_to_le16(param->p_to_c_latency);
+	sys_put_le24(param->c_to_p_interval, req->c_interval);
+	sys_put_le24(param->p_to_c_interval, req->p_interval);
 
 	req->sca = param->sca;
 	req->packing = param->packing;
 	req->framing = param->framing;
 	req->num_cis = param->num_cis;
 
-	LOG_DBG("id %u, latency %u, interval %u, sca %u, packing %u, framing %u, num_cis %u",
-		cig->id, param->latency, param->interval, param->sca, param->packing,
-		param->framing, param->num_cis);
+	LOG_DBG("id %u, latency C to P %u, latency P to C %u, "
+		"interval C to P %u, interval P to C %u, "
+		"sca %u, packing %u, framing %u, num_cis %u",
+		cig->id, param->c_to_p_latency, param->p_to_c_latency, param->c_to_p_interval,
+		param->p_to_c_interval, param->sca, param->packing, param->framing, param->num_cis);
 
 	/* Program the cis parameters */
 	for (i = 0; i < param->num_cis; i++) {
@@ -1547,7 +1772,7 @@ static struct net_buf *hci_le_set_cig_params(const struct bt_iso_cig *cig,
 
 		memset(cis_param, 0, sizeof(*cis_param));
 
-		cis_param->cis_id = cis->iso->iso.cis_id;
+		cis_param->cis_id = cis->iso->iso.info.unicast.cis_id;
 
 		if (!qos->tx && !qos->rx) {
 			LOG_ERR("Both TX and RX QoS are disabled");
@@ -1600,8 +1825,7 @@ static struct net_buf *hci_le_set_cig_test_params(const struct bt_iso_cig *cig,
 	struct net_buf *rsp;
 	int err;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_CIG_PARAMS_TEST,
-				sizeof(*req) + sizeof(*cis_param) * param->num_cis);
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return NULL;
 	}
@@ -1611,8 +1835,8 @@ static struct net_buf *hci_le_set_cig_test_params(const struct bt_iso_cig *cig,
 	memset(req, 0, sizeof(*req));
 
 	req->cig_id = cig->id;
-	sys_put_le24(param->interval, req->c_interval);
-	sys_put_le24(param->interval, req->p_interval);
+	sys_put_le24(param->c_to_p_interval, req->c_interval);
+	sys_put_le24(param->p_to_c_interval, req->p_interval);
 
 	req->c_ft = param->c_to_p_ft;
 	req->p_ft = param->p_to_c_ft;
@@ -1622,11 +1846,11 @@ static struct net_buf *hci_le_set_cig_test_params(const struct bt_iso_cig *cig,
 	req->framing = param->framing;
 	req->num_cis = param->num_cis;
 
-	LOG_DBG("id %u, SDU interval %u, c_ft %u, p_ft %u, iso_interval %u, "
-		"sca %u, packing %u, framing %u, num_cis %u",
-		cig->id, param->interval, param->c_to_p_ft, param->p_to_c_ft,
-		param->iso_interval, param->sca, param->packing,
-		param->framing, param->num_cis);
+	LOG_DBG("id %u, SDU interval C to P %u, SDU interval P to C %u, c_ft %u, p_ft %u, "
+		"iso_interval %u, sca %u, packing %u, framing %u, num_cis %u",
+		cig->id, param->c_to_p_interval, param->p_to_c_interval, param->c_to_p_ft,
+		param->p_to_c_ft, param->iso_interval, param->sca, param->packing, param->framing,
+		param->num_cis);
 
 	/* Program the cis parameters */
 	for (uint8_t i = 0U; i < param->num_cis; i++) {
@@ -1637,7 +1861,7 @@ static struct net_buf *hci_le_set_cig_test_params(const struct bt_iso_cig *cig,
 
 		memset(cis_param, 0, sizeof(*cis_param));
 
-		cis_param->cis_id = cis->iso->iso.cis_id;
+		cis_param->cis_id = cis->iso->iso.info.unicast.cis_id;
 		cis_param->nse = qos->num_subevents;
 
 		if (!qos->tx && !qos->rx) {
@@ -1672,10 +1896,9 @@ static struct net_buf *hci_le_set_cig_test_params(const struct bt_iso_cig *cig,
 
 		LOG_DBG("[%d]: id %u, nse %u c_sdu %u, p_sdu %u, c_pdu %u, "
 			"p_pdu %u, c_phy %u, p_phy %u, c_bn %u, p_bn %u",
-			i, cis_param->cis_id, cis_param->nse, cis_param->c_sdu,
-			cis_param->p_sdu, cis_param->c_pdu, cis_param->p_pdu,
-			cis_param->c_phy, cis_param->p_phy, cis_param->c_bn,
-			cis_param->p_bn);
+			i, cis_param->cis_id, cis_param->nse, cis_param->c_sdu, cis_param->p_sdu,
+			cis_param->c_pdu, cis_param->p_pdu, cis_param->c_phy, cis_param->p_phy,
+			cis_param->c_bn, cis_param->p_bn);
 	}
 
 	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_SET_CIG_PARAMS_TEST, buf, &rsp);
@@ -1688,9 +1911,7 @@ static struct net_buf *hci_le_set_cig_test_params(const struct bt_iso_cig *cig,
 
 static bool is_advanced_cig_param(const struct bt_iso_cig_param *param)
 {
-	if (param->c_to_p_ft != 0U ||
-	    param->p_to_c_ft != 0U ||
-	    param->iso_interval != 0U) {
+	if (param->c_to_p_ft != 0U || param->p_to_c_ft != 0U || param->iso_interval != 0U) {
 		return true;
 	}
 
@@ -1704,15 +1925,13 @@ static bool is_advanced_cig_param(const struct bt_iso_cig_param *param)
 		}
 
 		if (qos->tx != NULL) {
-			if (qos->tx->max_pdu > 0U ||
-			    qos->tx->burst_number > 0U) {
+			if (qos->tx->max_pdu > 0U || qos->tx->burst_number > 0U) {
 				return true;
 			}
 		}
 
 		if (qos->rx != NULL) {
-			if (qos->rx->max_pdu > 0U ||
-			    qos->rx->burst_number > 0U) {
+			if (qos->rx->max_pdu > 0U || qos->rx->burst_number > 0U) {
 				return true;
 			}
 		}
@@ -1728,10 +1947,10 @@ static struct bt_iso_cig *get_cig(const struct bt_iso_chan *iso_chan)
 		return NULL;
 	}
 
-	__ASSERT(iso_chan->iso->iso.cig_id < ARRAY_SIZE(cigs),
-		 "Invalid cig_id %u", iso_chan->iso->iso.cig_id);
+	__ASSERT(iso_chan->iso->iso.info.unicast.cig_id < ARRAY_SIZE(cigs), "Invalid cig_id %u",
+		 iso_chan->iso->iso.info.unicast.cig_id);
 
-	return &cigs[iso_chan->iso->iso.cig_id];
+	return &cigs[iso_chan->iso->iso.info.unicast.cig_id];
 }
 
 static struct bt_iso_cig *get_free_cig(void)
@@ -1752,18 +1971,16 @@ static struct bt_iso_cig *get_free_cig(void)
 	return NULL;
 }
 
-static bool cis_is_in_cig(const struct bt_iso_cig *cig,
-			  const struct bt_iso_chan *cis)
+static bool cis_is_in_cig(const struct bt_iso_cig *cig, const struct bt_iso_chan *cis)
 {
 	if (cig == NULL || cis == NULL || cis->iso == NULL) {
 		return false;
 	}
 
-	return cig->id == cis->iso->iso.cig_id;
+	return cig->id == cis->iso->iso.info.unicast.cig_id;
 }
 
-static int cig_init_cis(struct bt_iso_cig *cig,
-			const struct bt_iso_cig_param *param)
+static int cig_init_cis(struct bt_iso_cig *cig, const struct bt_iso_cig_param *param)
 {
 	for (uint8_t i = 0; i < param->num_cis; i++) {
 		struct bt_iso_chan *cis = param->cis_channels[i];
@@ -1778,9 +1995,9 @@ static int cig_init_cis(struct bt_iso_cig *cig,
 			}
 			iso_conn = &cis->iso->iso;
 
-			iso_conn->cig_id = cig->id;
-			iso_conn->info.type = BT_ISO_CHAN_TYPE_CONNECTED;
-			iso_conn->cis_id = cig->num_cis++;
+			iso_conn->info.unicast.cig_id = cig->id;
+			iso_conn->info.type = BT_ISO_CHAN_TYPE_CENTRAL;
+			iso_conn->info.unicast.cis_id = cig->num_cis++;
 
 			bt_iso_chan_add(cis->iso, cis);
 
@@ -1796,10 +2013,7 @@ static void cleanup_cig(struct bt_iso_cig *cig)
 	struct bt_iso_chan *cis, *tmp;
 
 	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&cig->cis_channels, cis, tmp, node) {
-		if (cis->iso != NULL) {
-			bt_conn_unref(cis->iso);
-			cis->iso = NULL;
-		}
+		bt_conn_drop(&cis->iso);
 
 		sys_slist_remove(&cig->cis_channels, NULL, &cis->node);
 	}
@@ -1810,6 +2024,9 @@ static void cleanup_cig(struct bt_iso_cig *cig)
 static bool valid_cig_param(const struct bt_iso_cig_param *param, bool advanced,
 			    const struct bt_iso_cig *cig)
 {
+	bool is_c_to_p = false;
+	bool is_p_to_c = false;
+
 	if (param == NULL) {
 		return false;
 	}
@@ -1818,17 +2035,22 @@ static bool valid_cig_param(const struct bt_iso_cig_param *param, bool advanced,
 		struct bt_iso_chan *cis = param->cis_channels[i];
 
 		if (cis == NULL) {
-			LOG_DBG("cis_channels[%d]: NULL channel", i);
+			LOG_DBG("cis_channels[%u]: NULL channel", i);
+			return false;
+		}
+
+		if (cis->qos == NULL) {
+			LOG_DBG("cis_channels[%u]: NULL QoS", i);
 			return false;
 		}
 
 		if (cis->iso != NULL && !cis_is_in_cig(cig, cis)) {
-			LOG_DBG("cis_channels[%d]: already allocated to CIG %p", i, get_cig(cis));
+			LOG_DBG("cis_channels[%u]: already allocated to CIG %p", i, get_cig(cis));
 			return false;
 		}
 
 		if (!valid_chan_qos(cis->qos, advanced)) {
-			LOG_DBG("cis_channels[%d]: Invalid QOS", i);
+			LOG_DBG("cis_channels[%u]: Invalid QOS", i);
 			return false;
 		}
 
@@ -1838,10 +2060,22 @@ static bool valid_cig_param(const struct bt_iso_cig_param *param, bool advanced,
 				return false;
 			}
 		}
+
+		if (cis->qos->rx != NULL && cis->qos->rx->sdu != 0U) {
+			is_p_to_c = true;
+		}
+
+		if (cis->qos->tx != NULL && cis->qos->tx->sdu != 0U) {
+			is_c_to_p = true;
+		}
+
+		if (!is_p_to_c && !is_c_to_p) {
+			LOG_DBG("Neither C to P nor P to C can be configured");
+			return false;
+		}
 	}
 
-	if (param->framing != BT_ISO_FRAMING_UNFRAMED &&
-	    param->framing != BT_ISO_FRAMING_FRAMED) {
+	if (param->framing != BT_ISO_FRAMING_UNFRAMED && param->framing != BT_ISO_FRAMING_FRAMED) {
 		LOG_DBG("Invalid framing parameter: %u", param->framing);
 		return false;
 	}
@@ -1859,37 +2093,47 @@ static bool valid_cig_param(const struct bt_iso_cig_param *param, bool advanced,
 		return false;
 	}
 
-	if (param->interval < BT_ISO_SDU_INTERVAL_MIN ||
-	    param->interval > BT_ISO_SDU_INTERVAL_MAX) {
-		LOG_DBG("Invalid interval: %u", param->interval);
+	if (is_c_to_p &&
+	    !IN_RANGE(param->c_to_p_interval, BT_ISO_SDU_INTERVAL_MIN, BT_ISO_SDU_INTERVAL_MAX)) {
+		LOG_DBG("Invalid C to P interval: %u", param->c_to_p_interval);
 		return false;
 	}
 
-	if (!advanced &&
-	    (param->latency < BT_ISO_LATENCY_MIN ||
-	     param->latency > BT_ISO_LATENCY_MAX)) {
-		LOG_DBG("Invalid latency: %u", param->latency);
+	if (is_p_to_c &&
+	    !IN_RANGE(param->p_to_c_interval, BT_ISO_SDU_INTERVAL_MIN, BT_ISO_SDU_INTERVAL_MAX)) {
+		LOG_DBG("Invalid P to C interval: %u", param->p_to_c_interval);
 		return false;
+	}
+
+	if (!advanced) {
+		if (is_c_to_p &&
+		    !IN_RANGE(param->c_to_p_latency, BT_ISO_LATENCY_MIN, BT_ISO_LATENCY_MAX)) {
+			LOG_DBG("Invalid C to P latency: %u", param->c_to_p_latency);
+			return false;
+		}
+
+		if (is_p_to_c &&
+		    !IN_RANGE(param->p_to_c_latency, BT_ISO_LATENCY_MIN, BT_ISO_LATENCY_MAX)) {
+			LOG_DBG("Invalid P to C latency: %u", param->p_to_c_latency);
+			return false;
+		}
 	}
 
 #if defined(CONFIG_BT_ISO_TEST_PARAMS)
 	if (advanced) {
 		if (!IN_RANGE(param->c_to_p_ft, BT_ISO_FT_MIN, BT_ISO_FT_MAX)) {
-			LOG_DBG("Invalid Central to Peripheral FT %u",
-				param->c_to_p_ft);
+			LOG_DBG("Invalid Central to Peripheral FT %u", param->c_to_p_ft);
 
 			return false;
 		}
 
 		if (!IN_RANGE(param->p_to_c_ft, BT_ISO_FT_MIN, BT_ISO_FT_MAX)) {
-			LOG_DBG("Invalid Peripheral to Central FT %u",
-				param->p_to_c_ft);
+			LOG_DBG("Invalid Peripheral to Central FT %u", param->p_to_c_ft);
 
 			return false;
 		}
 
-		if (!IN_RANGE(param->iso_interval,
-			      BT_ISO_ISO_INTERVAL_MIN,
+		if (!IN_RANGE(param->iso_interval, BT_ISO_ISO_INTERVAL_MIN,
 			      BT_ISO_ISO_INTERVAL_MAX)) {
 			LOG_DBG("Invalid ISO interval %u", param->iso_interval);
 
@@ -1901,18 +2145,22 @@ static bool valid_cig_param(const struct bt_iso_cig_param *param, bool advanced,
 	return true;
 }
 
-int bt_iso_cig_create(const struct bt_iso_cig_param *param,
-		      struct bt_iso_cig **out_cig)
+int bt_iso_cig_create(const struct bt_iso_cig_param *param, struct bt_iso_cig **out_cig)
 {
 	int err;
-	struct net_buf *rsp;
+	struct net_buf *rsp = NULL;
 	struct bt_iso_cig *cig;
 	struct bt_hci_rp_le_set_cig_params *cig_rsp;
 	struct bt_iso_chan *cis;
 	bool advanced = false;
 	int i;
 
-	CHECKIF(out_cig == NULL) {
+	if (param == NULL) {
+		LOG_DBG("param is NULL");
+		return -EINVAL;
+	}
+
+	if (out_cig == NULL) {
 		LOG_DBG("out_cig is NULL");
 		return -EINVAL;
 	}
@@ -1925,12 +2173,12 @@ int bt_iso_cig_create(const struct bt_iso_cig_param *param,
 	}
 
 	/* TBD: Should we allow creating empty CIGs? */
-	CHECKIF(param->cis_channels == NULL) {
+	if (param->cis_channels == NULL) {
 		LOG_DBG("NULL CIS channels");
 		return -EINVAL;
 	}
 
-	CHECKIF(param->num_cis == 0) {
+	if (param->num_cis == 0) {
 		LOG_DBG("Invalid number of CIS %u", param->num_cis);
 		return -EINVAL;
 	}
@@ -1939,7 +2187,7 @@ int bt_iso_cig_create(const struct bt_iso_cig_param *param,
 	advanced = is_advanced_cig_param(param);
 #endif /* CONFIG_BT_ISO_TEST_PARAMS */
 
-	CHECKIF(!valid_cig_param(param, advanced, NULL)) {
+	if (!valid_cig_param(param, advanced, NULL)) {
 		LOG_DBG("Invalid CIG params");
 		return -EINVAL;
 	}
@@ -1974,8 +2222,7 @@ int bt_iso_cig_create(const struct bt_iso_cig_param *param,
 
 	cig_rsp = (void *)rsp->data;
 
-	if (rsp->len < sizeof(cig_rsp) ||
-	    cig_rsp->num_handles != param->num_cis) {
+	if (rsp->len < sizeof(*cig_rsp) || cig_rsp->num_handles != param->num_cis) {
 		LOG_WRN("Unexpected response to hci_le_set_cig_params");
 		err = -EIO;
 		net_buf_unref(rsp);
@@ -2007,10 +2254,8 @@ static void restore_cig(struct bt_iso_cig *cig, uint8_t existing_num_cis)
 		 * of CIS that was previously added before
 		 * bt_iso_cig_reconfigure was called
 		 */
-		if (cis->iso != NULL &&
-		    cis->iso->iso.cis_id >= existing_num_cis) {
-			bt_conn_unref(cis->iso);
-			cis->iso = NULL;
+		if (cis->iso != NULL && cis->iso->iso.info.unicast.cis_id >= existing_num_cis) {
+			bt_conn_drop(&cis->iso);
 
 			sys_slist_remove(&cig->cis_channels, NULL, &cis->node);
 			cig->num_cis--;
@@ -2018,18 +2263,21 @@ static void restore_cig(struct bt_iso_cig *cig, uint8_t existing_num_cis)
 	}
 }
 
-
-int bt_iso_cig_reconfigure(struct bt_iso_cig *cig,
-			   const struct bt_iso_cig_param *param)
+int bt_iso_cig_reconfigure(struct bt_iso_cig *cig, const struct bt_iso_cig_param *param)
 {
 	struct bt_hci_rp_le_set_cig_params *cig_rsp;
 	uint8_t existing_num_cis;
 	bool advanced = false;
-	struct net_buf *rsp;
+	struct net_buf *rsp = NULL;
 	int err;
 
-	CHECKIF(cig == NULL) {
+	if (cig == NULL) {
 		LOG_DBG("cig is NULL");
+		return -EINVAL;
+	}
+
+	if (param == NULL) {
+		LOG_DBG("param is NULL");
 		return -EINVAL;
 	}
 
@@ -2042,7 +2290,7 @@ int bt_iso_cig_reconfigure(struct bt_iso_cig *cig,
 	advanced = is_advanced_cig_param(param);
 #endif /* CONFIG_BT_ISO_TEST_PARAMS */
 
-	CHECKIF(!valid_cig_param(param, advanced, cig)) {
+	if (!valid_cig_param(param, advanced, cig)) {
 		LOG_DBG("Invalid CIG params");
 		return -EINVAL;
 	}
@@ -2109,13 +2357,12 @@ int bt_iso_cig_terminate(struct bt_iso_cig *cig)
 {
 	int err;
 
-	CHECKIF(cig == NULL) {
+	if (cig == NULL) {
 		LOG_DBG("cig is NULL");
 		return -EINVAL;
 	}
 
-	if (cig->state != BT_ISO_CIG_STATE_INACTIVE &&
-	    cig->state != BT_ISO_CIG_STATE_CONFIGURED) {
+	if (cig->state != BT_ISO_CIG_STATE_INACTIVE && cig->state != BT_ISO_CIG_STATE_CONFIGURED) {
 		LOG_DBG("Invalid CIG state: %u", cig->state);
 		return -EINVAL;
 	}
@@ -2131,102 +2378,13 @@ int bt_iso_cig_terminate(struct bt_iso_cig *cig)
 	return 0;
 }
 
-void bt_iso_security_changed(struct bt_conn *acl, uint8_t hci_status)
-{
-	struct bt_iso_connect_param param[CONFIG_BT_ISO_MAX_CHAN];
-	size_t param_count;
-	int err;
-
-	/* The peripheral does not accept any ISO requests if security is
-	 * insufficient, so we only need to handle central here.
-	 * BT_ISO_STATE_ENCRYPT_PENDING is only set by the central.
-	 */
-	if (!IS_ENABLED(CONFIG_BT_CENTRAL) ||
-	    acl->role != BT_CONN_ROLE_CENTRAL) {
-		return;
-	}
-
-	param_count = 0;
-	for (size_t i = 0; i < ARRAY_SIZE(iso_conns); i++) {
-		struct bt_conn *iso = &iso_conns[i];
-		struct bt_iso_chan *iso_chan;
-
-		if (iso == NULL || iso->iso.acl != acl) {
-			continue;
-		}
-
-		iso_chan = iso_chan(iso);
-		if (iso_chan->state != BT_ISO_STATE_ENCRYPT_PENDING) {
-			continue;
-		}
-
-		bt_iso_chan_set_state(iso_chan, BT_ISO_STATE_DISCONNECTED);
-
-		if (hci_status == BT_HCI_ERR_SUCCESS) {
-			param[param_count].acl = acl;
-			param[param_count].iso_chan = iso_chan;
-			param_count++;
-		} else {
-			LOG_DBG("Failed to encrypt ACL %p for ISO %p: %u", acl, iso, hci_status);
-
-			/* We utilize the disconnected callback to make the
-			 * upper layers aware of the error
-			 */
-			if (iso_chan->ops->disconnected) {
-				iso_chan->ops->disconnected(iso_chan,
-							    hci_status);
-			}
-		}
-	}
-
-	if (param_count == 0) {
-		/* Nothing to do for ISO. This happens if security is changed,
-		 * but no ISO channels were pending encryption.
-		 */
-		return;
-	}
-
-	err = hci_le_create_cis(param, param_count);
-	if (err != 0) {
-		LOG_ERR("Failed to connect CISes: %d", err);
-
-		for (size_t i = 0; i < param_count; i++) {
-			struct bt_iso_chan *iso_chan = param[i].iso_chan;
-
-			/* We utilize the disconnected callback to make the
-			 * upper layers aware of the error
-			 */
-			if (iso_chan->ops->disconnected) {
-				iso_chan->ops->disconnected(iso_chan,
-							    hci_status);
-			}
-		}
-
-		return;
-	}
-
-	/* Set connection states */
-	for (size_t i = 0; i < param_count; i++) {
-		struct bt_iso_chan *iso_chan = param[i].iso_chan;
-		struct bt_iso_cig *cig = get_cig(iso_chan);
-
-		__ASSERT(cig != NULL, "CIG was NULL");
-		cig->state = BT_ISO_CIG_STATE_ACTIVE;
-
-		bt_conn_set_state(iso_chan->iso, BT_CONN_CONNECTING);
-		bt_iso_chan_set_state(iso_chan, BT_ISO_STATE_CONNECTING);
-	}
-}
-
-static int hci_le_create_cis(const struct bt_iso_connect_param *param,
-			     size_t count)
+static int hci_le_create_cis(const struct bt_iso_connect_param *param, size_t count)
 {
 	struct bt_hci_cis *cis;
 	struct bt_hci_cp_le_create_cis *req;
 	struct net_buf *buf;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_CREATE_CIS,
-				sizeof(*req) + sizeof(*cis) * count);
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -2237,12 +2395,6 @@ static int hci_le_create_cis(const struct bt_iso_connect_param *param,
 
 	/* Program the cis parameters */
 	for (size_t i = 0; i < count; i++) {
-		struct bt_iso_chan *iso_chan = param[i].iso_chan;
-
-		if (iso_chan->state == BT_ISO_STATE_ENCRYPT_PENDING) {
-			continue;
-		}
-
 		cis = net_buf_add(buf, sizeof(*cis));
 
 		memset(cis, 0, sizeof(*cis));
@@ -2252,67 +2404,8 @@ static int hci_le_create_cis(const struct bt_iso_connect_param *param,
 		req->num_cis++;
 	}
 
-	/* If all CIS are pending for security, do nothing,
-	 * but return a recognizable return value
-	 */
-	if (req->num_cis == 0) {
-		net_buf_unref(buf);
-
-		return -ECANCELED;
-	}
-
 	return bt_hci_cmd_send_sync(BT_HCI_OP_LE_CREATE_CIS, buf, NULL);
 }
-
-#if defined(CONFIG_BT_SMP)
-static int iso_chan_connect_security(const struct bt_iso_connect_param *param,
-				     size_t count)
-{
-	/* conn_idx_handled is an array of booleans for which conn indexes
-	 * already have been used to call bt_conn_set_security.
-	 * Using indexes avoids looping the array when checking if it has been
-	 * handled.
-	 */
-	bool conn_idx_handled[CONFIG_BT_MAX_CONN];
-
-	memset(conn_idx_handled, false, sizeof(conn_idx_handled));
-	for (size_t i = 0; i < count; i++) {
-		struct bt_iso_chan *iso_chan = param[i].iso_chan;
-		struct bt_conn *acl = param[i].acl;
-		uint8_t conn_idx = bt_conn_index(acl);
-
-		if (acl->sec_level < iso_chan->required_sec_level) {
-			if (!conn_idx_handled[conn_idx]) {
-				int err;
-
-				err = bt_conn_set_security(acl,
-							   iso_chan->required_sec_level);
-				if (err != 0) {
-					LOG_DBG("[%zu]: Failed to set security: %d", i, err);
-
-					/* Restore states */
-					for (size_t j = 0; j < i; j++) {
-						iso_chan = param[j].iso_chan;
-
-						bt_iso_cleanup_acl(iso_chan->iso);
-						bt_iso_chan_set_state(iso_chan,
-								      BT_ISO_STATE_DISCONNECTED);
-					}
-
-					return err;
-				}
-
-				conn_idx_handled[conn_idx] = true;
-			}
-
-			iso_chan->iso->iso.acl = bt_conn_ref(acl);
-			bt_iso_chan_set_state(iso_chan, BT_ISO_STATE_ENCRYPT_PENDING);
-		}
-	}
-
-	return 0;
-}
-#endif /* CONFIG_BT_SMP */
 
 static bool iso_chans_connecting(void)
 {
@@ -2320,14 +2413,13 @@ static bool iso_chans_connecting(void)
 		const struct bt_conn *iso = &iso_conns[i];
 		const struct bt_iso_chan *iso_chan;
 
-		if (iso == NULL ||
-		    iso->iso.info.type != BT_ISO_CHAN_TYPE_CONNECTED) {
+		if (iso == NULL || !(iso->iso.info.type == BT_ISO_CHAN_TYPE_CENTRAL ||
+				     iso->iso.info.type == BT_ISO_CHAN_TYPE_PERIPHERAL)) {
 			continue;
 		}
 
 		iso_chan = iso_chan(iso);
-		if (iso_chan->state == BT_ISO_STATE_CONNECTING ||
-		    iso_chan->state == BT_ISO_STATE_ENCRYPT_PENDING) {
+		if (iso_chan->state == BT_ISO_STATE_CONNECTING) {
 			return true;
 		}
 	}
@@ -2339,33 +2431,33 @@ int bt_iso_chan_connect(const struct bt_iso_connect_param *param, size_t count)
 {
 	int err;
 
-	CHECKIF(param == NULL) {
+	if (param == NULL) {
 		LOG_DBG("param is NULL");
 		return -EINVAL;
 	}
 
-	CHECKIF(count == 0) {
+	if (count == 0) {
 		LOG_DBG("Invalid count %zu", count);
 		return -EINVAL;
 	}
 
-	CHECKIF(count > CONFIG_BT_ISO_MAX_CHAN) {
+	if (count > CONFIG_BT_ISO_MAX_CHAN) {
 		return -EINVAL;
 	}
 
 	/* Validate input */
 	for (size_t i = 0; i < count; i++) {
-		CHECKIF(param[i].iso_chan == NULL) {
+		if (param[i].iso_chan == NULL) {
 			LOG_DBG("[%zu]: Invalid iso (%p)", i, param[i].iso_chan);
 			return -EINVAL;
 		}
 
-		CHECKIF(param[i].acl == NULL) {
+		if (param[i].acl == NULL) {
 			LOG_DBG("[%zu]: Invalid acl (%p)", i, param[i].acl);
 			return -EINVAL;
 		}
 
-		CHECKIF((param[i].acl->type & BT_CONN_TYPE_LE) == 0) {
+		if ((param[i].acl->type & BT_CONN_TYPE_LE) == 0) {
 			LOG_DBG("[%zu]: acl type (%u) shall be an LE connection", i,
 				param[i].acl->type);
 			return -EINVAL;
@@ -2388,23 +2480,8 @@ int bt_iso_chan_connect(const struct bt_iso_connect_param *param, size_t count)
 		return -EBUSY;
 	}
 
-#if defined(CONFIG_BT_SMP)
-	/* Check for and initiate security for all channels that have
-	 * requested encryption if the ACL link is not already secured
-	 */
-	err = iso_chan_connect_security(param, count);
-	if (err != 0) {
-		LOG_DBG("Failed to initate security for all CIS: %d", err);
-		return err;
-	}
-#endif /* CONFIG_BT_SMP */
-
 	err = hci_le_create_cis(param, count);
-	if (err == -ECANCELED) {
-		LOG_DBG("All channels are pending on security");
-
-		return 0;
-	} else if (err != 0) {
+	if (err != 0) {
 		LOG_DBG("Failed to connect CISes: %d", err);
 
 		return err;
@@ -2415,12 +2492,8 @@ int bt_iso_chan_connect(const struct bt_iso_connect_param *param, size_t count)
 		struct bt_iso_chan *iso_chan = param[i].iso_chan;
 		struct bt_iso_cig *cig;
 
-		if (iso_chan->state == BT_ISO_STATE_ENCRYPT_PENDING) {
-			continue;
-		}
-
 		iso_chan->iso->iso.acl = bt_conn_ref(param[i].acl);
-		bt_conn_set_state(iso_chan->iso, BT_CONN_CONNECTING);
+		bt_conn_set_state(iso_chan->iso, BT_CONN_INITIATING);
 		bt_iso_chan_set_state(iso_chan, BT_ISO_STATE_CONNECTING);
 
 		cig = get_cig(iso_chan);
@@ -2434,6 +2507,8 @@ int bt_iso_chan_connect(const struct bt_iso_connect_param *param, size_t count)
 #endif /* CONFIG_BT_ISO_UNICAST */
 
 #if defined(CONFIG_BT_ISO_BROADCAST)
+static sys_slist_t iso_big_cbs = SYS_SLIST_STATIC_INIT(&iso_big_cbs);
+
 static struct bt_iso_big *lookup_big_by_handle(uint8_t big_handle)
 {
 	return &bigs[big_handle];
@@ -2476,10 +2551,7 @@ static void cleanup_big(struct bt_iso_big *big)
 	struct bt_iso_chan *bis, *tmp;
 
 	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&big->bis_channels, bis, tmp, node) {
-		if (bis->iso != NULL) {
-			bt_conn_unref(bis->iso);
-			bis->iso = NULL;
-		}
+		bt_conn_drop(&bis->iso);
 
 		sys_slist_remove(&big->bis_channels, NULL, &bis->node);
 	}
@@ -2491,39 +2563,80 @@ static void big_disconnect(struct bt_iso_big *big, uint8_t reason)
 {
 	struct bt_iso_chan *bis;
 
+	atomic_set_bit(big->flags, BT_BIG_BUSY);
+
 	SYS_SLIST_FOR_EACH_CONTAINER(&big->bis_channels, bis, node) {
 		bis->iso->err = reason;
 
-		bt_iso_disconnected(bis->iso);
+		bt_iso_chan_disconnected(bis, reason);
+	}
+
+	/* Cleanup the BIG before calling the `stopped` so that the `big` pointer and the ISO
+	 * channels in the `big` can be reused in the callback
+	 */
+	cleanup_big(big);
+
+	if (!sys_slist_is_empty(&iso_big_cbs)) {
+		struct bt_iso_big_cb *listener;
+
+		SYS_SLIST_FOR_EACH_CONTAINER(&iso_big_cbs, listener, _node) {
+			if (listener->stopped != NULL) {
+				listener->stopped(big, reason);
+			}
+		}
 	}
 }
 
-static int big_init_bis(struct bt_iso_big *big,
-			struct bt_iso_chan **bis_channels,
-			uint8_t num_bis,
+static int big_init_bis(struct bt_iso_big *big, struct bt_iso_chan *bis, uint8_t bis_number,
 			bool broadcaster)
 {
-	for (uint8_t i = 0; i < num_bis; i++) {
-		struct bt_iso_chan *bis = bis_channels[i];
-		struct bt_conn_iso *iso_conn;
+	struct bt_conn_iso *iso_conn;
 
-		bis->iso = iso_new();
-
-		if (!bis->iso) {
-			LOG_ERR("Unable to allocate BIS connection");
-			return -ENOMEM;
-		}
-		iso_conn = &bis->iso->iso;
-
-		iso_conn->big_handle = big->handle;
-		iso_conn->info.type = broadcaster ? BT_ISO_CHAN_TYPE_BROADCASTER
-						  : BT_ISO_CHAN_TYPE_SYNC_RECEIVER;
-		iso_conn->bis_id = bt_conn_index(bis->iso);
-
-		bt_iso_chan_add(bis->iso, bis);
-
-		sys_slist_append(&big->bis_channels, &bis->node);
+	bis->iso = iso_new();
+	if (bis->iso == NULL) {
+		LOG_ERR("Unable to allocate BIS connection");
+		return -ENOMEM;
 	}
+
+	iso_conn = &bis->iso->iso;
+
+#if defined(CONFIG_BT_ISO_BROADCASTER)
+	if (broadcaster) {
+		iso_conn->info.type = BT_ISO_CHAN_TYPE_BROADCASTER;
+		iso_conn->info.broadcaster.big_handle = big->handle;
+		iso_conn->info.broadcaster.bis_number = bis_number;
+	}
+#endif /* CONFIG_BT_ISO_BROADCASTER */
+#if defined(CONFIG_BT_ISO_SYNC_RECEIVER)
+	if (!broadcaster) {
+		iso_conn->info.type = BT_ISO_CHAN_TYPE_SYNC_RECEIVER;
+		iso_conn->info.sync_receiver.big_handle = big->handle;
+		iso_conn->info.sync_receiver.bis_number = bis_number;
+	}
+#endif /* CONFIG_BT_ISO_SYNC_RECEIVER */
+
+	bt_iso_chan_add(bis->iso, bis);
+
+	sys_slist_append(&big->bis_channels, &bis->node);
+
+	return 0;
+}
+
+int bt_iso_big_register_cb(struct bt_iso_big_cb *cb)
+{
+	if (cb == NULL) {
+		LOG_DBG("cb is NULL");
+
+		return -EINVAL;
+	}
+
+	if (sys_slist_find(&iso_big_cbs, &cb->_node, NULL)) {
+		LOG_DBG("cb %p is already registered", cb);
+
+		return -EEXIST;
+	}
+
+	sys_slist_append(&iso_big_cbs, &cb->_node);
 
 	return 0;
 }
@@ -2532,14 +2645,14 @@ static int big_init_bis(struct bt_iso_big *big,
 static int hci_le_create_big(struct bt_le_ext_adv *padv, struct bt_iso_big *big,
 			     struct bt_iso_big_create_param *param)
 {
+	const struct bt_iso_chan_io_qos *qos;
 	struct bt_hci_cp_le_create_big *req;
 	struct bt_hci_cmd_state_set state;
 	struct net_buf *buf;
 	int err;
-	static struct bt_iso_chan_qos *qos;
 	struct bt_iso_chan *bis;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_CREATE_BIG, sizeof(*req));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 
 	if (!buf) {
 		return -ENOBUFS;
@@ -2549,17 +2662,17 @@ static int hci_le_create_big(struct bt_le_ext_adv *padv, struct bt_iso_big *big,
 	__ASSERT(bis != NULL, "bis was NULL");
 
 	/* All BIS will share the same QOS */
-	qos = bis->qos;
+	qos = bis->qos->tx;
 
 	req = net_buf_add(buf, sizeof(*req));
 	req->big_handle = big->handle;
 	req->adv_handle = padv->handle;
 	req->num_bis = big->num_bis;
 	sys_put_le24(param->interval, req->sdu_interval);
-	req->max_sdu = sys_cpu_to_le16(qos->tx->sdu);
+	req->max_sdu = sys_cpu_to_le16(qos->sdu);
 	req->max_latency = sys_cpu_to_le16(param->latency);
-	req->rtn = qos->tx->rtn;
-	req->phy = qos->tx->phy;
+	req->rtn = qos->rtn;
+	req->phy = qos->phy;
 	req->packing = param->packing;
 	req->framing = param->framing;
 	req->encryption = param->encryption;
@@ -2568,6 +2681,11 @@ static int hci_le_create_big(struct bt_le_ext_adv *padv, struct bt_iso_big *big,
 	} else {
 		memset(req->bcode, 0, sizeof(req->bcode));
 	}
+
+	LOG_DBG("BIG handle 0x%02x, adv_handle 0x%02x, num_bis %u, sdu_interval %u, max_sdu %u, "
+		"max_latency %u, rtn %u, phy %u, packing %u, framing %u, encryption %u",
+		big->handle, padv->handle, big->num_bis, param->interval, qos->sdu, param->latency,
+		qos->rtn, qos->phy, param->packing, param->framing, param->encryption);
 
 	bt_hci_cmd_state_set_init(buf, &state, big->flags, BT_BIG_PENDING, true);
 	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_CREATE_BIG, buf, NULL);
@@ -2584,8 +2702,7 @@ static int hci_le_create_big(struct bt_le_ext_adv *padv, struct bt_iso_big *big,
 }
 
 #if defined(CONFIG_BT_ISO_TEST_PARAMS)
-static int hci_le_create_big_test(const struct bt_le_ext_adv *padv,
-				  struct bt_iso_big *big,
+static int hci_le_create_big_test(const struct bt_le_ext_adv *padv, struct bt_iso_big *big,
 				  const struct bt_iso_big_create_param *param)
 {
 	struct bt_hci_cp_le_create_big_test *req;
@@ -2595,7 +2712,7 @@ static int hci_le_create_big_test(const struct bt_le_ext_adv *padv,
 	struct net_buf *buf;
 	int err;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_CREATE_BIG_TEST, sizeof(*req));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 
 	if (!buf) {
 		return -ENOBUFS;
@@ -2633,9 +2750,8 @@ static int hci_le_create_big_test(const struct bt_le_ext_adv *padv,
 		"ISO interval %u, NSE %u, SDU %u, PDU %u, PHY %u, packing %u, "
 		"framing %u, BN %u, IRC %u, PTO %u, encryption %u",
 		req->big_handle, req->adv_handle, req->num_bis, param->interval,
-		param->iso_interval, req->nse, req->max_sdu, req->max_pdu,
-		req->phy, req->packing, req->framing, req->bn, req->irc,
-		req->pto, req->encryption);
+		param->iso_interval, req->nse, req->max_sdu, req->max_pdu, req->phy, req->packing,
+		req->framing, req->bn, req->irc, req->pto, req->encryption);
 
 	bt_hci_cmd_state_set_init(buf, &state, big->flags, BT_BIG_PENDING, true);
 	err = bt_hci_cmd_send_sync(BT_HCI_OP_LE_CREATE_BIG_TEST, buf, NULL);
@@ -2652,8 +2768,7 @@ static int hci_le_create_big_test(const struct bt_le_ext_adv *padv,
 
 static bool is_advanced_big_param(const struct bt_iso_big_create_param *param)
 {
-	if (param->irc != 0U ||
-	    param->iso_interval != 0U) {
+	if (param->irc != 0U || param->iso_interval != 0U) {
 		return true;
 	}
 
@@ -2677,16 +2792,15 @@ static bool is_advanced_big_param(const struct bt_iso_big_create_param *param)
 }
 #endif /* CONFIG_BT_ISO_TEST_PARAMS */
 
-static bool valid_big_param(const struct bt_iso_big_create_param *param,
-			    bool advanced)
+static bool valid_big_param(const struct bt_iso_big_create_param *param, bool advanced)
 {
-	CHECKIF(!param->bis_channels) {
+	if (!param->bis_channels) {
 		LOG_DBG("NULL BIS channels");
 
 		return false;
 	}
 
-	CHECKIF(!param->num_bis) {
+	if (!param->num_bis) {
 		LOG_DBG("Invalid number of BIS %u", param->num_bis);
 
 		return false;
@@ -2695,7 +2809,7 @@ static bool valid_big_param(const struct bt_iso_big_create_param *param,
 	for (uint8_t i = 0; i < param->num_bis; i++) {
 		struct bt_iso_chan *bis = param->bis_channels[i];
 
-		CHECKIF(bis == NULL) {
+		if (bis == NULL) {
 			LOG_DBG("bis_channels[%u]: NULL channel", i);
 
 			return false;
@@ -2707,55 +2821,48 @@ static bool valid_big_param(const struct bt_iso_big_create_param *param,
 			return false;
 		}
 
-		CHECKIF(bis->qos == NULL) {
+		if (bis->qos == NULL) {
 			LOG_DBG("bis_channels[%u]: qos is NULL", i);
 
 			return false;
 		}
 
-		CHECKIF(bis->qos->tx == NULL ||
-			!valid_chan_io_qos(bis->qos->tx, true, true,
-					   advanced)) {
+		if (bis->qos->tx == NULL ||
+		    !valid_chan_io_qos(bis->qos->tx, true, true, advanced)) {
 			LOG_DBG("bis_channels[%u]: Invalid QOS", i);
 
 			return false;
 		}
 	}
 
-	CHECKIF(param->framing != BT_ISO_FRAMING_UNFRAMED &&
-		param->framing != BT_ISO_FRAMING_FRAMED) {
+	if (param->framing != BT_ISO_FRAMING_UNFRAMED && param->framing != BT_ISO_FRAMING_FRAMED) {
 		LOG_DBG("Invalid framing parameter: %u", param->framing);
 
 		return false;
 	}
 
-	CHECKIF(param->packing != BT_ISO_PACKING_SEQUENTIAL &&
-		param->packing != BT_ISO_PACKING_INTERLEAVED) {
+	if (param->packing != BT_ISO_PACKING_SEQUENTIAL &&
+	    param->packing != BT_ISO_PACKING_INTERLEAVED) {
 		LOG_DBG("Invalid packing parameter: %u", param->packing);
 
 		return false;
 	}
 
-	CHECKIF(param->num_bis > BT_ISO_MAX_GROUP_ISO_COUNT ||
-		param->num_bis > CONFIG_BT_ISO_MAX_CHAN) {
+	if (param->num_bis > BT_ISO_MAX_GROUP_ISO_COUNT ||
+	    param->num_bis > CONFIG_BT_ISO_MAX_CHAN) {
 		LOG_DBG("num_bis (%u) shall be lower than: %u", param->num_bis,
 			MAX(CONFIG_BT_ISO_MAX_CHAN, BT_ISO_MAX_GROUP_ISO_COUNT));
 
 		return false;
 	}
 
-	CHECKIF(!IN_RANGE(param->interval,
-			  BT_ISO_SDU_INTERVAL_MIN,
-			  BT_ISO_SDU_INTERVAL_MAX)) {
+	if (!IN_RANGE(param->interval, BT_ISO_SDU_INTERVAL_MIN, BT_ISO_SDU_INTERVAL_MAX)) {
 		LOG_DBG("Invalid interval: %u", param->interval);
 
 		return false;
 	}
 
-	CHECKIF(!advanced &&
-		!IN_RANGE(param->latency,
-			  BT_ISO_LATENCY_MIN,
-			  BT_ISO_LATENCY_MAX)) {
+	if (!advanced && !IN_RANGE(param->latency, BT_ISO_LATENCY_MIN, BT_ISO_LATENCY_MAX)) {
 		LOG_DBG("Invalid latency: %u", param->latency);
 
 		return false;
@@ -2763,21 +2870,20 @@ static bool valid_big_param(const struct bt_iso_big_create_param *param,
 
 #if defined(CONFIG_BT_ISO_TEST_PARAMS)
 	if (advanced) {
-		CHECKIF(!IN_RANGE(param->irc, BT_ISO_IRC_MIN, BT_ISO_IRC_MAX)) {
+		if (!IN_RANGE(param->irc, BT_ISO_IRC_MIN, BT_ISO_IRC_MAX)) {
 			LOG_DBG("Invalid IRC %u", param->irc);
 
 			return false;
 		}
 
-		CHECKIF(!IN_RANGE(param->pto, BT_ISO_PTO_MIN, BT_ISO_PTO_MAX)) {
+		if (!IN_RANGE(param->pto, BT_ISO_PTO_MIN, BT_ISO_PTO_MAX)) {
 			LOG_DBG("Invalid PTO %u", param->pto);
 
 			return false;
 		}
 
-		CHECKIF(!IN_RANGE(param->iso_interval,
-				BT_ISO_ISO_INTERVAL_MIN,
-				BT_ISO_ISO_INTERVAL_MAX)) {
+		if (!IN_RANGE(param->iso_interval, BT_ISO_ISO_INTERVAL_MIN,
+			      BT_ISO_ISO_INTERVAL_MAX)) {
 			LOG_DBG("Invalid ISO interval %u", param->iso_interval);
 
 			return false;
@@ -2791,9 +2897,25 @@ static bool valid_big_param(const struct bt_iso_big_create_param *param,
 int bt_iso_big_create(struct bt_le_ext_adv *padv, struct bt_iso_big_create_param *param,
 		      struct bt_iso_big **out_big)
 {
+	struct bt_iso_chan **bis_channels;
 	int err;
 	struct bt_iso_big *big;
 	bool advanced = false;
+
+	if (padv == NULL) {
+		LOG_DBG("padv is NULL");
+		return -EINVAL;
+	}
+
+	if (param == NULL) {
+		LOG_DBG("param is NULL");
+		return -EINVAL;
+	}
+
+	if (out_big == NULL) {
+		LOG_DBG("out_big is NULL");
+		return -EINVAL;
+	}
 
 	if (!atomic_test_bit(padv->flags, BT_PER_ADV_PARAMS_SET)) {
 		LOG_DBG("PA params not set; invalid adv object");
@@ -2816,12 +2938,20 @@ int bt_iso_big_create(struct bt_le_ext_adv *padv, struct bt_iso_big_create_param
 		return -ENOMEM;
 	}
 
-	err = big_init_bis(big, param->bis_channels, param->num_bis, true);
-	if (err) {
-		LOG_DBG("Could not init BIG %d", err);
-		cleanup_big(big);
-		return err;
+	bis_channels = param->bis_channels;
+	for (uint8_t i = 0; i < param->num_bis; i++) {
+		/* BIS numbers start from 1, so the first BIS will get BIS Number = 1 */
+		const uint8_t bis_number = i + 1U;
+
+		err = big_init_bis(big, bis_channels[i], bis_number, true);
+		if (err != 0) {
+			LOG_DBG("Could not init BIS[%u]: %d", i, err);
+			cleanup_big(big);
+
+			return err;
+		}
 	}
+
 	big->num_bis = param->num_bis;
 
 	if (!advanced) {
@@ -2844,9 +2974,13 @@ int bt_iso_big_create(struct bt_le_ext_adv *padv, struct bt_iso_big_create_param
 }
 
 static void store_bis_broadcaster_info(const struct bt_hci_evt_le_big_complete *evt,
-				       struct bt_iso_info *info)
+				       struct bt_conn *iso)
 {
+	struct bt_conn_iso *iso_conn = &iso->iso;
+	struct bt_iso_info *info = &iso_conn->info;
 	struct bt_iso_broadcaster_info *broadcaster_info = &info->broadcaster;
+	const struct bt_iso_chan *chan = iso_conn->chan;
+	const struct bt_iso_chan_io_qos *tx = chan->qos->tx;
 
 	info->iso_interval = sys_le16_to_cpu(evt->iso_interval);
 	info->max_subevent = evt->nse;
@@ -2859,9 +2993,19 @@ static void store_bis_broadcaster_info(const struct bt_hci_evt_le_big_complete *
 	/* Transform to n * 1.25ms */
 	broadcaster_info->pto = info->iso_interval * evt->pto;
 	broadcaster_info->max_pdu = sys_le16_to_cpu(evt->max_pdu);
+	broadcaster_info->big_handle = iso_conn->info.broadcaster.big_handle;
+	broadcaster_info->bis_number = iso_conn->info.broadcaster.bis_number;
 
 	info->can_send = true;
 	info->can_recv = false;
+
+	LOG_DBG("iso_chan %p established: tx %p, big_handle 0x%02X, bis_number 0x%02X, "
+		"iso_interval 0x%04X, max_subevent 0x%02X, sync_delay 0x%06X, latency 0x%06X, "
+		"phy 0x%02X, bn 0x%02X, irc 0x%02X, pto 0x%06X, max_pdu 0x%04X",
+		chan, tx, broadcaster_info->big_handle, broadcaster_info->bis_number,
+		info->iso_interval, info->max_subevent, broadcaster_info->sync_delay,
+		broadcaster_info->latency, broadcaster_info->phy, broadcaster_info->bn,
+		broadcaster_info->irc, broadcaster_info->pto, broadcaster_info->max_pdu);
 }
 
 void hci_le_big_complete(struct net_buf *buf)
@@ -2877,7 +3021,6 @@ void hci_le_big_complete(struct net_buf *buf)
 		big = big_lookup_flag(BT_BIG_PENDING);
 		if (big) {
 			big_disconnect(big, evt->status ? evt->status : BT_HCI_ERR_UNSPECIFIED);
-			cleanup_big(big);
 		}
 
 		return;
@@ -2886,7 +3029,8 @@ void hci_le_big_complete(struct net_buf *buf)
 	big = lookup_big_by_handle(evt->big_handle);
 	atomic_clear_bit(big->flags, BT_BIG_PENDING);
 
-	LOG_DBG("BIG[%u] %p completed, status 0x%02x", big->handle, big, evt->status);
+	LOG_DBG("BIG[%u] %p completed, status 0x%02x %s", big->handle, big, evt->status,
+		bt_hci_err_to_str(evt->status));
 
 	if (evt->status || evt->num_bis != big->num_bis) {
 		if (evt->status == BT_HCI_ERR_SUCCESS && evt->num_bis != big->num_bis) {
@@ -2894,18 +3038,30 @@ void hci_le_big_complete(struct net_buf *buf)
 				big->num_bis);
 		}
 		big_disconnect(big, evt->status ? evt->status : BT_HCI_ERR_UNSPECIFIED);
-		cleanup_big(big);
 		return;
 	}
 
+	atomic_set_bit(big->flags, BT_BIG_BUSY);
 	i = 0;
 	SYS_SLIST_FOR_EACH_CONTAINER(&big->bis_channels, bis, node) {
 		const uint16_t handle = evt->handle[i++];
 		struct bt_conn *iso_conn = bis->iso;
 
 		iso_conn->handle = sys_le16_to_cpu(handle);
-		store_bis_broadcaster_info(evt, &iso_conn->iso.info);
+		store_bis_broadcaster_info(evt, iso_conn);
 		bt_conn_set_state(iso_conn, BT_CONN_CONNECTED);
+	}
+
+	atomic_clear_bit(big->flags, BT_BIG_BUSY);
+
+	if (!sys_slist_is_empty(&iso_big_cbs)) {
+		struct bt_iso_big_cb *listener;
+
+		SYS_SLIST_FOR_EACH_CONTAINER(&iso_big_cbs, listener, _node) {
+			if (listener->started != NULL) {
+				listener->started(big);
+			}
+		}
 	}
 }
 
@@ -2924,7 +3080,6 @@ void hci_le_big_terminate(struct net_buf *buf)
 	LOG_DBG("BIG[%u] %p terminated", big->handle, big);
 
 	big_disconnect(big, evt->reason);
-	cleanup_big(big);
 }
 #endif /* CONFIG_BT_ISO_BROADCASTER */
 
@@ -2933,7 +3088,7 @@ static int hci_le_terminate_big(struct bt_iso_big *big)
 	struct bt_hci_cp_le_terminate_big *req;
 	struct net_buf *buf;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_TERMINATE_BIG, sizeof(*req));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -2953,7 +3108,7 @@ static int hci_le_big_sync_term(struct bt_iso_big *big)
 	struct net_buf *rsp;
 	int err;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_BIG_TERMINATE_SYNC, sizeof(*req));
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -2980,9 +3135,19 @@ int bt_iso_big_terminate(struct bt_iso_big *big)
 	struct bt_iso_chan *bis;
 	int err;
 
+	if (big == NULL) {
+		LOG_DBG("big is NULL");
+		return -EINVAL;
+	}
+
 	if (!atomic_test_bit(big->flags, BT_BIG_INITIALIZED) || !big->num_bis) {
 		LOG_DBG("BIG not initialized");
 		return -EINVAL;
+	}
+
+	if (atomic_test_bit(big->flags, BT_BIG_BUSY)) {
+		LOG_DBG("BIG %p is busy", big);
+		return -EBUSY;
 	}
 
 	bis = SYS_SLIST_PEEK_HEAD_CONTAINER(&big->bis_channels, bis, node);
@@ -3006,7 +3171,6 @@ int bt_iso_big_terminate(struct bt_iso_big *big)
 
 		if (!err) {
 			big_disconnect(big, BT_HCI_ERR_LOCALHOST_TERM_CONN);
-			cleanup_big(big);
 		}
 	} else {
 		err = -EINVAL;
@@ -3021,9 +3185,13 @@ int bt_iso_big_terminate(struct bt_iso_big *big)
 
 #if defined(CONFIG_BT_ISO_SYNC_RECEIVER)
 static void store_bis_sync_receiver_info(const struct bt_hci_evt_le_big_sync_established *evt,
-					 struct bt_iso_info *info)
+					 struct bt_conn *iso)
 {
+	struct bt_conn_iso *iso_conn = &iso->iso;
+	struct bt_iso_info *info = &iso_conn->info;
 	struct bt_iso_sync_receiver_info *receiver_info = &info->sync_receiver;
+	const struct bt_iso_chan *chan = iso_conn->chan;
+	const struct bt_iso_chan_io_qos *rx = chan->qos->rx;
 
 	info->max_subevent = evt->nse;
 	info->iso_interval = sys_le16_to_cpu(evt->iso_interval);
@@ -3034,9 +3202,18 @@ static void store_bis_sync_receiver_info(const struct bt_hci_evt_le_big_sync_est
 	/* Transform to n * 1.25ms */
 	receiver_info->pto = info->iso_interval * evt->pto;
 	receiver_info->max_pdu = sys_le16_to_cpu(evt->max_pdu);
+	receiver_info->big_handle = iso_conn->info.sync_receiver.big_handle;
+	receiver_info->bis_number = iso_conn->info.sync_receiver.bis_number;
 
 	info->can_send = false;
 	info->can_recv = true;
+
+	LOG_DBG("iso_chan %p established: rx %p, big_handle 0x%02X, bis_number 0x%02X, "
+		"iso_interval 0x%04X, max_subevent 0x%02X, latency 0x%06X, bn 0x%02X, irc 0x%02X, "
+		"pto 0x%06X, max_pdu 0x%04X",
+		chan, rx, receiver_info->big_handle, receiver_info->bis_number, info->iso_interval,
+		info->max_subevent, receiver_info->latency, receiver_info->bn, receiver_info->irc,
+		receiver_info->pto, receiver_info->max_pdu);
 }
 
 void hci_le_big_sync_established(struct net_buf *buf)
@@ -3051,7 +3228,6 @@ void hci_le_big_sync_established(struct net_buf *buf)
 		big = big_lookup_flag(BT_BIG_SYNCING);
 		if (big) {
 			big_disconnect(big, evt->status ? evt->status : BT_HCI_ERR_UNSPECIFIED);
-			cleanup_big(big);
 		}
 
 		return;
@@ -3060,7 +3236,8 @@ void hci_le_big_sync_established(struct net_buf *buf)
 	big = lookup_big_by_handle(evt->big_handle);
 	atomic_clear_bit(big->flags, BT_BIG_SYNCING);
 
-	LOG_DBG("BIG[%u] %p sync established, status 0x%02x", big->handle, big, evt->status);
+	LOG_DBG("BIG[%u] %p sync established, status 0x%02x %s", big->handle, big, evt->status,
+		bt_hci_err_to_str(evt->status));
 
 	if (evt->status || evt->num_bis != big->num_bis) {
 		if (evt->status == BT_HCI_ERR_SUCCESS && evt->num_bis != big->num_bis) {
@@ -3068,18 +3245,30 @@ void hci_le_big_sync_established(struct net_buf *buf)
 				big->num_bis);
 		}
 		big_disconnect(big, evt->status ? evt->status : BT_HCI_ERR_UNSPECIFIED);
-		cleanup_big(big);
 		return;
 	}
 
+	atomic_set_bit(big->flags, BT_BIG_BUSY);
 	i = 0;
 	SYS_SLIST_FOR_EACH_CONTAINER(&big->bis_channels, bis, node) {
 		const uint16_t handle = evt->handle[i++];
 		struct bt_conn *iso_conn = bis->iso;
 
 		iso_conn->handle = sys_le16_to_cpu(handle);
-		store_bis_sync_receiver_info(evt, &iso_conn->iso.info);
+		store_bis_sync_receiver_info(evt, iso_conn);
 		bt_conn_set_state(iso_conn, BT_CONN_CONNECTED);
+	}
+
+	atomic_clear_bit(big->flags, BT_BIG_BUSY);
+
+	if (!sys_slist_is_empty(&iso_big_cbs)) {
+		struct bt_iso_big_cb *listener;
+
+		SYS_SLIST_FOR_EACH_CONTAINER(&iso_big_cbs, listener, _node) {
+			if (listener->started != NULL) {
+				listener->started(big);
+			}
+		}
 	}
 }
 
@@ -3098,7 +3287,6 @@ void hci_le_big_sync_lost(struct net_buf *buf)
 	LOG_DBG("BIG[%u] %p sync lost", big->handle, big);
 
 	big_disconnect(big, evt->reason);
-	cleanup_big(big);
 }
 
 static int hci_le_big_create_sync(const struct bt_le_per_adv_sync *sync, struct bt_iso_big *big,
@@ -3110,7 +3298,7 @@ static int hci_le_big_create_sync(const struct bt_le_per_adv_sync *sync, struct 
 	int err;
 	uint8_t bit_idx = 0;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_BIG_CREATE_SYNC, sizeof(*req) + big->num_bis);
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	if (!buf) {
 		return -ENOBUFS;
 	}
@@ -3129,7 +3317,7 @@ static int hci_le_big_create_sync(const struct bt_le_per_adv_sync *sync, struct 
 	req->num_bis = big->num_bis;
 	/* Transform from bitfield to array */
 	for (int i = 1; i <= BT_ISO_MAX_GROUP_ISO_COUNT; i++) {
-		if (param->bis_bitfield & BIT(i)) {
+		if (param->bis_bitfield & BT_ISO_BIS_INDEX_BIT(i)) {
 			if (bit_idx == big->num_bis) {
 				LOG_DBG("BIG cannot contain %u BISes", bit_idx + 1);
 				return -EINVAL;
@@ -3153,37 +3341,54 @@ static int hci_le_big_create_sync(const struct bt_le_per_adv_sync *sync, struct 
 int bt_iso_big_sync(struct bt_le_per_adv_sync *sync, struct bt_iso_big_sync_param *param,
 		    struct bt_iso_big **out_big)
 {
+	struct bt_iso_chan **bis_channels;
 	int err;
 	struct bt_iso_chan *bis;
 	struct bt_iso_big *big;
+	uint32_t bitfield_copy;
+
+	if (sync == NULL) {
+		LOG_DBG("sync is NULL");
+		return -EINVAL;
+	}
+
+	if (param == NULL) {
+		LOG_DBG("param is NULL");
+		return -EINVAL;
+	}
+
+	if (out_big == NULL) {
+		LOG_DBG("out_big is NULL");
+		return -EINVAL;
+	}
 
 	if (!atomic_test_bit(sync->flags, BT_PER_ADV_SYNC_SYNCED)) {
 		LOG_DBG("PA sync not synced");
 		return -EINVAL;
 	}
 
-	CHECKIF(param->mse > BT_ISO_SYNC_MSE_MAX) {
+	if (param->mse > BT_ISO_SYNC_MSE_MAX) {
 		LOG_DBG("Invalid MSE 0x%02x", param->mse);
 		return -EINVAL;
 	}
 
-	CHECKIF(param->sync_timeout < BT_ISO_SYNC_TIMEOUT_MIN ||
-		param->sync_timeout > BT_ISO_SYNC_TIMEOUT_MAX) {
+	if (param->sync_timeout < BT_ISO_SYNC_TIMEOUT_MIN ||
+	    param->sync_timeout > BT_ISO_SYNC_TIMEOUT_MAX) {
 		LOG_DBG("Invalid sync timeout 0x%04x", param->sync_timeout);
 		return -EINVAL;
 	}
 
-	CHECKIF(param->bis_bitfield <= BIT(0)) {
+	if (!BT_ISO_VALID_BIS_BITFIELD(param->bis_bitfield)) {
 		LOG_DBG("Invalid BIS bitfield 0x%08x", param->bis_bitfield);
 		return -EINVAL;
 	}
 
-	CHECKIF(!param->bis_channels) {
+	if (!param->bis_channels) {
 		LOG_DBG("NULL BIS channels");
 		return -EINVAL;
 	}
 
-	CHECKIF(!param->num_bis) {
+	if (!param->num_bis) {
 		LOG_DBG("Invalid number of BIS %u", param->num_bis);
 		return -EINVAL;
 	}
@@ -3191,7 +3396,7 @@ int bt_iso_big_sync(struct bt_le_per_adv_sync *sync, struct bt_iso_big_sync_para
 	for (uint8_t i = 0; i < param->num_bis; i++) {
 		struct bt_iso_chan *param_bis = param->bis_channels[i];
 
-		CHECKIF(param_bis == NULL) {
+		if (param_bis == NULL) {
 			LOG_DBG("bis_channels[%u]: NULL channel", i);
 			return -EINVAL;
 		}
@@ -3201,12 +3406,12 @@ int bt_iso_big_sync(struct bt_le_per_adv_sync *sync, struct bt_iso_big_sync_para
 			return -EALREADY;
 		}
 
-		CHECKIF(param_bis->qos == NULL) {
+		if (param_bis->qos == NULL) {
 			LOG_DBG("bis_channels[%u]: qos is NULL", i);
 			return -EINVAL;
 		}
 
-		CHECKIF(param_bis->qos->rx == NULL) {
+		if (param_bis->qos->rx == NULL) {
 			LOG_DBG("bis_channels[%u]: qos->rx is NULL", i);
 			return -EINVAL;
 		}
@@ -3218,12 +3423,29 @@ int bt_iso_big_sync(struct bt_le_per_adv_sync *sync, struct bt_iso_big_sync_para
 		return -ENOMEM;
 	}
 
-	err = big_init_bis(big, param->bis_channels, param->num_bis, false);
-	if (err) {
-		LOG_DBG("Could not init BIG %d", err);
-		cleanup_big(big);
-		return err;
+	bitfield_copy = param->bis_bitfield;
+	bis_channels = param->bis_channels;
+	for (uint8_t i = 0; i < param->num_bis; i++) {
+		const uint8_t bis_number = find_lsb_set(bitfield_copy);
+
+		/* pop the least significant bit from the bitfield */
+		bitfield_copy &= ~BIT(bis_number - 1U);
+
+		/* The least significant bit will be the bis_number, so that if the bitfield is
+		 * 0b0101 then the first pop will be 1 and the bitfield_copy will be 0b0100 and
+		 * then the second pop will be 3 and the bitfield_copy will be 0b0000
+		 * Since find_lsb_set returns the index starting from 1 we can use the result
+		 * directly as the bis_numbers also start from 1.
+		 */
+		err = big_init_bis(big, bis_channels[i], bis_number, false);
+		if (err != 0) {
+			LOG_DBG("Could not init BIS[%u]: %d", i, err);
+			cleanup_big(big);
+
+			return err;
+		}
 	}
+
 	big->num_bis = param->num_bis;
 
 	err = hci_le_big_create_sync(sync, big, param);
@@ -3232,7 +3454,6 @@ int bt_iso_big_sync(struct bt_le_per_adv_sync *sync, struct bt_iso_big_sync_para
 		cleanup_big(big);
 		return err;
 	}
-
 
 	SYS_SLIST_FOR_EACH_CONTAINER(&big->bis_channels, bis, node) {
 		bt_iso_chan_set_state(bis, BT_ISO_STATE_CONNECTING);
@@ -3244,3 +3465,38 @@ int bt_iso_big_sync(struct bt_le_per_adv_sync *sync, struct bt_iso_big_sync_para
 }
 #endif /* CONFIG_BT_ISO_SYNC_RECEIVER */
 #endif /* CONFIG_BT_ISO_BROADCAST */
+
+void bt_iso_reset(void)
+{
+#if defined(CONFIG_BT_ISO_CENTRAL)
+	for (size_t i = 0U; i < ARRAY_SIZE(cigs); i++) {
+		struct bt_iso_cig *cig = &cigs[i];
+		struct bt_iso_chan *cis;
+
+		/* Disconnect any connected CIS and call the callback
+		 * We cannot use bt_iso_chan_disconnected directly here, as that
+		 * attempts to also remove the ISO data path, which we shouldn't attempt to
+		 * during the reset, as that sends HCI commands.
+		 */
+		SYS_SLIST_FOR_EACH_CONTAINER(&cig->cis_channels, cis, node) {
+			if (cis->state != BT_ISO_STATE_DISCONNECTED) {
+				bt_iso_chan_set_state(cis, BT_ISO_STATE_DISCONNECTED);
+				bt_iso_cleanup_acl(cis->iso);
+				if (cis->ops != NULL && cis->ops->disconnected != NULL) {
+					cis->ops->disconnected(cis, BT_HCI_ERR_UNSPECIFIED);
+				}
+			}
+		}
+
+		cleanup_cig(cig);
+	}
+#endif /* CONFIG_BT_ISO_CENTRAL */
+
+#if defined(CONFIG_BT_ISO_BROADCAST)
+	for (size_t i = 0U; i < ARRAY_SIZE(bigs); i++) {
+		struct bt_iso_big *big = &bigs[i];
+
+		big_disconnect(big, BT_HCI_ERR_UNSPECIFIED);
+	}
+#endif /* CONFIG_BT_ISO_BROADCAST */
+}

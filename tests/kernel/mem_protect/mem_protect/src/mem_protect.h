@@ -6,7 +6,6 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
-#include <zephyr/kernel_structs.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -58,7 +57,7 @@ static inline void set_fault_valid(bool valid)
 #elif defined(CONFIG_ARC)
 #define MEM_REGION_ALLOC (Z_ARC_MPU_ALIGN)
 #elif defined(CONFIG_ARM64)
-#define MEM_REGION_ALLOC (4096)
+#define MEM_REGION_ALLOC (CONFIG_MMU_PAGE_SIZE)
 #elif defined(CONFIG_ARM)
 #define MEM_REGION_ALLOC (Z_THREAD_MIN_STACK_ALIGN)
 #elif defined(CONFIG_RISCV)
@@ -67,6 +66,8 @@ static inline void set_fault_valid(bool valid)
 #else
 #define MEM_REGION_ALLOC (4)
 #endif
+#elif defined(CONFIG_XTENSA)
+#define MEM_REGION_ALLOC (4096)
 #else
 #error "Test suite not compatible for the given architecture"
 #endif
@@ -91,6 +92,6 @@ static inline void set_fault_valid(bool valid)
 
 __syscall struct k_heap *ret_resource_pool_ptr(void);
 
-#include <syscalls/mem_protect.h>
+#include <zephyr/syscalls/mem_protect.h>
 
 #endif /* _TEST_SYSCALLS_H_ */

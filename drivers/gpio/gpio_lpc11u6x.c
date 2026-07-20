@@ -459,21 +459,21 @@ static void gpio_lpc11u6x_isr(const void *arg)
 		}
 	}
 	/* For each port with active pins, fire the GPIO interrupt callbacks. */
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio0), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio0))
 	if (pins[0]) {
 		port = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 		data = port->data;
 		gpio_fire_callbacks(&data->cb_list, port, pins[0]);
 	}
 #endif
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio1), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 	if (pins[1]) {
 		port = DEVICE_DT_GET(DT_NODELABEL(gpio1));
 		data = port->data;
 		gpio_fire_callbacks(&data->cb_list, port, pins[1]);
 	}
 #endif
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio2), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio2))
 	if (pins[2]) {
 		port = DEVICE_DT_GET(DT_NODELABEL(gpio2));
 		data = port->data;
@@ -482,7 +482,7 @@ static void gpio_lpc11u6x_isr(const void *arg)
 #endif
 }
 
-static const struct gpio_driver_api gpio_lpc11u6x_driver_api = {
+static DEVICE_API(gpio, gpio_lpc11u6x_driver_api) = {
 	.pin_configure = gpio_lpc11u6x_pin_configure,
 	.port_get_raw = gpio_lpc11u6x_port_get_raw,
 	.port_set_masked_raw = gpio_lpc11u6x_port_set_masked_raw,
@@ -568,10 +568,8 @@ static int gpio_lpc11u6x_init(const struct device *dev)
 #define GPIO_LPC11U6X_INIT(id)						\
 static const struct gpio_lpc11u6x_config				\
 			gpio_lpc11u6x_config_##id = {			\
-	.common = {							\
-		.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_NODE(	\
+	.common = GPIO_COMMON_CONFIG_FROM_DT_NODE(			\
 					DT_NODELABEL(gpio##id)),	\
-	},								\
 	.shared = &gpio_lpc11u6x_shared,				\
 	.port_num = id,							\
 	.ngpios = DT_PROP(DT_NODELABEL(gpio##id), ngpios),		\
@@ -589,14 +587,14 @@ DEVICE_DT_DEFINE(DT_NODELABEL(gpio##id),				\
 		    PRE_KERNEL_2, CONFIG_GPIO_INIT_PRIORITY,		\
 		    &gpio_lpc11u6x_driver_api)
 
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio0), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio0))
 GPIO_LPC11U6X_INIT(0);
 #endif
 
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio1), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 GPIO_LPC11U6X_INIT(1);
 #endif
 
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio2), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio2))
 GPIO_LPC11U6X_INIT(2);
 #endif

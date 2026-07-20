@@ -8,13 +8,15 @@
 
 #include <zephyr/arch/cpu.h>
 #include <zephyr/device.h>
+#include <zephyr/devicetree/interrupt_controller.h>
 #include <zephyr/irq.h>
 #include <zephyr/irq_nextlevel.h>
-#include <zephyr/sys/arch_interface.h>
+#include <zephyr/arch/arch_interface.h>
+#include <zephyr/sw_isr_table.h>
 #include "intc_cavs.h"
 
 #if defined(CONFIG_SMP) && (CONFIG_MP_MAX_NUM_CPUS > 1)
-#if defined(CONFIG_SOC_INTEL_CAVS_V25)
+#if defined(CONFIG_SOC_CAVSV25)
 #define PER_CPU_OFFSET(x)	(0x40 * x)
 #else
 #error "Must define PER_CPU_OFFSET(x) for SoC"
@@ -149,7 +151,11 @@ static const struct irq_next_level_api cavs_apis = {
 	{								\
 		IRQ_CONNECT(DT_INST_IRQN(n), DT_INST_IRQ(n, priority),	\
 			    cavs_ictl_isr, DEVICE_DT_INST_GET(n),	\
-			    DT_INST_IRQ(n, sense));			\
-	}
+			    DT_INST_IRQ(n, flags));			\
+	}								\
+	IRQ_PARENT_ENTRY_DEFINE(					\
+		intc_cavs_##n, DEVICE_DT_INST_GET(n), DT_INST_IRQN(n),	\
+		INTC_INST_ISR_TBL_OFFSET(n),				\
+		DT_INST_INTC_GET_AGGREGATOR_LEVEL(n));
 
 DT_INST_FOREACH_STATUS_OKAY(CAVS_ICTL_INIT)

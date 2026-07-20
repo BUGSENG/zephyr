@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Nordic Semiconductor
  * Copyright (c) 2020, Linaro Ltd.
+ * Copyright (c) 2025 The Zephyr Project Contributors
  *
  * Not a generated file. Feel free to modify.
  */
@@ -13,10 +14,11 @@
  * API for accessing the current application's devicetree macros.
  */
 
-#ifndef DEVICETREE_H
-#define DEVICETREE_H
+#ifndef ZEPHYR_INCLUDE_DEVICETREE_H_
+#define ZEPHYR_INCLUDE_DEVICETREE_H_
 
-#include <devicetree_generated.h>
+#include <zephyr/devicetree_generated.h>
+#include <zephyr/irq_multilevel.h>
 
 #if !defined(_LINKER) && !defined(_ASMLANGUAGE)
 #include <stdint.h>
@@ -27,6 +29,8 @@
 /**
  * @brief devicetree.h API
  * @defgroup devicetree Devicetree
+ * @since 2.2
+ * @version 1.2.0
  * @{
  * @}
  */
@@ -44,10 +48,6 @@
  *
  * _ENUM_IDX: property's value as an index into bindings enum
  * _ENUM_VAL_<val>_EXISTS property's value as a token exists
- * _ENUM_TOKEN: property's value as a token into bindings enum (string
- *              enum values are identifiers) [deprecated, use _STRING_TOKEN]
- * _ENUM_UPPER_TOKEN: like _ENUM_TOKEN, but uppercased [deprecated, use
- *		      _STRING_UPPER_TOKEN]
  * _EXISTS: property is defined
  * _FOREACH_PROP_ELEM: helper for "iterating" over values in the property
  * _FOREACH_PROP_ELEM_VARGS: foreach functions with variable number of arguments
@@ -197,6 +197,57 @@
 #define DT_NODELABEL(label) DT_CAT(DT_N_NODELABEL_, label)
 
 /**
+ * @brief Get the C symbolic name of a node identifier by index
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     n1: node-1 {
+ *             foo = <&n2 &n3>;
+ *     };
+ *
+ *     n2: n2_1: node-2 { ... };
+ *     n3: &n2:  node-3 { ... };
+ * @endcode
+ *
+ * Above, `foo` has type phandles and has two elements:
+ *
+ * - index 0 has phandle `&n2`, which is `node-2`'s phandle
+ * - index 1 has phandle `&n3`, which is `node-3`'s phandle
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     #define N1 DT_NODELABEL(n1)
+ *
+ *     DT_NODELABEL_C_TOKEN_BY_IDX(DT_PHANDLE_BY_IDX(N1, foo, 0), 0) // n2
+ *     DT_NODELABEL_C_TOKEN_BY_IDX(DT_PHANDLE_BY_IDX(N1, foo, 0), 1) // n2_1
+ *     DT_NODELABEL_C_TOKEN_BY_IDX(DT_PHANDLE_BY_IDX(N1, foo, 1), 0) // n2
+ *     DT_NODELABEL_C_TOKEN_BY_IDX(DT_PHANDLE_BY_IDX(N1, foo, 1), 1) // n2_1
+ *     DT_NODELABEL_C_TOKEN_BY_IDX(DT_PHANDLE_BY_IDX(N1, foo, 1), 2) // n3
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @param idx index into @p node_id
+ * @return C symbolic name of the node for the given index
+ * @note The @p idx retrieves node labels in left-to-right order, as shown
+ *       in the example.
+ */
+#define DT_NODELABEL_C_TOKEN_BY_IDX(node_id, idx) \
+	DT_CAT5(DT_N_NODELABEL_, node_id, _IDX_, idx, _C_TOKEN)
+
+/**
+ * @brief Get the C symbolic name for a node identifier
+ *
+ * This is equivalent to DT_NODELABEL_C_TOKEN_BY_IDX(node_id, 0).
+ *
+ * @param node_id node identifier
+ * @return C symbolic name of the node
+ */
+#define DT_NODELABEL_C_TOKEN(node_id) \
+	DT_NODELABEL_C_TOKEN_BY_IDX(node_id, 0)
+
+/**
  * @brief Get a node identifier from /aliases
  *
  * This macro's argument is a property of the `/aliases` node. It
@@ -235,6 +286,23 @@
  * @return node identifier for the node with that alias
  */
 #define DT_ALIAS(alias) DT_CAT(DT_N_ALIAS_, alias)
+
+/**
+ * @brief Test if the devicetree has a given alias
+ * @param alias_name lowercase-and-underscores devicetree alias name
+ * @return 1 if the alias exists and refers to a node, 0 otherwise
+ */
+#define DT_HAS_ALIAS(alias_name) DT_NODE_EXISTS(DT_ALIAS(alias_name))
+
+/**
+ * @brief Get the hash associated with a DT node
+ *
+ * Get the hash for the specified node_id. The hash is calculated on the
+ * full devicetree path of the node.
+ * @param node_id node identifier
+ * @return hash value as a preprocessor token
+ */
+#define DT_NODE_HASH(node_id) DT_CAT(node_id, _HASH)
 
 /**
  * @brief Get a node identifier for an instance of a compatible
@@ -313,7 +381,7 @@
  *     DT_PROP(DT_INST(1, vnd_soc_serial), current_speed)
  *
  *     // 9600, because there is only one disabled node, and
- *     // disabled nodes are "at the the end" of the instance
+ *     // disabled nodes are "at the end" of the instance
  *     // number "list".
  *     DT_PROP(DT_INST(2, vnd_soc_serial), current_speed)
  * @endcode
@@ -355,7 +423,7 @@
  * @param node_id node identifier
  * @return a node identifier for the node's parent
  */
-#define DT_PARENT(node_id) UTIL_CAT(node_id, _PARENT)
+#define DT_PARENT(node_id) DT_CAT(node_id, _PARENT)
 
 /**
  * @brief Get a node identifier for a grandparent node
@@ -418,6 +486,41 @@
  * @return node identifier for the node with the name referred to by 'child'
  */
 #define DT_CHILD(node_id, child) UTIL_CAT(node_id, DT_S_PREFIX(child))
+
+/**
+ * @brief Get a node identifier for a child node with a matching unit address
+ *
+ * @note Only works for children with unique integer unit addresses.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     / {
+ *             soc-label: soc {
+ *                     serial1: serial@40001000 {
+ *                             status = "okay";
+ *                             current-speed = <115200>;
+ *                             ...
+ *                     };
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage with DT_PROP() to get the status of the
+ * `serial@40001000` node:
+ *
+ * @code{.c}
+ *     #define SOC_NODE DT_NODELABEL(soc_label)
+ *     DT_PROP(DT_CHILD_BY_UNIT_ADDR_INT(SOC_NODE, 1073745920), status) // "okay"
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @param addr Integer unit address for the child node.
+ *
+ * @return node identifier for the child node with the specified unit address
+ */
+#define DT_CHILD_BY_UNIT_ADDR_INT(node_id, addr) \
+	DT_CAT3(node_id, _CHILD_UNIT_ADDR_INT_, addr)
 
 /**
  * @brief Get a node identifier for a status `okay` node with a compatible
@@ -521,6 +624,92 @@
 #define DT_NODE_FULL_NAME(node_id) DT_CAT(node_id, _FULL_NAME)
 
 /**
+ * @brief Get the node's full name, including the unit-address, as an unquoted
+ *        sequence of tokens
+ *
+ * This macro returns removed "the quotes" from the node's full name.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     / {
+ *             soc {
+ *                     node: my-node@12345678 { ... };
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *    DT_NODE_FULL_NAME_UNQUOTED(DT_NODELABEL(node)) // my-node@12345678
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @return the node's full name with unit-address as a sequence of tokens,
+ *         with no quotes
+ */
+#define DT_NODE_FULL_NAME_UNQUOTED(node_id) DT_CAT(node_id, _FULL_NAME_UNQUOTED)
+
+/**
+ * @brief Get the node's full name, including the unit-address, as a token.
+ *
+ * This macro returns removed "the quotes" from the node's full name and
+ * converting any non-alphanumeric characters to underscores.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     / {
+ *             soc {
+ *                     node: my-node@12345678 { ... };
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *    DT_NODE_FULL_NAME_TOKEN(DT_NODELABEL(node)) // my_node_12345678
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @return the node's full name with unit-address as a token, i.e. without any quotes
+ *         and with special characters converted to underscores
+ */
+#define DT_NODE_FULL_NAME_TOKEN(node_id) DT_CAT(node_id, _FULL_NAME_TOKEN)
+
+/**
+ * @brief Like DT_NODE_FULL_NAME_TOKEN(), but uppercased.
+ *
+ * This macro returns removed "the quotes" from the node's full name,
+ * converting any non-alphanumeric characters to underscores, and
+ * capitalizing the result.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     / {
+ *             soc {
+ *                     node: my-node@12345678 { ... };
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *    DT_NODE_FULL_NAME_UPPER_TOKEN(DT_NODELABEL(node)) // MY_NODE_12345678
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @return the node's full name with unit-address as an uppercased token,
+ *         i.e. without any quotes and with special characters converted
+ *         to underscores
+ */
+#define DT_NODE_FULL_NAME_UPPER_TOKEN(node_id) DT_CAT(node_id, _FULL_NAME_UPPER_TOKEN)
+
+/**
  * @brief Get a devicetree node's index into its parent's list of children
  *
  * Indexes are zero-based.
@@ -549,6 +738,49 @@
 #define DT_NODE_CHILD_IDX(node_id) DT_CAT(node_id, _CHILD_IDX)
 
 /**
+ * @brief Get the number of child nodes of a given node
+ *
+ * @param node_id a node identifier
+ * @return Number of child nodes
+ */
+#define DT_CHILD_NUM(node_id) DT_CAT(node_id, _CHILD_NUM)
+
+/**
+ * @brief Get the number of child nodes of a given node,
+ *        whose status is okay
+ *
+ * @param node_id a node identifier
+ * @return Number of child nodes which status are okay
+ */
+#define DT_CHILD_NUM_STATUS_OKAY(node_id) \
+	DT_CAT(node_id, _CHILD_NUM_STATUS_OKAY)
+
+/**
+ * @brief Get the number of descendant nodes of a given node
+ *        that are on the given bus,
+ *        whose binding defines the given bus as their on-bus key
+ *
+ * @param node_id a node identifier
+ * @param bus bus type string
+ * @return Number of descendant nodes
+ */
+#define DT_DESCENDANT_NUM_ON_BUS(node_id, bus) \
+	DT_CAT3(node_id, _DESCENDANT_NUM_ON_BUS_, bus)
+
+/**
+ * @brief Get the number of descendant nodes of a given node
+ *        that are on the given bus,
+ *        whose binding defines the given bus as their on-bus key,
+ *        and whose status is okay
+ *
+ * @param node_id a node identifier
+ * @param bus bus type string
+ * @return Number of descendant nodes
+ */
+#define DT_DESCENDANT_NUM_ON_BUS_STATUS_OKAY(node_id, bus) \
+	DT_CAT4(node_id, _DESCENDANT_NUM_ON_BUS_, bus, _STATUS_OKAY)
+
+/**
  * @brief Do @p node_id1 and @p node_id2 refer to the same node?
  *
  * Both @p node_id1 and @p node_id2 must be node identifiers for nodes
@@ -569,7 +801,34 @@
  *         refer to the same node, and evaluates to 0 otherwise
  */
 #define DT_SAME_NODE(node_id1, node_id2) \
-	(DT_DEP_ORD(node_id1) == (DT_DEP_ORD(node_id2)))
+	IS_EQ(DT_DEP_ORD(node_id1), DT_DEP_ORD(node_id2))
+
+/**
+ * @brief Get a devicetree node's node labels as an array of strings
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     foo: bar: node@deadbeef {};
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     DT_NODELABEL_STRING_ARRAY(DT_NODELABEL(foo))
+ * @endcode
+ *
+ * This expands to:
+ *
+ * @code{.c}
+ *     { "foo", "bar", }
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @return an array initializer for an array of the node's node labels as strings
+ */
+#define DT_NODELABEL_STRING_ARRAY(node_id) \
+	{ DT_FOREACH_NODELABEL(node_id, DT_NODELABEL_STRING_ARRAY_ENTRY_INTERNAL) }
 
 /**
  * @}
@@ -739,7 +998,7 @@
  * - for type phandle, idx must be 0 and the expansion is a node
  *   identifier (this treats phandle like a phandles of length 1)
  *
- * - for type string, idx must be 0 and the expansion is the the
+ * - for type string, idx must be 0 and the expansion is the
  *   entire string (this treats string like string-array of length 1)
  *
  * These properties are handled as special cases:
@@ -761,6 +1020,17 @@
 	DT_CAT5(node_id, _P_, prop, _IDX_, idx)
 
 /**
+ * @brief Get the last element of an array type property
+ *
+ * @param node_id node identifier
+ * @param prop lowercase-and-underscores property name
+ *
+ * @return a representation of the last element of the property
+ */
+#define DT_PROP_LAST(node_id, prop) \
+	DT_PROP_BY_IDX(node_id, prop, UTIL_DEC(DT_PROP_LEN(node_id, prop)))
+
+/**
  * @brief Like DT_PROP(), but with a fallback to @p default_value
  *
  * If the value exists, this expands to DT_PROP(node_id, prop).
@@ -778,66 +1048,92 @@
 		    (DT_PROP(node_id, prop)), (default_value))
 
 /**
- * @deprecated Use DT_PROP(node_id, label)
- * @brief Equivalent to DT_PROP(node_id, label)
- *
- * This is a convenience for the Zephyr device API, which uses label
- * properties as device_get_binding() arguments.
- * @param node_id node identifier
- * @return node's label property value
- */
-#define DT_LABEL(node_id) DT_PROP(node_id, label) __DEPRECATED_MACRO
-
-/**
- * @brief Get a property value's index into its enumeration values
+ * @brief Get a property array value's index into its enumeration values
  *
  * The return values start at zero.
  *
  * Example devicetree fragment:
  *
  * @code{.dts}
- *     usb1: usb@12340000 {
- *             maximum-speed = "full-speed";
- *     };
- *     usb2: usb@12341000 {
- *             maximum-speed = "super-speed";
+ *     some_node: some-node {
+ *         compat = "vend,enum-string-array";
+ *         foos =
+ *             <&phandle val1>,
+ *             <&phandle val2>,
+ *             <&phandle val3>;
+ *         foo-names = "default", "option3", "option1";
  *     };
  * @endcode
  *
  * Example bindings fragment:
  *
  * @code{.yaml}
- *     properties:
- *       maximum-speed:
- *         type: string
- *         enum:
- *            - "low-speed"
- *            - "full-speed"
- *            - "high-speed"
- *            - "super-speed"
+ * compatible: vend,enum-string-array
+ * properties:
+ *   foos:
+ *     type: phandle-array
+ *     description: |
+ *       Explanation about what this phandle-array exactly is for.
+ *
+ *   foo-names:
+ *     type: string-array
+ *     description: |
+ *       Some explanation about the available options
+ *       default: explain default
+ *       option1: explain option1
+ *       option2: explain option2
+ *       option3: explain option3
+ *     enum:
+ *       - default
+ *       - option1
+ *       - option2
+ *       - option3
  * @endcode
  *
  * Example usage:
  *
  * @code{.c}
- *     DT_ENUM_IDX(DT_NODELABEL(usb1), maximum_speed) // 1
- *     DT_ENUM_IDX(DT_NODELABEL(usb2), maximum_speed) // 3
+ *     DT_ENUM_IDX_BY_IDX(DT_NODELABEL(some_node), foo_names, 0) // 0
+ *     DT_ENUM_IDX_BY_IDX(DT_NODELABEL(some_node), foo_names, 2) // 1
  * @endcode
  *
  * @param node_id node identifier
  * @param prop lowercase-and-underscores property name
+ * @param idx the index to get
  * @return zero-based index of the property's value in its enum: list
  */
-#define DT_ENUM_IDX(node_id, prop) DT_CAT4(node_id, _P_, prop, _ENUM_IDX)
+#define DT_ENUM_IDX_BY_IDX(node_id, prop, idx) \
+	DT_CAT6(node_id, _P_, prop, _IDX_, idx, _ENUM_IDX)
 
 /**
- * @brief Like DT_ENUM_IDX(), but with a fallback to a default enum index
+ * @brief Equivalent to @ref DT_ENUM_IDX_BY_IDX(node_id, prop, 0).
+ * @param node_id node identifier
+ * @param prop lowercase-and-underscores property name
+ * @return zero-based index of the property's value in its enum: list
+ */
+#define DT_ENUM_IDX(node_id, prop) DT_ENUM_IDX_BY_IDX(node_id, prop, 0)
+
+/**
+ * @brief Like DT_ENUM_IDX_BY_IDX(), but with a fallback to a default enum index
  *
  * If the value exists, this expands to its zero based index value thanks to
- * DT_ENUM_IDX(node_id, prop).
+ * DT_ENUM_IDX_BY_IDX(node_id, prop, idx).
  *
  * Otherwise, this expands to provided default index enum value.
  *
+ * @param node_id node identifier
+ * @param prop lowercase-and-underscores property name
+ * @param idx the index to get
+ * @param default_idx_value a fallback index value to expand to
+ * @return zero-based index of the property's value in its enum if present,
+ *         default_idx_value otherwise
+ */
+#define DT_ENUM_IDX_BY_IDX_OR(node_id, prop, idx, default_idx_value) \
+	COND_CODE_1(DT_PROP_HAS_IDX(node_id, prop, idx), \
+		    (DT_ENUM_IDX_BY_IDX(node_id, prop, idx)), (default_idx_value))
+
+/**
+ * @brief Equivalent to DT_ENUM_IDX_BY_IDX_OR(node_id, prop, 0, default_idx_value).
  * @param node_id node identifier
  * @param prop lowercase-and-underscores property name
  * @param default_idx_value a fallback index value to expand to
@@ -845,12 +1141,22 @@
  *         default_idx_value otherwise
  */
 #define DT_ENUM_IDX_OR(node_id, prop, default_idx_value) \
-	COND_CODE_1(DT_NODE_HAS_PROP(node_id, prop), \
-		    (DT_ENUM_IDX(node_id, prop)), (default_idx_value))
+	DT_ENUM_IDX_BY_IDX_OR(node_id, prop, 0, default_idx_value)
+
+/**
+ * @brief Does a node enumeration property array have a given value?
+ *
+ * @param node_id node identifier
+ * @param prop lowercase-and-underscores property name
+ * @param idx the index to get
+ * @param value lowercase-and-underscores enumeration value
+ * @return 1 if the node property has the value @a value, 0 otherwise.
+ */
+#define DT_ENUM_HAS_VALUE_BY_IDX(node_id, prop, idx, value) \
+	IS_ENABLED(DT_CAT8(node_id, _P_, prop, _IDX_, idx, _ENUM_VAL_, value, _EXISTS))
 
 /**
  * @brief Does a node enumeration property have a given value?
- *
  * @param node_id node identifier
  * @param prop lowercase-and-underscores property name
  * @param value lowercase-and-underscores enumeration value
@@ -1128,6 +1434,18 @@
 	DT_CAT6(node_id, _P_, prop, _IDX_, idx, _STRING_TOKEN)
 
 /**
+ * @brief Like DT_STRING_TOKEN_BY_IDX(), but with a fallback to @p default_value
+ * @param node_id node identifier
+ * @param prop lowercase-and-underscores property name
+ * @param idx the index to get
+ * @param default_value a fallback value to expand to
+ * @return the element in @p prop at index @p idx as a token, or @p default_value
+ */
+#define DT_STRING_TOKEN_BY_IDX_OR(node_id, prop, idx, default_value) \
+	COND_CODE_1(DT_PROP_HAS_IDX(node_id, prop, idx), \
+		    (DT_STRING_TOKEN_BY_IDX(node_id, prop, idx)), (default_value))
+
+/**
  * @brief Like DT_STRING_TOKEN_BY_IDX(), but uppercased.
  *
  * This removes "the quotes" and capitalizes an element in the array, and
@@ -1218,7 +1536,7 @@
  * @return the property's value as a sequence of tokens, with no quotes
  */
 #define DT_STRING_UNQUOTED_BY_IDX(node_id, prop, idx) \
-	DT_CAT4(node_id, _P_, prop##_IDX_##idx, _STRING_UNQUOTED)
+	DT_CAT6(node_id, _P_, prop, _IDX_, idx, _STRING_UNQUOTED)
 
 /*
  * phandle properties
@@ -1393,7 +1711,7 @@
  * @return the cell's value or @p default_value
  */
 #define DT_PHA_BY_IDX_OR(node_id, pha, idx, cell, default_value) \
-	DT_PROP_OR(node_id, pha##_IDX_##idx##_VAL_##cell, default_value)
+	DT_PROP_OR(node_id, DT_CAT5(pha, _IDX_, idx, _VAL_, cell), default_value)
 
 /**
  * @brief Equivalent to DT_PHA_BY_IDX(node_id, pha, 0, cell)
@@ -1486,7 +1804,7 @@
  * @return the cell's value or @p default_value
  */
 #define DT_PHA_BY_NAME_OR(node_id, pha, name, cell, default_value) \
-	DT_PROP_OR(node_id, pha##_NAME_##name##_VAL_##cell, default_value)
+	DT_PROP_OR(node_id, DT_CAT5(pha, _NAME_, name, _VAL_, cell), default_value)
 
 /**
  * @brief Get a phandle's node identifier from a phandle array by @p name
@@ -1622,7 +1940,7 @@
  *
  * @code{.dts}
  *     pcie0: pcie@0 {
- *             compatible = "intel,pcie";
+ *             compatible = "pcie-controller";
  *             reg = <0 1>;
  *             #address-cells = <3>;
  *             #size-cells = <2>;
@@ -1667,7 +1985,7 @@
  *
  * @code{.dts}
  *     pcie0: pcie@0 {
- *             compatible = "intel,pcie";
+ *             compatible = "pcie-controller";
  *             reg = <0 1>;
  *             #address-cells = <3>;
  *             #size-cells = <2>;
@@ -1721,7 +2039,7 @@
  *             #address-cells = <2>;
  *
  *             pcie0: pcie@0 {
- *                     compatible = "intel,pcie";
+ *                     compatible = "pcie-controller";
  *                     reg = <0 0 1>;
  *                     #address-cells = <3>;
  *                     #size-cells = <2>;
@@ -1774,7 +2092,7 @@
  *             #address-cells = <2>;
  *
  *             pcie0: pcie@0 {
- *                     compatible = "intel,pcie";
+ *                     compatible = "pcie-controller";
  *                     reg = <0 0 1>;
  *                     #address-cells = <3>;
  *                     #size-cells = <2>;
@@ -1814,7 +2132,7 @@
  *             #address-cells = <2>;
  *
  *             pcie0: pcie@0 {
- *                     compatible = "intel,pcie";
+ *                     compatible = "pcie-controller";
  *                     reg = <0 0 1>;
  *                     #address-cells = <3>;
  *                     #size-cells = <2>;
@@ -1863,7 +2181,7 @@
  *             #address-cells = <2>;
  *
  *             pcie0: pcie@0 {
- *                     compatible = "intel,pcie";
+ *                     compatible = "pcie-controller";
  *                     reg = <0 0 1>;
  *                     #address-cells = <3>;
  *                     #size-cells = <2>;
@@ -1912,7 +2230,7 @@
  *             #address-cells = <2>;
  *
  *             pcie0: pcie@0 {
- *                     compatible = "intel,pcie";
+ *                     compatible = "pcie-controller";
  *                     reg = <0 0 1>;
  *                     #address-cells = <3>;
  *                     #size-cells = <2>;
@@ -2192,13 +2510,55 @@
 	IS_ENABLED(DT_CAT4(node_id, _REG_IDX_, idx, _EXISTS))
 
 /**
+ * @brief Is @p name a valid register block name?
+ *
+ * If this returns 1, then DT_REG_ADDR_BY_NAME(node_id, name) or
+ * DT_REG_SIZE_BY_NAME(node_id, name) are valid.
+ * If it returns 0, it is an error to use those macros with name @p name.
+ * @param node_id node identifier
+ * @param name name to check
+ * @return 1 if @p name is a valid register block name,
+ *         0 otherwise.
+ */
+#define DT_REG_HAS_NAME(node_id, name) \
+	IS_ENABLED(DT_CAT4(node_id, _REG_NAME_, name, _EXISTS))
+
+/**
+ * @brief Get the base raw address of the register block at index @p idx
+ *
+ * Get the base address of the register block at index @p idx without any
+ * type suffix. This can be used to index other devicetree properties, use the
+ * non _RAW macros for assigning values in actual code.
+ *
+ * @param node_id node identifier
+ * @param idx index of the register whose address to return
+ * @return address of the idx-th register block
+ */
+#define DT_REG_ADDR_BY_IDX_RAW(node_id, idx) \
+	DT_CAT4(node_id, _REG_IDX_, idx, _VAL_ADDRESS)
+
+/**
+ * @brief Get a node's (only) register block raw address
+ *
+ * Get a node's only register block address without any type suffix. This can
+ * be used to index other devicetree properties, use the non _RAW macros for
+ * assigning values in actual code.
+ *
+ * Equivalent to DT_REG_ADDR_BY_IDX_RAW(node_id, 0).
+ * @param node_id node identifier
+ * @return node's register block address
+ */
+#define DT_REG_ADDR_RAW(node_id) \
+	DT_REG_ADDR_BY_IDX_RAW(node_id, 0)
+
+/**
  * @brief Get the base address of the register block at index @p idx
  * @param node_id node identifier
  * @param idx index of the register whose address to return
  * @return address of the idx-th register block
  */
 #define DT_REG_ADDR_BY_IDX(node_id, idx) \
-	DT_CAT4(node_id, _REG_IDX_, idx, _VAL_ADDRESS)
+	DT_U32_C(DT_REG_ADDR_BY_IDX_RAW(node_id, idx))
 
 /**
  * @brief Get the size of the register block at index @p idx
@@ -2212,7 +2572,7 @@
  * @return size of the idx-th register block
  */
 #define DT_REG_SIZE_BY_IDX(node_id, idx) \
-	DT_CAT4(node_id, _REG_IDX_, idx, _VAL_SIZE)
+	DT_U32_C(DT_CAT4(node_id, _REG_IDX_, idx, _VAL_SIZE))
 
 /**
  * @brief Get a node's (only) register block address
@@ -2233,7 +2593,7 @@
  * @param node_id node identifier
  * @return node's register block address
  */
-#define DT_REG_ADDR_U64(node_id) DT_U64_C(DT_REG_ADDR(node_id))
+#define DT_REG_ADDR_U64(node_id) DT_U64_C(DT_REG_ADDR_BY_IDX_RAW(node_id, 0))
 
 /**
  * @brief Get a node's (only) register block size
@@ -2251,7 +2611,19 @@
  * @return address of the register block specified by name
  */
 #define DT_REG_ADDR_BY_NAME(node_id, name) \
-	DT_CAT4(node_id, _REG_NAME_, name, _VAL_ADDRESS)
+	DT_U32_C(DT_CAT4(node_id, _REG_NAME_, name, _VAL_ADDRESS))
+
+/**
+ * @brief Like DT_REG_ADDR_BY_NAME(), but with a fallback to @p default_value
+ * @param node_id node identifier
+ * @param name lowercase-and-underscores register specifier name
+ * @param default_value a fallback value to expand to
+ * @return address of the register block specified by name if present,
+ *         @p default_value otherwise
+ */
+#define DT_REG_ADDR_BY_NAME_OR(node_id, name, default_value) \
+	COND_CODE_1(DT_REG_HAS_NAME(node_id, name), \
+		    (DT_REG_ADDR_BY_NAME(node_id, name)), (default_value))
 
 /**
  * @brief 64-bit version of DT_REG_ADDR_BY_NAME()
@@ -2266,7 +2638,7 @@
  * @return address of the register block specified by name
  */
 #define DT_REG_ADDR_BY_NAME_U64(node_id, name) \
-	DT_U64_C(DT_REG_ADDR_BY_NAME(node_id, name))
+	DT_U64_C(DT_CAT4(node_id, _REG_NAME_, name, _VAL_ADDRESS))
 
 /**
  * @brief Get a register block's size by name
@@ -2275,7 +2647,157 @@
  * @return size of the register block specified by name
  */
 #define DT_REG_SIZE_BY_NAME(node_id, name) \
-	DT_CAT4(node_id, _REG_NAME_, name, _VAL_SIZE)
+	DT_U32_C(DT_CAT4(node_id, _REG_NAME_, name, _VAL_SIZE))
+
+/**
+ * @brief Like DT_REG_SIZE_BY_NAME(), but with a fallback to @p default_value
+ * @param node_id node identifier
+ * @param name lowercase-and-underscores register specifier name
+ * @param default_value a fallback value to expand to
+ * @return size of the register block specified by name if present,
+ *         @p default_value otherwise
+ */
+#define DT_REG_SIZE_BY_NAME_OR(node_id, name, default_value) \
+	COND_CODE_1(DT_REG_HAS_NAME(node_id, name), \
+		    (DT_REG_SIZE_BY_NAME(node_id, name)), (default_value))
+
+
+/**
+ * @brief Invokes @p fn for each entry of @p node_id reg property
+ *
+ * The macro @p fn takes two parameters, @p node_id which will be the node
+ * identifier of the node with the reg property and @p idx the index of
+ * the reg array.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     n: node@0 {
+ *             #address-cells = <0x2>;
+ *             #size-cells = <0x2>;
+ *             reg = <0x0 0x0 0x0 0x1000>,
+ *                   <0x0 0x1000 0x0 0x1000>,
+ *                   <0x0 0x2000 0x0 0x1000>;
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     #define REG_ADDR(node_id, idx) DT_REG_ADDR_BY_IDX(node_id, idx),
+ *     #define REG_SIZE(node_id, idx) DT_REG_SIZE_BY_IDX(node_id, idx),
+ *
+ *     const uint64_t reg_addrs[] = {
+ *             DT_FOREACH_REG(DT_NODELABEL(n), REG_ADDR)
+ *     };
+ *     const uint64_t reg_sizes[] = {
+ *             DT_FOREACH_REG(DT_NODELABEL(n), REG_SIZE)
+ *     };
+ * @endcode
+ *
+ * This expands to:
+ *
+ * @code{.c}
+ *     const uint64_t reg_addrs[] = {
+ *         0x0, 0x1000, 0x2000,
+ *     };
+ *     const uint64_t reg_sizes[] = {
+ *         0x1000, 0x1000, 0x1000,
+ *     };
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @param fn macro to invoke
+ */
+#define DT_FOREACH_REG(node_id, fn) \
+	DT_CAT(node_id, _FOREACH_REG)(fn)
+
+/**
+ * @brief Invokes @p fn for each entry of @p node_id reg property with separator
+ *
+ * The macro @p fn takes two parameters, @p node_id which will be the node
+ * identifier of the node with the reg property and @p idx the index of
+ * the reg array.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     n: node@0 {
+ *             #address-cells = <0x2>;
+ *             #size-cells = <0x2>;
+ *             reg = <0x0 0x0 0x0 0x1000>,
+ *                   <0x0 0x1000 0x0 0x1000>,
+ *                   <0x0 0x2000 0x0 0x1000>;
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     const uint64_t reg_addrs[] = {
+ *             DT_FOREACH_REG_SEP(DT_NODELABEL(n), DT_REG_ADDR_BY_IDX, (,))
+ *     };
+ *     const uint64_t reg_sizes[] = {
+ *             DT_FOREACH_REG_SEP(DT_NODELABEL(n), DT_REG_SIZE_BY_IDX, (,))
+ *     };
+ * @endcode
+ *
+ * This expands to:
+ *
+ * @code{.c}
+ *     const uint64_t reg_addrs[] = {
+ *         0x0, 0x1000, 0x2000
+ *     };
+ *     const uint64_t reg_sizes[] = {
+ *         0x1000, 0x1000, 0x1000
+ *     };
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @param fn macro to invoke
+ * @param sep Separator (e.g. comma or semicolon). Must be in parentheses;
+ *            this is required to enable providing a comma as separator.
+ *
+ * @see DT_FOREACH_REG
+ */
+#define DT_FOREACH_REG_SEP(node_id, fn, sep) \
+	DT_CAT(node_id, _FOREACH_REG_SEP)(fn, sep)
+
+/**
+ * @brief Invokes @p fn for each entry of @p node_id reg property with multiple arguments.
+ *
+ * The macro @p fn takes multiple arguments. The first one @p node_id will be the node
+ * identifier of the node with the reg property and @p idx the index of the reg array.
+ * The remaining are passed-in by the caller.
+ *
+ * @param node_id node identifier
+ * @param fn macro to invoke
+ * @param ... variable number of arguments to pass to @p fn
+ *
+ * @see DT_FOREACH_REG
+ */
+
+#define DT_FOREACH_REG_VARGS(node_id, fn, ...) \
+	DT_CAT(node_id, _FOREACH_REG_VARGS)(fn, __VA_ARGS__)
+
+/**
+ * @brief Invokes @p fn for each entry of @p node_id reg property with separator and
+ * multiple arguments.
+ *
+ * The macro @p fn takes multiple arguments. The first one @p node_id will be the node
+ * identifier of the node with the reg property and @p idx the index of the reg array.
+ * The remaining are passed-in by the caller.
+ *
+ * @param node_id node identifier
+ * @param fn macro to invoke
+ * @param sep Separator (e.g. comma or semicolon). Must be in parentheses;
+ *            this is required to enable providing a comma as separator.
+ * @param ... variable number of arguments to pass to @p fn
+ *
+ * @see DT_FOREACH_REG
+ */
+#define DT_FOREACH_REG_SEP_VARGS(node_id, fn, sep, ...) \
+	DT_CAT(node_id, _FOREACH_REG_SEP_VARGS)(fn, sep, __VA_ARGS__)
 
 /**
  * @}
@@ -2296,6 +2818,40 @@
  * @return Number of interrupt specifiers in the node's "interrupts" property.
  */
 #define DT_NUM_IRQS(node_id) DT_CAT(node_id, _IRQ_NUM)
+
+/**
+ * @brief Get the number of node labels that a node has
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     / {
+ *         foo {};
+ *         bar: bar@1000 {};
+ *         baz: baz2: baz@2000 {};
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     DT_NUM_NODELABELS(DT_PATH(foo))      // 0
+ *     DT_NUM_NODELABELS(DT_NODELABEL(bar)) // 1
+ *     DT_NUM_NODELABELS(DT_NODELABEL(baz)) // 2
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @return number of node labels that the node has
+ */
+#define DT_NUM_NODELABELS(node_id) DT_CAT(node_id, _NODELABEL_NUM)
+
+/**
+ * @brief Get the interrupt level for the node
+ *
+ * @param node_id node identifier
+ * @return interrupt level
+ */
+#define DT_IRQ_LEVEL(node_id) DT_CAT(node_id, _IRQ_LEVEL)
 
 /**
  * @brief Is @p idx a valid interrupt index?
@@ -2357,7 +2913,7 @@
  *
  * @code{.dts}
  *     my-serial: serial@abcd1234 {
- *             interrupts = < 33 0 >, < 34 1 >;
+ *             interrupts = <33 0>, <34 1>;
  *     };
  * @endcode
  *
@@ -2410,6 +2966,218 @@
 #define DT_IRQ(node_id, cell) DT_IRQ_BY_IDX(node_id, 0, cell)
 
 /**
+ * @brief Get an interrupt specifier's interrupt controller by index
+ *
+ * @code{.dts}
+ *     gpio0: gpio0 {
+ *             interrupt-controller;
+ *             #interrupt-cells = <2>;
+ *     };
+ *
+ *     foo: foo {
+ *             interrupt-parent = <&gpio0>;
+ *             interrupts = <1 1>, <2 2>;
+ *     };
+ *
+ *     bar: bar {
+ *             interrupts-extended = <&gpio0 3 3>, <&pic0 4>;
+ *     };
+ *
+ *     pic0: pic0 {
+ *             interrupt-controller;
+ *             #interrupt-cells = <1>;
+ *
+ *             qux: qux {
+ *                     interrupts = <5>, <6>;
+ *                     interrupt-names = "int1", "int2";
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ *     DT_IRQ_INTC_BY_IDX(DT_NODELABEL(foo), 0) // &gpio0
+ *     DT_IRQ_INTC_BY_IDX(DT_NODELABEL(foo), 1) // &gpio0
+ *     DT_IRQ_INTC_BY_IDX(DT_NODELABEL(bar), 0) // &gpio0
+ *     DT_IRQ_INTC_BY_IDX(DT_NODELABEL(bar), 1) // &pic0
+ *     DT_IRQ_INTC_BY_IDX(DT_NODELABEL(qux), 0) // &pic0
+ *     DT_IRQ_INTC_BY_IDX(DT_NODELABEL(qux), 1) // &pic0
+ *
+ * @param node_id node identifier
+ * @param idx interrupt specifier's index
+ * @return node_id of interrupt specifier's interrupt controller
+ */
+#define DT_IRQ_INTC_BY_IDX(node_id, idx) \
+	DT_CAT4(node_id, _IRQ_IDX_, idx, _CONTROLLER)
+
+/**
+ * @brief Get an interrupt specifier's interrupt controller by name
+ *
+ * @code{.dts}
+ *     gpio0: gpio0 {
+ *             interrupt-controller;
+ *             #interrupt-cells = <2>;
+ *     };
+ *
+ *     foo: foo {
+ *             interrupt-parent = <&gpio0>;
+ *             interrupts = <1 1>, <2 2>;
+ *             interrupt-names = "int1", "int2";
+ *     };
+ *
+ *     bar: bar {
+ *             interrupts-extended = <&gpio0 3 3>, <&pic0 4>;
+ *             interrupt-names = "int1", "int2";
+ *     };
+ *
+ *     pic0: pic0 {
+ *             interrupt-controller;
+ *             #interrupt-cells = <1>;
+ *
+ *             qux: qux {
+ *                     interrupts = <5>, <6>;
+ *                     interrupt-names = "int1", "int2";
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ *     DT_IRQ_INTC_BY_NAME(DT_NODELABEL(foo), int1) // &gpio0
+ *     DT_IRQ_INTC_BY_NAME(DT_NODELABEL(foo), int2) // &gpio0
+ *     DT_IRQ_INTC_BY_NAME(DT_NODELABEL(bar), int1) // &gpio0
+ *     DT_IRQ_INTC_BY_NAME(DT_NODELABEL(bar), int2) // &pic0
+ *     DT_IRQ_INTC_BY_NAME(DT_NODELABEL(qux), int1) // &pic0
+ *     DT_IRQ_INTC_BY_NAME(DT_NODELABEL(qux), int2) // &pic0
+ *
+ * @param node_id node identifier
+ * @param name interrupt specifier's name
+ * @return node_id of interrupt specifier's interrupt controller
+ */
+#define DT_IRQ_INTC_BY_NAME(node_id, name) \
+	DT_CAT4(node_id, _IRQ_NAME_, name, _CONTROLLER)
+
+/**
+ * @brief Get an interrupt specifier's interrupt controller
+ * @note Equivalent to DT_IRQ_INTC_BY_IDX(node_id, 0)
+ *
+ * @code{.dts}
+ *     gpio0: gpio0 {
+ *             interrupt-controller;
+ *             #interrupt-cells = <2>;
+ *     };
+ *
+ *     foo: foo {
+ *             interrupt-parent = <&gpio0>;
+ *             interrupts = <1 1>;
+ *     };
+ *
+ *     bar: bar {
+ *             interrupts-extended = <&gpio0 3 3>;
+ *     };
+ *
+ *     pic0: pic0 {
+ *             interrupt-controller;
+ *             #interrupt-cells = <1>;
+ *
+ *             qux: qux {
+ *                     interrupts = <5>;
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ *     DT_IRQ_INTC(DT_NODELABEL(foo)) // &gpio0
+ *     DT_IRQ_INTC(DT_NODELABEL(bar)) // &gpio0
+ *     DT_IRQ_INTC(DT_NODELABEL(qux)) // &pic0
+ *
+ * @param node_id node identifier
+ * @return node_id of interrupt specifier's interrupt controller
+ * @see DT_IRQ_INTC_BY_IDX()
+ */
+#define DT_IRQ_INTC(node_id) \
+	DT_IRQ_INTC_BY_IDX(node_id, 0)
+
+/**
+ * @cond INTERNAL_HIDDEN
+ */
+
+/* DT helper macro to encode a node's IRQN to level 1 according to the multi-level scheme */
+#define DT_IRQN_L1_INTERNAL(node_id, idx) DT_IRQ_BY_IDX(node_id, idx, irq)
+/* DT helper macro to encode a node's IRQN to level 2 according to the multi-level scheme */
+#define DT_IRQN_L2_INTERNAL(node_id, idx)                                                          \
+	(IRQ_TO_L2(DT_IRQN_L1_INTERNAL(node_id, idx)) |                                            \
+	 DT_IRQ(DT_IRQ_INTC_BY_IDX(node_id, idx), irq))
+/* DT helper macro to encode a node's IRQN to level 3 according to the multi-level scheme */
+#define DT_IRQN_L3_INTERNAL(node_id, idx)                                                          \
+	(IRQ_TO_L3(DT_IRQN_L1_INTERNAL(node_id, idx)) |                                            \
+	 IRQ_TO_L2(DT_IRQ(DT_IRQ_INTC_BY_IDX(node_id, idx), irq)) |                                \
+	 DT_IRQ(DT_IRQ_INTC(DT_IRQ_INTC_BY_IDX(node_id, idx)), irq))
+/* DT helper macro for the macros above */
+#define DT_IRQN_LVL_INTERNAL(node_id, idx, level) DT_CAT3(DT_IRQN_L, level, _INTERNAL)(node_id, idx)
+
+/**
+ * DT helper macro to encode a node's interrupt number according to the Zephyr's multi-level scheme
+ * See doc/kernel/services/interrupts.rst for details
+ */
+#define DT_MULTI_LEVEL_IRQN_INTERNAL(node_id, idx)                                                 \
+	DT_IRQN_LVL_INTERNAL(node_id, idx, DT_IRQ_LEVEL(node_id))
+
+
+/* DT helper macro to encode a node's IRQN to level 1 according to the multi-level scheme */
+#define DT_IRQN_NAME_L1_INTERNAL(node_id, name) DT_IRQ_BY_NAME(node_id, name, irq)
+/* DT helper macro to encode a node's IRQN to level 2 according to the multi-level scheme */
+#define DT_IRQN_NAME_L2_INTERNAL(node_id, name)                                                    \
+	(IRQ_TO_L2(DT_IRQN_NAME_L1_INTERNAL(node_id, name)) |                                      \
+	 DT_IRQ(DT_IRQ_INTC_BY_NAME(node_id, name), irq))
+/* DT helper macro to encode a node's IRQN to level 3 according to the multi-level scheme */
+#define DT_IRQN_NAME_L3_INTERNAL(node_id, name)                                                    \
+	(IRQ_TO_L3(DT_IRQN_NAME_L1_INTERNAL(node_id, name)) |                                      \
+	 IRQ_TO_L2(DT_IRQ(DT_IRQ_INTC_BY_NAME(node_id, name), irq)) |                              \
+	 DT_IRQ(DT_IRQ_INTC(DT_IRQ_INTC_BY_NAME(node_id, name)), irq))
+/* DT helper macro for the macros above */
+#define DT_IRQN_NAME_LVL_INTERNAL(node_id, name, level)                                            \
+	 DT_CAT3(DT_IRQN_NAME_L, level, _INTERNAL)(node_id, name)
+
+/**
+ * DT helper macro to encode a node's interrupt number according to the Zephyr's multi-level scheme
+ * See doc/kernel/services/interrupts.rst for details
+ */
+#define DT_MULTI_LEVEL_IRQN_NAME_INTERNAL(node_id, name)                                           \
+	DT_IRQN_NAME_LVL_INTERNAL(node_id, name, DT_IRQ_LEVEL(node_id))
+
+/**
+ * INTERNAL_HIDDEN @endcond
+ */
+
+/**
+ * @brief Get the node's Zephyr interrupt number at index
+ * If @kconfig{CONFIG_MULTI_LEVEL_INTERRUPTS} is enabled, the interrupt number at index will be
+ * multi-level encoded
+ * @param node_id node identifier
+ * @param idx logical index into the interrupt specifier array
+ * @return the Zephyr interrupt number
+ */
+#define DT_IRQN_BY_IDX(node_id, idx)                                                               \
+	COND_CODE_1(IS_ENABLED(CONFIG_MULTI_LEVEL_INTERRUPTS),                                     \
+		    (DT_MULTI_LEVEL_IRQN_INTERNAL(node_id, idx)),                                  \
+		    (DT_IRQ_BY_IDX(node_id, idx, irq)))
+
+/**
+ * @brief Get the node's Zephyr interrupt number by name
+ * If @kconfig{CONFIG_MULTI_LEVEL_INTERRUPTS} is enabled, the interrupt number by name will be
+ * multi-level encoded
+ * @param node_id node identifier
+ * @param name lowercase-and-underscores interrupt specifier name
+ * @return the Zephyr interrupt number
+ */
+#define DT_IRQN_BY_NAME(node_id, name)                                                             \
+	COND_CODE_1(IS_ENABLED(CONFIG_MULTI_LEVEL_INTERRUPTS),                                     \
+		    (DT_MULTI_LEVEL_IRQN_NAME_INTERNAL(node_id, name)),                            \
+		    (DT_IRQ_BY_NAME(node_id, name, irq)))
+
+/**
  * @brief Get a node's (only) irq number
  *
  * Equivalent to DT_IRQ(node_id, irq). This is provided as a convenience
@@ -2419,7 +3187,7 @@
  * @param node_id node identifier
  * @return the interrupt number for the node's only interrupt
  */
-#define DT_IRQN(node_id) DT_IRQ(node_id, irq)
+#define DT_IRQN(node_id) DT_IRQN_BY_IDX(node_id, 0)
 
 /**
  * @}
@@ -2457,6 +3225,36 @@
  * @defgroup devicetree-generic-foreach "For-each" macros
  * @ingroup devicetree
  * @{
+ *
+ * IMPORTANT: you can't use the DT for-each macros in their own expansions.
+ *
+ * For example, something like this won't work the way you might expect:
+ *
+ * @code{.c}
+ * #define FOO(node_id) [...] DT_FOREACH_NODE(...) [...]
+ * DT_FOREACH_NODE(FOO)
+ * @endcode
+ *
+ * In this example, the C preprocessor won't expand the
+ * DT_FOREACH_NODE() macro inside of FOO() while it's already
+ * expanding DT_FOREACH_NODE() at the top level of the file.
+ *
+ * This is true of any macro, not just DT_FOREACH_NODE(). The C
+ * language works this way to avoid infinite recursions inside of
+ * macro expansions.
+ *
+ * If you need to "nest" calls to one of these macros, you can work
+ * around this preprocessor limitation by using a different, related
+ * macro instead, like this:
+ *
+ * @code{.c}
+ * #define BAR(node_id) [...] DT_FOREACH_NODE_VARGS(...) [...]
+ * DT_FOREACH_NODE(BAR)
+ * @endcode
+ *
+ * Here, we use DT_FOREACH_NODE_VARGS() "inside" BAR() "inside"
+ * DT_FOREACH_NODE(). Because of this, the preprocessor will expand
+ * both DT_FOREACH_NODE_VARGS() and DT_FOREACH_NODE() as expected.
  */
 
 /**
@@ -2512,6 +3310,55 @@
  * @param ... variable number of arguments to pass to @p fn
  */
 #define DT_FOREACH_STATUS_OKAY_NODE_VARGS(fn, ...) DT_FOREACH_OKAY_VARGS_HELPER(fn, __VA_ARGS__)
+
+/**
+ * @brief Invokes @p fn for each ancestor of @p node_id
+ *
+ * The macro @p fn must take one parameter, which will be the identifier
+ * of a child node of @p node_id to enable traversal of all ancestor nodes.
+ *
+ * The ancestor will be iterated over in the same order as they
+ * appear in the final devicetree.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     n: node1 {
+ *             foobar = "foo1";
+ *
+ *             n_2: node2 {
+ *                        foobar = "foo2";
+ *
+ *                        n_3: node3 {
+ *                                   foobar = "foo3";
+ *                        };
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     #define GET_PROP(n) DT_PROP(n, foobar),
+ *
+ *     const char *ancestor_names[] = {
+ *         DT_FOREACH_ANCESTOR(DT_NODELABEL(n_3), GET_PROP)
+ *     };
+ * @endcode
+ *
+ * This expands to:
+ *
+ * @code{.c}
+ *     const char *ancestor_names[] = {
+ *         "foo2", "foo1",
+ *     };
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @param fn macro to invoke
+ */
+#define DT_FOREACH_ANCESTOR(node_id, fn) \
+	DT_CAT(node_id, _FOREACH_ANCESTOR)(fn)
 
 /**
  * @brief Invokes @p fn for each child of @p node_id
@@ -2713,7 +3560,7 @@
  *            this is required to enable providing a comma as separator.
  * @param ... variable number of arguments to pass to @p fn
  *
- * @see DT_FOREACH_CHILD_SEP_STATUS_OKAY
+ * @see DT_FOREACH_CHILD_STATUS_OKAY_SEP
  */
 #define DT_FOREACH_CHILD_STATUS_OKAY_SEP_VARGS(node_id, fn, sep, ...) \
 	DT_CAT(node_id, _FOREACH_CHILD_STATUS_OKAY_SEP_VARGS)(fn, sep, __VA_ARGS__)
@@ -2914,7 +3761,7 @@
  */
 #define DT_FOREACH_STATUS_OKAY(compat, fn)				\
 	COND_CODE_1(DT_HAS_COMPAT_STATUS_OKAY(compat),			\
-		    (UTIL_CAT(DT_FOREACH_OKAY_, compat)(fn)),	\
+		    (UTIL_CAT(DT_FOREACH_OKAY_, compat)(fn)),		\
 		    ())
 
 /**
@@ -2963,9 +3810,108 @@
  */
 #define DT_FOREACH_STATUS_OKAY_VARGS(compat, fn, ...)			\
 	COND_CODE_1(DT_HAS_COMPAT_STATUS_OKAY(compat),			\
-		    (UTIL_CAT(DT_FOREACH_OKAY_VARGS_,			\
+		    (DT_CAT(DT_FOREACH_OKAY_VARGS_,			\
 			      compat)(fn, __VA_ARGS__)),		\
 		    ())
+
+/**
+ * @brief Call @p fn on all nodes with compatible `compat`
+ *        and status `okay` with multiple arguments
+ *
+ *
+ * @param compat lowercase-and-underscores devicetree compatible
+ * @param fn Macro to call for each enabled node. Must accept a
+ *           devicetree compatible and instance number.
+ * @param ... Additional arguments to pass to @p fn
+ *
+ * @see DT_INST_FOREACH_STATUS_OKAY_VARGS
+ */
+#define DT_COMPAT_FOREACH_STATUS_OKAY_VARGS(compat, fn, ...)		\
+	COND_CODE_1(DT_HAS_COMPAT_STATUS_OKAY(compat),			\
+		    (UTIL_CAT(DT_FOREACH_OKAY_INST_VARGS_,		\
+			      compat)(fn, compat, __VA_ARGS__)),	\
+		    ())
+
+
+/**
+ * @brief Invokes @p fn for each node label of a given node
+ *
+ * The order of the node labels in this macro's expansion matches
+ * the order in the final devicetree, with duplicates removed.
+ *
+ * Node labels are passed to @p fn as tokens. Note that devicetree
+ * node labels are always valid C tokens (see "6.2 Labels" in
+ * Devicetree Specification v0.4 for details). The node labels are
+ * passed as tokens to @p fn as-is, without any lowercasing or
+ * conversion of special characters to underscores.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     foo: bar: FOO: node@deadbeef {};
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     int foo = 1;
+ *     int bar = 2;
+ *     int FOO = 3;
+ *
+ *     #define FN(nodelabel) + nodelabel
+ *     int sum = 0 DT_FOREACH_NODELABEL(DT_NODELABEL(foo), FN)
+ * @endcode
+ *
+ * This expands to:
+ *
+ * @code{.c}
+ *     int sum = 0 + 1 + 2 + 3;
+ * @endcode
+ *
+ * @param node_id node identifier whose node labels to use
+ * @param fn macro which will be passed each node label in order
+ */
+#define DT_FOREACH_NODELABEL(node_id, fn) DT_CAT(node_id, _FOREACH_NODELABEL)(fn)
+
+/**
+ * @brief Invokes @p fn for each node label of a given node with
+ *        multiple arguments.
+ *
+ * This is like DT_FOREACH_NODELABEL() except you can also pass
+ * additional arguments to @p fn.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     foo: bar: node@deadbeef {};
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     int foo = 0;
+ *     int bar = 1;
+ *
+ *     #define VAR_PLUS(nodelabel, to_add) int nodelabel ## _added = nodelabel + to_add;
+ *
+ *     DT_FOREACH_NODELABEL_VARGS(DT_NODELABEL(foo), VAR_PLUS, 1)
+ * @endcode
+ *
+ * This expands to:
+ *
+ * @code{.c}
+ *     int foo = 0;
+ *     int bar = 1;
+ *     int foo_added = foo + 1;
+ *     int bar_added = bar + 1;
+ * @endcode
+ *
+ * @param node_id node identifier whose node labels to use
+ * @param fn macro which will be passed each node label in order
+ * @param ... additional arguments to pass to @p fn
+ */
+#define DT_FOREACH_NODELABEL_VARGS(node_id, fn, ...) \
+	DT_CAT(node_id, _FOREACH_NODELABEL_VARGS)(fn, __VA_ARGS__)
 
 /**
  * @}
@@ -3016,6 +3962,28 @@
  */
 #define DT_NODE_HAS_STATUS(node_id, status) \
 	DT_NODE_HAS_STATUS_INTERNAL(node_id, status)
+
+/**
+ * @brief Does a node identifier refer to a node with a status `okay`?
+ *
+ * Example uses:
+ *
+ * @code{.c}
+ *     DT_NODE_HAS_STATUS_OKAY(DT_PATH(soc, i2c_12340000))
+ * @endcode
+ *
+ * Tests whether a node identifier refers to a node which:
+ *
+ * - exists in the devicetree, and
+ * - has a status property as `okay`
+ *
+ * As usual, both a missing status and an `ok` status are treated as
+ * `okay`.
+ *
+ * @param node_id a node identifier
+ * @return 1 if the node has status as `okay`, 0 otherwise.
+ */
+#define DT_NODE_HAS_STATUS_OKAY(node_id) DT_NODE_HAS_STATUS(node_id, okay)
 
 /**
  * @brief Does the devicetree have a status `okay` node with a compatible?
@@ -3094,7 +4062,7 @@
  * @param status okay or disabled as a token, not a string
  */
 #define DT_NODE_HAS_COMPAT_STATUS(node_id, compat, status) \
-	DT_NODE_HAS_COMPAT(node_id, compat) && DT_NODE_HAS_STATUS(node_id, status)
+	UTIL_AND(DT_NODE_HAS_COMPAT(node_id, compat), DT_NODE_HAS_STATUS(node_id, status))
 
 /**
  * @brief Does a devicetree node have a property?
@@ -3146,6 +4114,134 @@
 	DT_PHA_HAS_CELL_AT_IDX(node_id, pha, 0, cell)
 
 /**
+ * @brief Iterate over all cells in a phandle array element by index
+ *
+ * This macro calls @p fn(cell_value) for each cell value in the
+ * phandle array element at index @p idx.
+ *
+ * In general, this macro expands to:
+ *
+ *     fn(node_id, pha, idx, cell[0]) fn(node_id, pha, idx, cell[1]) [...]
+ *     fn(node_id, pha, idx, cell[n-1])
+ *
+ * where `n` is the number of cells in @p pha, as it would be
+ * returned by `DT_PHA_NUM_CELLS_BY_IDX(node_id, pha, idx)`, and cell[x] is the NAME of the cell
+ * in the specifier.
+ *
+ * @param node_id node identifier
+ * @param pha lowercase-and-underscores property with type `phandle-array`
+ * @param idx index of the phandle array element
+ * @param fn macro to call for each cell value
+ */
+#define DT_FOREACH_PHA_CELL_BY_IDX(node_id, pha, idx, fn)	\
+	DT_CAT6(node_id, _P_, pha, _IDX_, idx, _FOREACH_CELL)(fn)
+
+/**
+ * @brief Iterate over all cells in a phandle array element by index with separator
+ *
+ * This is like DT_FOREACH_PHA_CELL_BY_IDX(), but @p sep is placed between
+ * each invocation of @p fn.
+ *
+ * @param node_id node identifier
+ * @param pha lowercase-and-underscores property with type `phandle-array`
+ * @param idx index of the phandle array element
+ * @param fn macro to call for each cell value
+ * @param sep separator (e.g. comma or semicolon)
+ */
+#define DT_FOREACH_PHA_CELL_BY_IDX_SEP(node_id, pha, idx, fn, sep)	\
+	DT_CAT6(node_id, _P_, pha, _IDX_, idx, _FOREACH_CELL_SEP)(fn, sep)
+
+/**
+ * @brief Get the number of cells in a phandle array element by index
+ *
+ * @param node_id node identifier
+ * @param pha lowercase-and-underscores property with type `phandle-array`
+ * @param idx index of the phandle array element
+ * @return number of cells in the element at index @p idx
+ */
+#define DT_PHA_NUM_CELLS_BY_IDX(node_id, pha, idx) \
+	DT_CAT6(node_id, _P_, pha, _IDX_, idx, _NUM_CELLS)
+
+/**
+ * @brief Get the name of a phandle array element by index
+ *
+ * This returns the name in the *-names property of the node
+ * corresponding to the index @p idx of @p pha
+ *
+ * @param node_id node identifier
+ * @param pha lowercase-and-underscores property with type `phandle-array`
+ * @param idx index of the phandle array element
+ * @return name of the element at index @p idx
+ */
+#define DT_PHA_ELEM_NAME_BY_IDX(node_id, pha, idx) \
+	DT_CAT6(node_id, _P_, pha, _IDX_, idx, _NAME)
+
+/**
+ * @brief Iterate over all cells in a phandle array element by name
+ *
+ * This macro calls @p fn(cell_value) for each cell value in the
+ * phandle array @p pha element with the given @p name in the *-names property.
+ *
+ * In general, this macro expands to:
+ *
+ *     fn(node_id, pha, name, cell[0]) fn(node_id, pha, idx, cell[1]) [...]
+ *     fn(node_id, pha, idx, cell[n-1])
+ *
+ * where `n` is the number of cells in @p pha, as it would be
+ * returned by `DT_PHA_NUM_CELLS_BY_NAME(node_id, pha, name)`, and cell[x] is the NAME of the cell
+ * in the specifier.
+ *
+ *
+ * @param node_id node identifier
+ * @param pha lowercase-and-underscores property with type `phandle-array`
+ * @param name lowercase-and-underscores name of the phandle array element
+ * @param fn macro to call for each cell value
+ */
+#define DT_FOREACH_PHA_CELL_BY_NAME(node_id, pha, name, fn)	\
+	DT_CAT6(node_id, _P_, pha, _NAME_, name, _FOREACH_CELL)(fn)
+
+/**
+ * @brief Iterate over all cells in a phandle array element by name with separator
+ *
+ * This is like DT_FOREACH_PHA_CELL_BY_NAME(), but @p sep is placed between
+ * each invocation of @p fn.
+ *
+ * @param node_id node identifier
+ * @param pha lowercase-and-underscores property with type `phandle-array`
+ * @param name lowercase-and-underscores name of the phandle array element
+ * @param fn macro to call for each cell value
+ * @param sep separator (e.g. comma or semicolon)
+ */
+#define DT_FOREACH_PHA_CELL_BY_NAME_SEP(node_id, pha, name, fn, sep)	\
+	DT_CAT6(node_id, _P_, pha, _NAME_, name, _FOREACH_CELL_SEP)(fn, sep)
+
+/**
+ * @brief Get the number of cells in a phandle array element by name
+ *
+ * @param node_id node identifier
+ * @param pha lowercase-and-underscores property with type `phandle-array`
+ * @param name lowercase-and-underscores name of the phandle array element
+ * @return number of cells in the element with the given @p name
+ */
+#define DT_PHA_NUM_CELLS_BY_NAME(node_id, pha, name) \
+	DT_CAT6(node_id, _P_, pha, _NAME_, name, _NUM_CELLS)
+
+/**
+ * @brief Get the index of a phandle array element by name
+ *
+ * This returns the index of the @p pha which has the name @p name in the corresponding
+ * *-names property.
+ *
+ * @param node_id node identifier
+ * @param pha lowercase-and-underscores property with type `phandle-array`
+ * @param name lowercase-and-underscores name of the phandle array element
+ * @return index of the element with the given @p name
+ */
+#define DT_PHA_ELEM_IDX_BY_NAME(node_id, pha, name) \
+	DT_CAT6(node_id, _P_, pha, _NAME_, name, _IDX)
+
+
+/**
  * @}
  */
 
@@ -3169,7 +4265,7 @@
  * @code{.dts}
  *     i2c@deadbeef {
  *             status = "okay";
- *             clock-frequency = < 100000 >;
+ *             clock-frequency = <100000>;
  *
  *             i2c_device: accelerometer@12 {
  *                     ...
@@ -3187,16 +4283,6 @@
  * @return a node identifier for the node's bus controller
  */
 #define DT_BUS(node_id) DT_CAT(node_id, _BUS)
-
-/**
- * @deprecated If used to obtain a device instance with device_get_binding,
- * consider using @c DEVICE_DT_GET(DT_BUS(node)).
- *
- * @brief Node's bus controller's `label` property
- * @param node_id node identifier
- * @return the label property of the node's bus controller DT_BUS(node)
- */
-#define DT_BUS_LABEL(node_id) DT_PROP(DT_BUS(node_id), label) __DEPRECATED_MACRO
 
 /**
  * @brief Is a node on a bus of a given type?
@@ -3275,6 +4361,96 @@
  */
 #define DT_INST_CHILD(inst, child) \
 	DT_CHILD(DT_DRV_INST(inst), child)
+
+/**
+ * @brief Get a node identifier for a child node with a matching unit address of DT_DRV_INST(inst)
+ *
+ * @note Only works for children with unique integer unit addresses.
+ *
+ * @param inst instance number
+ * @param addr Integer unit address for the child node.
+ *
+ * @return node identifier for the child node with the specified unit address
+ *
+ * @see DT_CHILD_BY_UNIT_ADDR_INT
+ */
+#define DT_INST_CHILD_BY_UNIT_ADDR_INT(inst, addr) \
+	DT_CHILD_BY_UNIT_ADDR_INT(DT_DRV_INST(inst), addr)
+
+/**
+ * @brief Get the number of child nodes of a given node
+ *
+ * This is equivalent to @see
+ * <tt>DT_CHILD_NUM(DT_DRV_INST(inst))</tt>.
+ *
+ * @param inst Devicetree instance number
+ * @return Number of child nodes
+ */
+#define DT_INST_CHILD_NUM(inst) DT_CHILD_NUM(DT_DRV_INST(inst))
+
+/**
+ * @brief Get the number of child nodes of a given node,
+ *        whose status is okay
+ *
+ * This is equivalent to @see
+ * <tt>DT_CHILD_NUM_STATUS_OKAY(DT_DRV_INST(inst))</tt>.
+ *
+ * @param inst Devicetree instance number
+ * @return Number of child nodes which status are okay
+ */
+#define DT_INST_CHILD_NUM_STATUS_OKAY(inst) \
+	DT_CHILD_NUM_STATUS_OKAY(DT_DRV_INST(inst))
+
+/**
+ * @brief Get the number of descendant nodes of a given node
+ *        that are on the given bus,
+ *        whose binding defines the given bus as their on-bus key
+ *
+ * This is equivalent to @see
+ * <tt>DT_DESCENDANT_NUM_ON_BUS(DT_DRV_INST(inst), bus)</tt>.
+ *
+ * @param inst Devicetree instance number
+ * @param bus bus type string
+ * @return Number of descendant nodes
+ */
+#define DT_INST_DESCENDANT_NUM_ON_BUS(inst, bus) \
+	DT_DESCENDANT_NUM_ON_BUS(DT_DRV_INST(inst), bus)
+
+/**
+ * @brief Get the number of descendant nodes of a given node
+ *        that are on the given bus,
+ *        whose binding defines the given bus as their on-bus key,
+ *        and whose status is okay
+ *
+ * This is equivalent to @see
+ * <tt>DT_DESCENDANT_NUM_ON_BUS_STATUS_OKAY(DT_DRV_INST(inst), bus)</tt>.
+ *
+ * @param inst Devicetree instance number
+ * @param bus bus type string
+ * @return Number of descendant nodes
+ */
+#define DT_INST_DESCENDANT_NUM_ON_BUS_STATUS_OKAY(inst, bus) \
+	DT_DESCENDANT_NUM_ON_BUS_STATUS_OKAY(DT_DRV_INST(inst), bus)
+
+/**
+ * @brief Get a string array of DT_DRV_INST(inst)'s node labels
+ *
+ * Equivalent to DT_NODELABEL_STRING_ARRAY(DT_DRV_INST(inst)).
+ *
+ * @param inst instance number
+ * @return an array initializer for an array of the instance's node labels as strings
+ */
+#define DT_INST_NODELABEL_STRING_ARRAY(inst) DT_NODELABEL_STRING_ARRAY(DT_DRV_INST(inst))
+
+/**
+ * @brief Get the number of node labels by instance number
+ *
+ * Equivalent to DT_NUM_NODELABELS(DT_DRV_INST(inst)).
+ *
+ * @param inst instance number
+ * @return the number of node labels that the node with that instance number has
+ */
+#define DT_INST_NUM_NODELABELS(inst) DT_NUM_NODELABELS(DT_DRV_INST(inst))
 
 /**
  * @brief Call @p fn on all child nodes of DT_DRV_INST(inst).
@@ -3410,6 +4586,92 @@
 	DT_FOREACH_CHILD_STATUS_OKAY_SEP_VARGS(DT_DRV_INST(inst), fn, sep, __VA_ARGS__)
 
 /**
+ * @brief Call @p fn on all node reg property for a given `DT_DRV_COMPAT` instance.
+ *
+ * The macro @p fn takes two parameters, @p node_id which will be the node
+ * identifier of the node with the reg property and @p idx the index of
+ * the reg array.
+ *
+ * Equivalent to DT_FOREACH_REG(DT_DRV_INST(inst), fn).
+ *
+ * @param inst instance number
+ * @param fn macro to invoke on each reg property
+ *
+ * @see DT_FOREACH_REG
+ */
+#define DT_INST_FOREACH_REG(inst, fn) \
+	DT_FOREACH_REG(DT_DRV_INST(inst), fn)
+
+/**
+ * @brief Call @p fn on all node reg property for a given `DT_DRV_COMPAT` instance with separator.
+ *
+ * The macro @p fn takes two parameters, @p node_id which will be the node
+ * identifier of the node with the reg property and @p idx the index of
+ * the reg array.
+ *
+ * Equivalent to DT_FOREACH_REG_SEP(DT_DRV_INST(inst), fn, sep).
+ *
+ * @param inst instance number
+ * @param fn macro to invoke on each reg property
+ * @param sep Separator (e.g. comma or semicolon). Must be in parentheses;
+ *            this is required to enable providing a comma as separator.
+ *
+ * @see DT_FOREACH_REG_SEP
+ */
+#define DT_INST_FOREACH_REG_SEP(inst, fn, sep) \
+	DT_FOREACH_REG_SEP(DT_DRV_INST(inst), fn, sep)
+
+/**
+ * @brief Call @p fn on all node reg property for a given `DT_DRV_COMPAT` instance
+ * with multiple arguments.
+ *
+ * The macro @p fn takes multiple arguments. The first one @p node_id will be the node
+ * identifier of the node with the reg property and @p idx the index of the reg array.
+ * The remaining are passed-in by the caller.
+ *
+ * Equivalent to DT_FOREACH_REG_VARGS(DT_DRV_INST(inst), fn, __VA_ARGS__).
+ *
+ * @param inst instance number
+ * @param fn macro to invoke on each reg property
+ * @param ... variable number of arguments to pass to @p fn
+ *
+ * @see DT_FOREACH_REG_VARGS
+ */
+#define DT_INST_FOREACH_REG_VARGS(inst, fn, ...) \
+	DT_FOREACH_REG_VARGS(DT_DRV_INST(inst), fn, __VA_ARGS__)
+
+/**
+ * @brief Call @p fn on all node reg property for a given `DT_DRV_COMPAT` instance
+ * with separator and multiple arguments.
+ *
+ * The macro @p fn takes multiple arguments. The first one @p node_id will be the node
+ * identifier of the node with the reg property and @p idx the index of the reg array.
+ * The remaining are passed-in by the caller.
+ *
+ * Equivalent to DT_FOREACH_REG_SEP_VARGS(DT_DRV_INST(inst), fn, sep, __VA_ARGS__).
+ *
+ * @param inst instance number
+ * @param fn macro to invoke on each reg property
+ * @param sep Separator (e.g. comma or semicolon). Must be in parentheses;
+ *            this is required to enable providing a comma as separator.
+ * @param ... variable number of arguments to pass to @p fn
+ *
+ * @see DT_FOREACH_REG_SEP_VARGS
+ */
+#define DT_INST_FOREACH_REG_SEP_VARGS(inst, fn, sep, ...) \
+	DT_FOREACH_REG_SEP_VARGS(DT_DRV_INST(inst), fn, sep, __VA_ARGS__)
+
+/**
+ * @brief Get a `DT_DRV_COMPAT` property array value's index into its enumeration values
+ * @param inst instance number
+ * @param prop lowercase-and-underscores property name
+ * @param idx the index to get
+ * @return zero-based index of the property's value in its enum: list
+ */
+#define DT_INST_ENUM_IDX_BY_IDX(inst, prop, idx) \
+	DT_ENUM_IDX_BY_IDX(DT_DRV_INST(inst), prop, idx)
+
+/**
  * @brief Get a `DT_DRV_COMPAT` value's index into its enumeration values
  * @param inst instance number
  * @param prop lowercase-and-underscores property name
@@ -3417,6 +4679,18 @@
  */
 #define DT_INST_ENUM_IDX(inst, prop) \
 	DT_ENUM_IDX(DT_DRV_INST(inst), prop)
+
+/**
+ * @brief Like DT_INST_ENUM_IDX_BY_IDX(), but with a fallback to a default enum index
+ * @param inst instance number
+ * @param prop lowercase-and-underscores property name
+ * @param idx the index to get
+ * @param default_idx_value a fallback index value to expand to
+ * @return zero-based index of the property's value in its enum if present,
+ *         default_idx_value otherwise
+ */
+#define DT_INST_ENUM_IDX_BY_IDX_OR(inst, prop, idx, default_idx_value) \
+	DT_ENUM_IDX_BY_IDX_OR(DT_DRV_INST(inst), prop, idx, default_idx_value)
 
 /**
  * @brief Like DT_INST_ENUM_IDX(), but with a fallback to a default enum index
@@ -3428,6 +4702,17 @@
  */
 #define DT_INST_ENUM_IDX_OR(inst, prop, default_idx_value) \
 	DT_ENUM_IDX_OR(DT_DRV_INST(inst), prop, default_idx_value)
+
+/**
+ * @brief Does a `DT_DRV_COMPAT` enumeration property have a given value by index?
+ * @param inst instance number
+ * @param prop lowercase-and-underscores property name
+ * @param idx the index to get
+ * @param value lowercase-and-underscores enumeration value
+ * @return zero-based index of the property's value in its enum
+ */
+#define DT_INST_ENUM_HAS_VALUE_BY_IDX(inst, prop, idx, value) \
+	DT_ENUM_HAS_VALUE_BY_IDX(DT_DRV_INST(inst), prop, idx, value)
 
 /**
  * @brief Does a `DT_DRV_COMPAT` enumeration property have a given value?
@@ -3510,14 +4795,6 @@
 	DT_PROP_LEN_OR(DT_DRV_INST(inst), prop, default_value)
 
 /**
- * @deprecated Use DT_INST_PROP(inst, label)
- * @brief Get a `DT_DRV_COMPAT` instance's `label` property
- * @param inst instance number
- * @return instance's label property value
- */
-#define DT_INST_LABEL(inst) DT_INST_PROP(inst, label) __DEPRECATED_MACRO
-
-/**
  * @brief Get a `DT_DRV_COMPAT` instance's string property's value as a
  *        token.
  *
@@ -3559,6 +4836,17 @@
  */
 #define DT_INST_STRING_TOKEN_BY_IDX(inst, prop, idx) \
 	DT_STRING_TOKEN_BY_IDX(DT_DRV_INST(inst), prop, idx)
+
+/**
+ * @brief Like DT_INST_STRING_TOKEN_BY_IDX(), but with a fallback to @p default_value
+ * @param inst instance number
+ * @param prop lowercase-and-underscores property name
+ * @param idx the index to get
+ * @param default_value a fallback value to expand to
+ * @return the element in @p prop at index @p idx as a token, or @p default_value
+ */
+#define DT_INST_STRING_TOKEN_BY_IDX_OR(inst, prop, idx, default_value) \
+	DT_STRING_TOKEN_BY_IDX_OR(DT_DRV_INST(inst), prop, idx, default_value)
 
 /**
  * @brief Like DT_INST_STRING_TOKEN_BY_IDX(), but uppercased.
@@ -3716,6 +5004,23 @@
 #define DT_INST_REG_HAS_IDX(inst, idx) DT_REG_HAS_IDX(DT_DRV_INST(inst), idx)
 
 /**
+ * @brief is @p name a valid register block name on a `DT_DRV_COMPAT` instance?
+ * @param inst instance number
+ * @param name name to check
+ * @return 1 if @p name is a valid register block name,
+ *         0 otherwise.
+ */
+#define DT_INST_REG_HAS_NAME(inst, name) DT_REG_HAS_NAME(DT_DRV_INST(inst), name)
+
+/**
+ * @brief Get a `DT_DRV_COMPAT` instance's idx-th register block's raw address
+ * @param inst instance number
+ * @param idx index of the register whose address to return
+ * @return address of the instance's idx-th register block
+ */
+#define DT_INST_REG_ADDR_BY_IDX_RAW(inst, idx) DT_REG_ADDR_BY_IDX_RAW(DT_DRV_INST(inst), idx)
+
+/**
  * @brief Get a `DT_DRV_COMPAT` instance's idx-th register block's address
  * @param inst instance number
  * @param idx index of the register whose address to return
@@ -3742,6 +5047,17 @@
 	DT_REG_ADDR_BY_NAME(DT_DRV_INST(inst), name)
 
 /**
+ * @brief Like DT_INST_REG_ADDR_BY_NAME(), but with a fallback to @p default_value
+ * @param inst instance number
+ * @param name lowercase-and-underscores register specifier name
+ * @param default_value a fallback value to expand to
+ * @return address of the register block specified by name if present,
+ *         @p default_value otherwise
+ */
+#define DT_INST_REG_ADDR_BY_NAME_OR(inst, name, default_value) \
+	DT_REG_ADDR_BY_NAME_OR(DT_DRV_INST(inst), name, default_value)
+
+/**
  * @brief 64-bit version of DT_INST_REG_ADDR_BY_NAME()
  *
  * This macro version adds the appropriate suffix for 64-bit unsigned
@@ -3754,7 +5070,7 @@
  * @return address of the register block with the given @p name
  */
 #define DT_INST_REG_ADDR_BY_NAME_U64(inst, name) \
-	DT_U64_C(DT_INST_REG_ADDR_BY_NAME(inst, name))
+	DT_REG_ADDR_BY_NAME_U64(DT_DRV_INST(inst), name)
 
 /**
  * @brief Get a `DT_DRV_COMPAT`'s register block size by name
@@ -3764,6 +5080,24 @@
  */
 #define DT_INST_REG_SIZE_BY_NAME(inst, name) \
 	DT_REG_SIZE_BY_NAME(DT_DRV_INST(inst), name)
+
+/**
+ * @brief Like DT_INST_REG_SIZE_BY_NAME(), but with a fallback to @p default_value
+ * @param inst instance number
+ * @param name lowercase-and-underscores register specifier name
+ * @param default_value a fallback value to expand to
+ * @return size of the register block specified by name if present,
+ *         @p default_value otherwise
+ */
+#define DT_INST_REG_SIZE_BY_NAME_OR(inst, name, default_value) \
+	DT_REG_SIZE_BY_NAME_OR(DT_DRV_INST(inst), name, default_value)
+
+/**
+ * @brief Get a `DT_DRV_COMPAT`'s (only) register block raw address
+ * @param inst instance number
+ * @return instance's register block address
+ */
+#define DT_INST_REG_ADDR_RAW(inst) DT_INST_REG_ADDR_BY_IDX_RAW(inst, 0)
 
 /**
  * @brief Get a `DT_DRV_COMPAT`'s (only) register block address
@@ -3783,7 +5117,7 @@
  * @param inst instance number
  * @return instance's register block address
  */
-#define DT_INST_REG_ADDR_U64(inst) DT_U64_C(DT_INST_REG_ADDR(inst))
+#define DT_INST_REG_ADDR_U64(inst) DT_REG_ADDR_U64(DT_DRV_INST(inst))
 
 /**
  * @brief Get a `DT_DRV_COMPAT`'s (only) register block size
@@ -3791,6 +5125,22 @@
  * @return instance's register block size
  */
 #define DT_INST_REG_SIZE(inst) DT_INST_REG_SIZE_BY_IDX(inst, 0)
+
+/**
+ * @brief Get a `DT_DRV_COMPAT`'s number of interrupts
+ *
+ * @param inst instance number
+ * @return number of interrupts
+ */
+#define DT_INST_NUM_IRQS(inst) DT_NUM_IRQS(DT_DRV_INST(inst))
+
+/**
+ * @brief Get a `DT_DRV_COMPAT` interrupt level
+ *
+ * @param inst instance number
+ * @return interrupt level
+ */
+#define DT_INST_IRQ_LEVEL(inst) DT_IRQ_LEVEL(DT_DRV_INST(inst))
 
 /**
  * @brief Get a `DT_DRV_COMPAT` interrupt specifier value at an index
@@ -3801,6 +5151,34 @@
  */
 #define DT_INST_IRQ_BY_IDX(inst, idx, cell) \
 	DT_IRQ_BY_IDX(DT_DRV_INST(inst), idx, cell)
+
+/**
+ * @brief Get a `DT_DRV_COMPAT` interrupt specifier's interrupt controller by index
+ * @param inst instance number
+ * @param idx interrupt specifier's index
+ * @return node_id of interrupt specifier's interrupt controller
+ */
+#define DT_INST_IRQ_INTC_BY_IDX(inst, idx) \
+	DT_IRQ_INTC_BY_IDX(DT_DRV_INST(inst), idx)
+
+/**
+ * @brief Get a `DT_DRV_COMPAT` interrupt specifier's interrupt controller by name
+ * @param inst instance number
+ * @param name interrupt specifier's name
+ * @return node_id of interrupt specifier's interrupt controller
+ */
+#define DT_INST_IRQ_INTC_BY_NAME(inst, name) \
+	DT_IRQ_INTC_BY_NAME(DT_DRV_INST(inst), name)
+
+/**
+ * @brief Get a `DT_DRV_COMPAT` interrupt specifier's interrupt controller
+ * @note Equivalent to DT_INST_IRQ_INTC_BY_IDX(node_id, 0)
+ * @param inst instance number
+ * @return node_id of interrupt specifier's interrupt controller
+ * @see DT_INST_IRQ_INTC_BY_IDX()
+ */
+#define DT_INST_IRQ_INTC(inst) \
+	DT_INST_IRQ_INTC_BY_IDX(inst, 0)
 
 /**
  * @brief Get a `DT_DRV_COMPAT` interrupt specifier value by name
@@ -3825,7 +5203,24 @@
  * @param inst instance number
  * @return the interrupt number for the node's only interrupt
  */
-#define DT_INST_IRQN(inst) DT_INST_IRQ(inst, irq)
+#define DT_INST_IRQN(inst) DT_IRQN(DT_DRV_INST(inst))
+
+/**
+ * @brief Get a `DT_DRV_COMPAT`'s irq number at index
+ * @param inst instance number
+ * @param idx logical index into the interrupt specifier array
+ * @return the interrupt number for the node's idx-th interrupt
+ */
+#define DT_INST_IRQN_BY_IDX(inst, idx) DT_IRQN_BY_IDX(DT_DRV_INST(inst), idx)
+
+/**
+ * @brief Get a `DT_DRV_COMPAT` irq number by name
+ * @param inst instance number
+ * @param name lowercase-and-underscores interrupt specifier name
+ * @return interrupt number at the specifier given by the index
+ */
+#define DT_INST_IRQN_BY_NAME(inst, name) \
+	DT_IRQN_BY_NAME(DT_DRV_INST(inst), name)
 
 /**
  * @brief Get a `DT_DRV_COMPAT`'s bus node identifier
@@ -3833,16 +5228,6 @@
  * @return node identifier for the instance's bus node
  */
 #define DT_INST_BUS(inst) DT_BUS(DT_DRV_INST(inst))
-
-/**
- * @deprecated If used to obtain a device instance with device_get_binding,
- * consider using @c DEVICE_DT_GET(DT_INST_BUS(inst)).
- *
- * @brief Get a `DT_DRV_COMPAT`'s bus node's label property
- * @param inst instance number
- * @return the label property of the instance's bus controller
- */
-#define DT_INST_BUS_LABEL(inst) DT_BUS_LABEL(DT_DRV_INST(inst)) __DEPRECATED_MACRO
 
 /**
  * @brief Test if a `DT_DRV_COMPAT`'s bus type is a given type
@@ -3859,7 +5244,7 @@
  * @param name lowercase-and-underscores property name
  * @param default_value a fallback value to expand to
  * @return if @p prop exists, its value as a token, i.e. without any quotes and
- *         with special characters converted to underscores. Othewise
+ *         with special characters converted to underscores. Otherwise
  *         @p default_value
  */
 #define DT_INST_STRING_TOKEN_OR(inst, name, default_value) \
@@ -3887,7 +5272,7 @@
 #define DT_INST_STRING_UNQUOTED_OR(inst, name, default_value) \
 	DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), name, default_value)
 
-/*
+/**
  * @brief Test if any enabled node with the given compatible is on
  *        the given bus type
  *
@@ -3918,7 +5303,7 @@
  *         0 otherwise
  */
 #define DT_HAS_COMPAT_ON_BUS_STATUS_OKAY(compat, bus) \
-	IS_ENABLED(UTIL_CAT(DT_CAT(DT_COMPAT_, compat), _BUS_##bus))
+	IS_ENABLED(DT_CAT4(DT_COMPAT_, compat, _BUS_, bus))
 
 /**
  * @brief Test if any `DT_DRV_COMPAT` node is on a bus of a given type
@@ -3999,8 +5384,221 @@
  *     DT_ANY_INST_HAS_PROP_STATUS_OKAY(baz) // 0
  * @endcode
  */
-#define DT_ANY_INST_HAS_PROP_STATUS_OKAY(prop) \
-	(DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_INST_NODE_HAS_PROP_AND_OR, prop) 0)
+#define DT_ANY_INST_HAS_PROP_STATUS_OKAY(prop)							\
+	UTIL_NOT(IS_EMPTY(									\
+		DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_ANY_INST_HAS_PROP_STATUS_OKAY_, prop)))
+
+/**
+ * @brief Check if all `DT_DRV_COMPAT` node with status `okay` has a given
+ *        property. If all nodes are disabled, this will return 1.
+ *
+ * @param prop lowercase-and-underscores property name
+ *
+ * Example devicetree overlay:
+ *
+ * @code{.dts}
+ *     &i2c0 {
+ *         sensor0: sensor@0 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <0>;
+ *             foo = <1>;
+ *             bar = <2>;
+ *         };
+ *
+ *         sensor1: sensor@1 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <1>;
+ *             foo = <2>;
+ *         };
+ *
+ *         sensor2: sensor@2 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "disabled";
+ *             reg = <2>;
+ *             baz = <1>;
+ *         };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     #define DT_DRV_COMPAT vnd_some_sensor
+ *
+ *     DT_ALL_INST_HAS_PROP_STATUS_OKAY(foo) // 1
+ *     DT_ALL_INST_HAS_PROP_STATUS_OKAY(bar) // 0
+ *     DT_ALL_INST_HAS_PROP_STATUS_OKAY(baz) // 0
+ * @endcode
+ */
+#define DT_ALL_INST_HAS_PROP_STATUS_OKAY(prop) \
+	IS_EMPTY(DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_ALL_INST_HAS_PROP_STATUS_OKAY_, prop))
+
+/**
+ * @brief Check if any device node with status `okay` has a given
+ *        property.
+ *
+ * @param compat lowercase-and-underscores devicetree compatible
+ * @param prop lowercase-and-underscores property name
+ *
+ * Example devicetree overlay:
+ *
+ * @code{.dts}
+ *     &i2c0 {
+ *         sensor0: sensor@0 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <0>;
+ *             foo = <1>;
+ *             bar = <2>;
+ *         };
+ *
+ *         sensor1: sensor@1 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <1>;
+ *             foo = <2>;
+ *         };
+ *
+ *         sensor2: sensor@2 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "disabled";
+ *             reg = <2>;
+ *             baz = <1>;
+ *         };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *
+ *     DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(vnd_some_sensor, foo) // 1
+ *     DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(vnd_some_sensor, bar) // 1
+ *     DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(vnd_some_sensor, baz) // 0
+ * @endcode
+ */
+#define DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(compat, prop) \
+	(DT_COMPAT_FOREACH_STATUS_OKAY_VARGS(compat, DT_COMPAT_NODE_HAS_PROP_AND_OR, prop) 0)
+
+/**
+ * @brief Check if any `DT_DRV_COMPAT` node with status `okay` has a given
+ *        boolean property that exists.
+ *
+ * This differs from @ref DT_ANY_INST_HAS_PROP_STATUS_OKAY because even when not present
+ * on a node, the boolean property is generated with a value of 0 and therefore exists.
+ *
+ * @param prop lowercase-and-underscores property name
+ *
+ * Example devicetree overlay:
+ *
+ * @code{.dts}
+ *     &i2c0 {
+ *         sensor0: sensor@0 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <0>;
+ *             foo;
+ *             bar;
+ *         };
+ *
+ *         sensor1: sensor@1 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <1>;
+ *             foo;
+ *         };
+ *
+ *         sensor2: sensor@2 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "disabled";
+ *             reg = <2>;
+ *             baz;
+ *         };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     #define DT_DRV_COMPAT vnd_some_sensor
+ *
+ *     DT_ANY_INST_HAS_BOOL_STATUS_OKAY(foo) // 1
+ *     DT_ANY_INST_HAS_BOOL_STATUS_OKAY(bar) // 1
+ *     DT_ANY_INST_HAS_BOOL_STATUS_OKAY(baz) // 0
+ * @endcode
+ */
+#define DT_ANY_INST_HAS_BOOL_STATUS_OKAY(prop)							\
+	UTIL_NOT(IS_EMPTY(									\
+		DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_ANY_INST_HAS_BOOL_STATUS_OKAY_, prop)))
+
+/**
+ * @brief Check if all `DT_DRV_COMPAT` node with status `okay` has a given
+ *        boolean property that exists. If all nodes are disabled, this
+ *        will return 1.
+ * *
+ * @param prop lowercase-and-underscores property name
+ *
+ * Example devicetree overlay:
+ *
+ * @code{.dts}
+ *     &i2c0 {
+ *         sensor0: sensor@0 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <0>;
+ *             foo;
+ *             bar;
+ *         };
+ *
+ *         sensor1: sensor@1 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "okay";
+ *             reg = <1>;
+ *             foo;
+ *         };
+ *
+ *         sensor2: sensor@2 {
+ *             compatible = "vnd,some-sensor";
+ *             status = "disabled";
+ *             reg = <2>;
+ *             baz;
+ *         };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *     #define DT_DRV_COMPAT vnd_some_sensor
+ *
+ *     DT_ALL_INST_HAS_BOOL_STATUS_OKAY(foo) // 1
+ *     DT_ALL_INST_HAS_BOOL_STATUS_OKAY(bar) // 0
+ *     DT_ALL_INST_HAS_BOOL_STATUS_OKAY(baz) // 0
+ * @endcode
+ */
+#define DT_ALL_INST_HAS_BOOL_STATUS_OKAY(prop) \
+	IS_EMPTY(DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_ALL_INST_HAS_BOOL_STATUS_OKAY_, prop))
+
+/**
+ * @brief Check if any `DT_DRV_COMPAT` node with status `okay` has a given
+ *        register name.
+ *
+ * @param name lowercase-and-underscores register name
+ */
+#define DT_ANY_INST_REG_HAS_NAME_STATUS_OKAY(name)						\
+	UTIL_NOT(IS_EMPTY(									\
+		DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_ANY_INST_REG_HAS_NAME_STATUS_OKAY_, name)))
+
+/**
+ * @brief Check if all `DT_DRV_COMPAT` node with status `okay` has a given
+ *        register name. If all nodes are disabled, this will return 1.
+ *
+ * @param name lowercase-and-underscores register name
+ */
+#define DT_ALL_INST_REG_HAS_NAME_STATUS_OKAY(name) \
+	IS_EMPTY(DT_INST_FOREACH_STATUS_OKAY_VARGS(DT_ALL_INST_REG_HAS_NAME_STATUS_OKAY_, name))
 
 /**
  * @brief Call @p fn on all nodes with compatible `DT_DRV_COMPAT`
@@ -4079,16 +5677,43 @@
  *
  *
  * @param fn Macro to call for each enabled node. Must accept an
- *           instance number as its only parameter.
+ *           instance number.
  * @param ... variable number of arguments to pass to @p fn
  *
  * @see DT_INST_FOREACH_STATUS_OKAY
+ * @see DT_COMPAT_FOREACH_STATUS_OKAY_VARGS
  */
 #define DT_INST_FOREACH_STATUS_OKAY_VARGS(fn, ...) \
-	COND_CODE_1(DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT),	\
-		    (UTIL_CAT(DT_FOREACH_OKAY_INST_VARGS_,	\
-			      DT_DRV_COMPAT)(fn, __VA_ARGS__)),	\
+	COND_CODE_1(DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT),   \
+		    (UTIL_CAT(DT_FOREACH_OKAY_INST_VARGS_,      \
+			      DT_DRV_COMPAT)(fn, __VA_ARGS__)), \
 		    ())
+
+/**
+ * @brief Call @p fn on all node labels for a given `DT_DRV_COMPAT` instance
+ *
+ * Equivalent to DT_FOREACH_NODELABEL(DT_DRV_INST(inst), fn).
+ *
+ * @param inst instance number
+ * @param fn macro which will be passed each node label for the node
+ *           with that instance number
+ */
+#define DT_INST_FOREACH_NODELABEL(inst, fn) \
+	DT_FOREACH_NODELABEL(DT_DRV_INST(inst), fn)
+
+/**
+ * @brief Call @p fn on all node labels for a given `DT_DRV_COMPAT` instance
+ *        with multiple arguments
+ *
+ * Equivalent to DT_FOREACH_NODELABEL_VARGS(DT_DRV_INST(inst), fn, ...).
+ *
+ * @param inst instance number
+ * @param fn macro which will be passed each node label for the node
+ *           with that instance number
+ * @param ... additional arguments to pass to @p fn
+ */
+#define DT_INST_FOREACH_NODELABEL_VARGS(inst, fn, ...) \
+	DT_FOREACH_NODELABEL_VARGS(DT_DRV_INST(inst), fn, __VA_ARGS__)
 
 /**
  * @brief Invokes @p fn for each element of property @p prop for
@@ -4137,7 +5762,7 @@
 
 /**
  * @brief Invokes @p fn for each element of property @p prop for
- *        a `DT_DRV_COMPAT` instance with multiple arguments and a sepatator.
+ *        a `DT_DRV_COMPAT` instance with multiple arguments and a separator.
  *
  * Equivalent to
  *      DT_FOREACH_PROP_ELEM_SEP_VARGS(DT_DRV_INST(inst), prop, fn, sep,
@@ -4164,6 +5789,15 @@
  */
 #define DT_INST_NODE_HAS_PROP(inst, prop) \
 	DT_NODE_HAS_PROP(DT_DRV_INST(inst), prop)
+
+/**
+ * @brief Does a DT_DRV_COMPAT instance have the compatible?
+ * @param inst instance number
+ * @param compat lowercase-and-underscores compatible, without quotes
+ * @return 1 if the instance matches the compatible, 0 otherwise.
+ */
+#define DT_INST_NODE_HAS_COMPAT(inst, compat) \
+	DT_NODE_HAS_COMPAT(DT_DRV_INST(inst), compat)
 
 /**
  * @brief Does a phandle array have a named cell specifier at an index
@@ -4235,6 +5869,94 @@
 
 /** @cond INTERNAL_HIDDEN */
 
+/** @brief Helper for DT_ANY_INST_HAS_PROP_STATUS_OKAY
+ *
+ * This macro generates token "1," for instance of a device,
+ * identified by index @p inst, if instance has property @p prop.
+ *
+ * @param inst instance number
+ * @param prop property to check for
+ *
+ * @return Macro evaluates to `1,` if instance has the property,
+ * otherwise it evaluates to literal nothing.
+ */
+#define DT_ANY_INST_HAS_PROP_STATUS_OKAY_(inst, prop)	\
+	IF_ENABLED(DT_INST_NODE_HAS_PROP(inst, prop), (1,))
+
+/** @brief Helper for DT_ANY_INST_HAS_BOOL_STATUS_OKAY
+ *
+ * This macro generates token "1," for instance of a device,
+ * identified by index @p inst, if instance has boolean property
+ * @p prop with value 1.
+ *
+ * @param inst instance number
+ * @param prop property to check for
+ *
+ * @return Macro evaluates to `1,` if instance property value is 1,
+ * otherwise it evaluates to literal nothing.
+ */
+#define DT_ANY_INST_HAS_BOOL_STATUS_OKAY_(inst, prop)	\
+	IF_ENABLED(DT_INST_PROP(inst, prop), (1,))
+
+/** @brief Helper for DT_ANY_INST_REG_HAS_NAME_STATUS_OKAY
+ *
+ * This macro generates token "1," for instance of a device,
+ * identified by index @p inst, if instance has named register
+ * @p name.
+ *
+ * @param inst instance number
+ * @param name register name to check for
+ *
+ * @return Macro evaluates to `1,` if instance register name exists,
+ * otherwise it evaluates to literal nothing.
+ */
+#define DT_ANY_INST_REG_HAS_NAME_STATUS_OKAY_(inst, name)	\
+	IF_ENABLED(DT_INST_REG_HAS_NAME(inst, name), (1,))
+
+/** @brief Helper for DT_ALL_INST_HAS_PROP_STATUS_OKAY
+ *
+ * This macro generates token "1," for instance of a device,
+ * identified by index @p inst, if instance has no property @p prop.
+ *
+ * @param inst instance number
+ * @param prop property to check for
+ *
+ * @return Macro evaluates to `1,` if instance has the property,
+ * otherwise it evaluates to literal nothing.
+ */
+#define DT_ALL_INST_HAS_PROP_STATUS_OKAY_(inst, prop)	\
+	IF_DISABLED(DT_INST_NODE_HAS_PROP(inst, prop), (1,))
+
+/** @brief Helper for DT_ALL_INST_HAS_BOOL_STATUS_OKAY
+ *
+ * This macro generates token "1," for instance of a device,
+ * identified by index @p inst, if instance has no boolean property
+ * @p prop with value 1.
+ *
+ * @param inst instance number
+ * @param prop property to check for
+ *
+ * @return Macro evaluates to `1,` if instance property value is 0,
+ * otherwise it evaluates to literal nothing.
+ */
+#define DT_ALL_INST_HAS_BOOL_STATUS_OKAY_(inst, prop)	\
+	IF_DISABLED(DT_INST_PROP(inst, prop), (1,))
+
+/** @brief Helper for DT_ALL_INST_REG_HAS_NAME_STATUS_OKAY
+ *
+ * This macro generates token "1," for instance of a device,
+ * identified by index @p inst, if instance has no named register
+ * @p name.
+ *
+ * @param inst instance number
+ * @param name register name to check for
+ *
+ * @return Macro evaluates to `1,` if instance register name exists,
+ * otherwise it evaluates to literal nothing.
+ */
+#define DT_ALL_INST_REG_HAS_NAME_STATUS_OKAY_(inst, name)	\
+	IF_DISABLED(DT_INST_REG_HAS_NAME(inst, name), (1,))
+
 #define DT_PATH_INTERNAL(...) \
 	UTIL_CAT(DT_ROOT, MACRO_MAP_CAT(DT_S_PREFIX, __VA_ARGS__))
 /** @brief DT_PATH_INTERNAL() helper: prepends _S_ to a node name
@@ -4286,9 +6008,21 @@
 #define DT_NODE_HAS_STATUS_INTERNAL(node_id, status) \
 	IS_ENABLED(DT_CAT3(node_id, _STATUS_, status))
 
-/** @brief Helper macro to OR multiple has property checks in a loop macro */
-#define DT_INST_NODE_HAS_PROP_AND_OR(inst, prop) \
-	DT_INST_NODE_HAS_PROP(inst, prop) ||
+/** @brief Helper macro to OR multiple has property checks in a loop macro
+ *         (for the specified device)
+ */
+#define DT_COMPAT_NODE_HAS_PROP_AND_OR(inst, compat, prop) \
+	DT_NODE_HAS_PROP(DT_INST(inst, compat), prop) ||
+
+/**
+ * @def DT_U32_C
+ * @brief Macro to add 32bit unsigned postfix to the devicetree address constants
+ */
+#if defined(_LINKER) || defined(_ASMLANGUAGE)
+#define DT_U32_C(_v) (_v)
+#else
+#define DT_U32_C(_v) UINT32_C(_v)
+#endif
 
 /**
  * @def DT_U64_C
@@ -4299,6 +6033,13 @@
 #else
 #define DT_U64_C(_v) UINT64_C(_v)
 #endif
+
+/* Helpers for DT_NODELABEL_STRING_ARRAY. We define our own stringify
+ * in order to avoid adding a dependency on toolchain.h..
+ */
+#define DT_NODELABEL_STRING_ARRAY_ENTRY_INTERNAL(nodelabel) DT_STRINGIFY_INTERNAL(nodelabel),
+#define DT_STRINGIFY_INTERNAL(arg) DT_STRINGIFY_INTERNAL_HELPER(arg)
+#define DT_STRINGIFY_INTERNAL_HELPER(arg) #arg
 
 /** @endcond */
 
@@ -4315,5 +6056,14 @@
 #include <zephyr/devicetree/can.h>
 #include <zephyr/devicetree/reset.h>
 #include <zephyr/devicetree/mbox.h>
+#include <zephyr/devicetree/port-endpoint.h>
+#include <zephyr/devicetree/display.h>
+#include <zephyr/devicetree/hwspinlock.h>
+#include <zephyr/devicetree/map.h>
+#include <zephyr/devicetree/wuc.h>
+#include <zephyr/devicetree/mapped-partition.h>
+#include <zephyr/devicetree/partitions.h>
+#include <zephyr/devicetree/sram.h>
+#include <zephyr/devicetree/cpu.h>
 
-#endif /* DEVICETREE_H */
+#endif /* ZEPHYR_INCLUDE_DEVICETREE_H_ */

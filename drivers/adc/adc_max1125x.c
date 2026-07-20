@@ -403,9 +403,17 @@ static int max1125x_read_sample(const struct device *dev)
 	 * the available input range is limited to the minimum or maximum
 	 * data value.
 	 */
+
+	if (config->resolution > 24 || config->resolution < 1) {
+		LOG_ERR("Unsupported ADC resolution: %u", config->resolution);
+		return -EINVAL;
+	}
+
 	is_positive = buffer_rx[(config->resolution / 8)] >> 7;
+
 	if (is_positive) {
-		*data->buffer++ = sys_get_be24(buffer_rx) - (1 << (config->resolution - 1));
+		/* Ensure left shift is done using unsigned literal to avoid overflow. */
+		*data->buffer++ = sys_get_be24(buffer_rx) - (1U << (config->resolution - 1));
 	} else {
 		*data->buffer++ = sys_get_be24(buffer_rx + 1);
 	}
@@ -690,8 +698,12 @@ static int max1125x_read(const struct device *dev, const struct adc_sequence *se
 	return max1125x_adc_read_async(dev, sequence, NULL);
 }
 
-static void max1125x_acquisition_thread(const struct device *dev)
+static void max1125x_acquisition_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	const struct device *dev = p1;
 	struct max1125x_data *data = dev->data;
 	int rc;
 
@@ -750,9 +762,9 @@ static int max1125x_init(const struct device *dev)
 		return -EIO;
 	}
 
-	const k_tid_t tid = k_thread_create(
-		&data->thread, data->stack, K_THREAD_STACK_SIZEOF(data->stack),
-		(k_thread_entry_t)max1125x_acquisition_thread, (void *)dev, NULL, NULL,
+	k_tid_t tid = k_thread_create(
+		&data->thread, data->stack, K_KERNEL_STACK_SIZEOF(data->stack),
+		max1125x_acquisition_thread, (void *)dev, NULL, NULL,
 		CONFIG_ADC_MAX1125X_ACQUISITION_THREAD_PRIORITY, 0, K_NO_WAIT);
 	k_thread_name_set(tid, "adc_max1125x");
 
@@ -761,7 +773,7 @@ static int max1125x_init(const struct device *dev)
 	return 0;
 }
 
-static const struct adc_driver_api max1125x_api = {
+static DEVICE_API(adc, max1125x_api) = {
 	.channel_setup = max1125x_channel_setup,
 	.read = max1125x_read,
 	.ref_internal = 2048,
@@ -775,8 +787,7 @@ static const struct adc_driver_api max1125x_api = {
 #define MAX1125X_INIT(t, n, odr_delay_us, res, mux, pgab)                                          \
 	static const struct max1125x_config max##t##_cfg_##n = {                                   \
 		.bus = SPI_DT_SPEC_GET(DT_INST_MAX1125X(n, t),                                     \
-				       SPI_OP_MODE_MASTER | SPI_WORD_SET(8) | SPI_TRANSFER_MSB,    \
-				       1),                                                         \
+				       SPI_OP_MODE_MASTER | SPI_WORD_SET(8) | SPI_TRANSFER_MSB),   \
 		.odr_delay = odr_delay_us,                                                         \
 		.resolution = res,                                                                 \
 		.multiplexer = mux,                                                                \
@@ -787,7 +798,7 @@ static const struct adc_driver_api max1125x_api = {
 		.gpio.gpio1_enable = DT_PROP_OR(DT_INST_MAX1125X(n, t), gpio1_enable, 0),          \
 		.gpio.gpio0_direction = DT_PROP_OR(DT_INST_MAX1125X(n, t), gpio0_direction, 0),    \
 		.gpio.gpio1_direction = DT_PROP_OR(DT_INST_MAX1125X(n, t), gpio1_direction, 0),    \
-		.gpo.gpo0_enable = DT_PROP_OR(DT_INST_MAX1125X(n, t), gpo1_enable, 0),             \
+		.gpo.gpo0_enable = DT_PROP_OR(DT_INST_MAX1125X(n, t), gpo0_enable, 0),             \
 		.gpo.gpo1_enable = DT_PROP_OR(DT_INST_MAX1125X(n, t), gpo1_enable, 0),             \
 	};                                                                                         \
 	static struct max1125x_data max##t##_data_##n = {                                          \

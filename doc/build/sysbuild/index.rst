@@ -65,7 +65,7 @@ The following are some key sysbuild features indicated in this figure:
 
 - Sysbuild itself is also configured using Kconfig. For example, you can
   instruct sysbuild to build the MCUboot bootloader, as well as to build and
-  link your main Zephyr application as an MCUboot child image, using sysbuild's
+  link your main Zephyr application as an MCUboot-bootable image, using sysbuild's
   Kconfig files.
 
 - Sysbuild integrates with west's :ref:`west-build-flash-debug` commands. It
@@ -95,7 +95,7 @@ As mentioned above, you can run sysbuild via ``west build`` or ``cmake``.
 
       .. zephyr-app-commands::
          :tool: west
-         :app: samples/hello_world
+         :zephyr-app: samples/hello_world
          :board: reel_board
          :goals: build
          :west-args: --sysbuild
@@ -140,8 +140,27 @@ As mentioned above, you can run sysbuild via ``west build`` or ``cmake``.
 
       To use sysbuild directly with CMake, you must specify the sysbuild
       project as the source folder, and give ``-DAPP_DIR=<path-to-sample>`` as
-      an extra CMake argument. ``APP_DIR`` is the path to the main Zephyr
-      application managed by sysbuild.
+      an extra CMake argument or set APP_DIR as environment variable.
+      ``APP_DIR`` is the path to the main Zephyr application managed by sysbuild.
+
+      .. tip::
+
+         The environment variables, ``CMAKE_BUILD_PARALLEL_LEVEL`` and ``VERBOSE``, can be used to
+         control the build process when using sysbuild with CMake and ninja.
+
+         To set number of jobs for ninja for all sysbuild images, set the CMAKE_BUILD_PARALLEL_LEVEL
+         environment variable and invoke the build with ``cmake --build``, for example:
+
+         .. code-block:: shell
+
+            CMAKE_BUILD_PARALLEL_LEVEL=<n> cmake --build .
+
+         For verbose output of all images, use:
+
+         .. code-block:: shell
+
+            VERBOSE=1 cmake --build .
+
 
 Configuration namespacing
 *************************
@@ -157,7 +176,7 @@ To handle this, sysbuild has namespaces for configuration variables. You can use
 namespaces to direct settings either to sysbuild itself or to a specific Zephyr
 application managed by sysbuild using the information in these sections.
 
-The following example shows how to build :ref:`hello_world` with MCUboot enabled,
+The following example shows how to build :zephyr:code-sample:`hello_world` with MCUboot enabled,
 applying to both images debug optimizations:
 
 .. tabs::
@@ -166,11 +185,11 @@ applying to both images debug optimizations:
 
       .. zephyr-app-commands::
          :tool: west
-         :app: samples/hello_world
+         :zephyr-app: samples/hello_world
          :board: reel_board
          :goals: build
          :west-args: --sysbuild
-         :gen-args: -DSB_CONFIG_BOOTLOADER_MCUBOOT=y -DCONFIG_DEBUG_OPTIMIZATIONS=y -Dmcuboot_DEBUG_OPTIMIZATIONS=y
+         :gen-args: -DSB_CONFIG_BOOTLOADER_MCUBOOT=y -DCONFIG_DEBUG_OPTIMIZATIONS=y -Dmcuboot_CONFIG_DEBUG_OPTIMIZATIONS=y
          :compact:
 
    .. group-tab:: ``cmake``
@@ -180,7 +199,7 @@ applying to both images debug optimizations:
          :app: share/sysbuild
          :board: reel_board
          :goals: build
-         :gen-args: -DAPP_DIR=samples/hello_world -DSB_CONFIG_BOOTLOADER_MCUBOOT=y -DCONFIG_DEBUG_OPTIMIZATIONS=y -Dmcuboot_DEBUG_OPTIMIZATIONS=y
+         :gen-args: -DAPP_DIR=samples/hello_world -DSB_CONFIG_BOOTLOADER_MCUBOOT=y -DCONFIG_DEBUG_OPTIMIZATIONS=y -Dmcuboot_CONFIG_DEBUG_OPTIMIZATIONS=y
          :compact:
 
 See the following subsections for more information.
@@ -316,7 +335,7 @@ enable MCUboot and build and flash the sample as follows:
 
       .. zephyr-app-commands::
          :tool: west
-         :app: samples/hello_world
+         :zephyr-app: samples/hello_world
          :board: reel_board
          :goals: build
          :west-args: --sysbuild
@@ -381,7 +400,7 @@ specify this file when building with sysbuild, as follows:
 
       .. zephyr-app-commands::
          :tool: west
-         :app: samples/hello_world
+         :zephyr-app: samples/hello_world
          :board: reel_board
          :goals: build
          :west-args: --sysbuild
@@ -423,8 +442,8 @@ Dedicated image build targets
 Not all build targets for images are given equivalent prefixed build targets
 when sysbuild is used, for example build targets like ``ram_report``,
 ``rom_report``, ``footprint``, ``puncover`` and ``pahole`` are not exposed.
-When using :ref:`Trusted Firmware <tfm_build_system>`, this includes build
-targets prefix with ``tfm_`` and ``bl2_``, for example: ``tfm_rom_report``
+When using :ref:`Trusted Firmware <tfm_build_system>`, the build targets prefixed
+with ``tfm_`` and ``bl2_`` are also not exposed, for example: ``tfm_rom_report``
 and ``bl2_ram_report``. To run these build targets, the build directory of the
 image can be provided to west/ninja/make along with the name of the build
 target to execute and it will run.
@@ -442,6 +461,13 @@ target to execute and it will run.
 
          west build -d build/mcuboot -t rom_report
 
+      For TF-M projects using TF-M targets, the application build directory is
+      used like so:
+
+      .. code-block:: shell
+
+         west build -d build/<app_name> -t tfm_rom_report
+
    .. group-tab:: ``ninja``
 
       Assuming that a project has been configured using ``cmake`` and built
@@ -451,6 +477,13 @@ target to execute and it will run.
       .. code-block:: shell
 
          ninja -C mcuboot rom_report
+
+      For TF-M projects using TF-M targets, the application build directory is
+      used like so:
+
+      .. code-block:: shell
+
+         ninja -C <app_name> -t tfm_rom_report
 
    .. group-tab:: ``make``
 
@@ -462,6 +495,13 @@ target to execute and it will run.
 
          make -C mcuboot rom_report
 
+      For TF-M projects using TF-M targets, the application build directory is
+      used like so:
+
+      .. code-block:: shell
+
+         make -C <app_name> -t tfm_rom_report
+
 .. _sysbuild_zephyr_application:
 
 Adding Zephyr applications to sysbuild
@@ -471,6 +511,14 @@ You can use the ``ExternalZephyrProject_Add()`` function to add Zephyr
 applications as sysbuild domains. Call this CMake function from your
 application's :file:`sysbuild.cmake` file, or any other CMake file you know will
 run as part sysbuild CMake invocation.
+
+A variant image can also added using the ``ExternalZephyrVariantProject_Add()`` function which
+will duplicate an existing image in the sysbuild project, and allows for slight differences in
+configuration. An example use case for this feature is to change the chosen flash node of an image
+but having the rest of the configuration identical to the base image. When this is used, neither
+sysbuild itself nor the image will have the extra Kconfig targets made for it such as menuconfig,
+guiconfig, hardenconfig or traceconfig, as the base image can be used for viewing/adjusting
+these instead.
 
 Targeting the same board
 ========================
@@ -495,12 +543,12 @@ In sysbuild and Zephyr CMake build system a board may refer to:
 
 * A physical board with a single core SoC.
 * A specific core on a physical board with a multi-core SoC, such as
-  :ref:`nrf5340dk_nrf5340`.
+  :zephyr:board:`nrf5340dk`.
 * A specific SoC on a physical board with multiple SoCs, such as
   :ref:`nrf9160dk_nrf9160` and :ref:`nrf9160dk_nrf52840`.
 
-If your main application, for example, is built for ``mps2_an521``, and your
-helper application must target the ``mps2_an521_remote`` board (cpu1), add
+If your main application, for example, is built for ``mps2/an521/cpu0``, and your
+helper application must target the ``mps2/an521/cpu1`` board target, add
 a CMake function call that is structured as follows:
 
 .. code-block:: cmake
@@ -508,7 +556,7 @@ a CMake function call that is structured as follows:
    ExternalZephyrProject_Add(
      APPLICATION my_sample
      SOURCE_DIR <path-to>/my_sample
-     BOARD mps2_an521_remote
+     BOARD mps2/an521/cpu1
    )
 
 This could be useful, for example, if your main application requires another
@@ -588,6 +636,8 @@ a Kconfig option, which would make ``my_sample`` conditionally build-only.
    ``west flash --domain my_sample``. As such, the ``BUILD_ONLY`` option only
    controls the default behavior of ``west flash``.
 
+.. _sysbuild_application_configuration:
+
 Zephyr application configuration
 ================================
 
@@ -651,6 +701,74 @@ configuration files for ``my_sample`` will be ignored.
 This give you full control on how images are configured when integrating those
 with ``application``.
 
+.. _sysbuild_file_suffixes:
+
+Sysbuild file suffix support
+----------------------------
+
+File suffix support through the :makevar:`FILE_SUFFIX` is supported in sysbuild
+(see :ref:`application-file-suffixes` for details on this feature in applications). For sysbuild,
+a globally provided option will be passed down to all images. In addition, the image configuration
+file will have this value applied and used (instead of the build type) if the file exists.
+
+Given the example project:
+
+.. code-block:: none
+
+   <home>/application
+   ├── CMakeLists.txt
+   ├── prj.conf
+   ├── sysbuild.conf
+   ├── sysbuild_test_key.conf
+   └── sysbuild
+       ├── mcuboot.conf
+       ├── mcuboot_max_log.conf
+       └── my_sample.conf
+
+* If ``FILE_SUFFIX`` is not defined and both ``mcuboot`` and ``my_sample`` images are included,
+  ``mcuboot`` will use the ``mcuboot.conf`` Kconfig fragment file and ``my_sample`` will use the
+  ``my_sample.conf`` Kconfig fragment file. Sysbuild itself will use the ``sysbuild.conf``
+  Kconfig fragment file.
+
+* If ``FILE_SUFFIX`` is set to ``max_log`` and both ``mcuboot`` and ``my_sample`` images are
+  included, ``mcuboot`` will use the ``mcuboot_max_log.conf`` Kconfig fragment file and
+  ``my_sample`` will use the ``my_sample.conf`` Kconfig fragment file (as it will fallback to the
+  file without the suffix). Sysbuild itself will use the ``sysbuild.conf`` Kconfig fragment file
+  (as it will fallback to the file without the suffix).
+
+* If ``FILE_SUFFIX`` is set to ``test_key`` and both ``mcuboot`` and ``my_sample`` images are
+  included, ``mcuboot`` will use the ``mcuboot.conf`` Kconfig fragment file and
+  ``my_sample`` will use the ``my_sample.conf`` Kconfig fragment file (as it will fallback to the
+  files without the suffix). Sysbuild itself will use the ``sysbuild_test_key.conf`` Kconfig
+  fragment file. This can be used to apply a different sysbuild configuration, for example to use
+  a different signing key in MCUboot and when signing the main application.
+
+The ``FILE_SUFFIX`` can also be applied only to single images by prefixing the variable with the
+image name:
+
+.. tabs::
+
+   .. group-tab:: ``west build``
+
+      .. zephyr-app-commands::
+         :tool: west
+         :app: file_suffix_example
+         :board: reel_board
+         :goals: build
+         :west-args: --sysbuild
+         :gen-args: -DSB_CONFIG_BOOTLOADER_MCUBOOT=y -Dmcuboot_FILE_SUFFIX="max_log"
+         :compact:
+
+   .. group-tab:: ``cmake``
+
+      .. zephyr-app-commands::
+         :tool: cmake
+         :app: share/sysbuild
+         :board: reel_board
+         :goals: build
+         :gen-args: -DAPP_DIR=<app_dir> -DSB_CONFIG_BOOTLOADER_MCUBOOT=y -Dmcuboot_FILE_SUFFIX="max_log"
+         :compact:
+
 .. _sysbuild_zephyr_application_dependencies:
 
 Adding dependencies among Zephyr applications
@@ -695,6 +813,22 @@ As a result, ``my_sample`` will be flashed after ``sample_a`` and ``sample_b``
    If ``my_sample`` had been created with ``BUILD_ONLY TRUE``, then the above
    call to ``sysbuild_add_dependencies()`` would have produced an error.
 
+.. _sysbuild_merged_hex_files:
+
+Merged hex files
+****************
+
+Sysbuild supports creating merged hex files, which will be created one per unique board target
+in a sysbuild project and can be enabled with :kconfig:option:`SB_CONFIG_MERGED_HEX_FILES`.
+The output filename format will be :file:`merged_<NORMALIZED_BOARD_TARGET>.hex`. This is ideal
+for creating production images for deployment, it requires that all images output hex files.
+If a sysbuild project builds multiple images for the same board target but for **different**
+devices (e.g. 3 images for 3 different boards as part of a test), then this option should remain
+disabled. Hex files will be merged as per the flashing order they have been configured in, any
+overlapping data from previous addresses that conflicts with later merged hex files will be
+overwritten with the later hex file data - see :ref:`sysbuild_zephyr_application_dependencies`
+for how to configure the flashing order of sysbuild images.
+
 Adding non-Zephyr applications to sysbuild
 ******************************************
 
@@ -710,6 +844,46 @@ debug the application.
 .. _MCUboot with Zephyr: https://docs.mcuboot.com/readme-zephyr
 .. _ExternalProject: https://cmake.org/cmake/help/latest/module/ExternalProject.html
 
+.. _sysbuild_var_override:
+
+Configuring sysbuild internal state
+***********************************
+
+Because sysbuild is a CMake project in it's own right, it runs and sets up itself similar to a
+Zephyr application but using it's own CMake code. This means that some features, for example
+specifying variables in an application ``CMakeLists.txt`` (such as ``BOARD_ROOT``) will not work,
+instead these must be set by using a :ref:`a module <modules_build_settings>` or by using a custom
+sysbuild project file as ``<application>/sysbuild/CMakeLists.txt``, for example:
+
+.. code-block:: cmake
+
+   # Place pre-sysbuild configuration items here
+
+   # For changing configuration that sysbuild itself uses:
+   # set(<var> <value>)
+   # list(APPEND <list> <value>)
+
+   # For changing configuration of other images:
+   # set(<image>_<var> <value> CACHE INTERNAL "<description>")
+
+   # Finds the sysbuild project and includes it with the new configuration
+   find_package(Sysbuild REQUIRED HINTS $ENV{ZEPHYR_BASE})
+
+   project(sysbuild LANGUAGES)
+
+An example of adding a ``BOARD_ROOT``:
+
+.. code-block:: cmake
+
+   list(APPEND BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../<extra-board-root>)
+
+   find_package(Sysbuild REQUIRED HINTS $ENV{ZEPHYR_BASE})
+
+   project(sysbuild LANGUAGES)
+
+This will pass the board root on to all images as part of a project, it does not need to be
+repeated in each image's ``CMakeLists.txt`` file.
+
 Extending sysbuild
 ******************
 
@@ -724,3 +898,63 @@ each image that is part of a project. Alternatively, there are
 which can be used to include CMake and Kconfig files for the overall sysbuild
 image itself, this is where e.g. a custom image for a particular board or SoC
 can be added.
+
+
+.. toctree::
+    :maxdepth: 1
+
+    images.rst
+
+Sysbuild and CMake presets
+**************************
+
+`CMake presets <https://cmake.org/cmake/help/latest/manual/cmake-presets.7.html>`_ can be used with
+Sysbuild but not all preset macros will work as expected.
+
+.. note::
+
+   Using CMake presets with sysbuild requires CMake version 3.27 or higher.
+
+As described in :ref:`sysbuild` then sysbuild is a higher-level build system which means that when
+CMake presets are used together with sysbuild, then the preset is consumed and processed by sysbuild
+itself and result is passed to the application.
+
+Running sysbuild with preset.
+
+.. tabs::
+
+   .. group-tab:: ``west build``
+
+      Here is an example where preset ``release`` should be used.
+      For details, see :ref:`west-multi-domain-builds` in the ``west build documentation``.
+
+      .. zephyr-app-commands::
+         :tool: west
+         :zephyr-app: samples/hello_world
+         :board: reel_board
+         :goals: build
+         :west-args: --sysbuild -- --preset=release
+         :compact:
+
+   .. group-tab:: ``cmake``
+
+      Here is an example using CMake and Ninja.
+
+      .. code-block:: shell
+
+         APP_DIR=samples/hello_world cmake -Bbuild -GNinja -DBOARD=reel_board share/sysbuild
+         ninja -Cbuild
+
+      When using CMake presets with sysbuild then ``APP_DIR`` must be set in environment in order
+      for Sysbuild CMake to be able to include the ``CMakePresets.json`` from the main Zephyr
+      application's source directory.
+
+.. note::
+
+   As sysbuild changes the top-level cmake project to its own directory, the cmake presets are
+   parsed from there, the application's presets are included from this file verbatim.
+   Therefore relative paths, and macros resolving relative to the source directory will not work as
+   expected, but as relative to share/sysbuild, for example ``${sourceDir}``.
+
+   The ``${fileDir}`` macro can be used to create portable paths relative to the application's
+   directory.

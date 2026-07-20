@@ -10,6 +10,8 @@
  *
  * @brief Zperf API
  * @defgroup zperf Zperf API
+ * @since 3.3
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
@@ -18,45 +20,103 @@
 #define ZEPHYR_INCLUDE_NET_ZPERF_H_
 
 #include <zephyr/net/net_ip.h>
+#include <zephyr/net/socket.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/** @cond INTERNAL_HIDDEN */
+
 enum zperf_status {
 	ZPERF_SESSION_STARTED,
+	ZPERF_SESSION_PERIODIC_RESULT,
 	ZPERF_SESSION_FINISHED,
 	ZPERF_SESSION_ERROR
 } __packed;
 
+/**
+ * @brief Zperf callback function to load custom data for upload
+ *
+ * @param user_ctx User context for data load
+ * @param offset Current offset of custom data
+ * @param data Pointer to load data into
+ * @param len Length of data to load in bytes
+ *
+ * @retval 0 On successful data load
+ * @retval -errno Data load failed, terminate data upload
+ */
+typedef int (*zperf_data_load_custom)(void *user_ctx, uint64_t offset,
+				      uint8_t *data, uint32_t len);
+
 struct zperf_upload_params {
-	struct sockaddr peer_addr;
+	uint64_t unix_offset_us;
+	zperf_data_load_custom data_loader;
+	void *data_loader_ctx;
+	struct net_sockaddr peer_addr;
 	uint32_t duration_ms;
 	uint32_t rate_kbps;
 	uint16_t packet_size;
+	char if_name[NET_IFNAMSIZ];
 	struct {
 		uint8_t tos;
 		int tcp_nodelay;
 		int priority;
+#ifdef CONFIG_ZPERF_SESSION_PER_THREAD
+		int thread_priority;
+		bool wait_for_start;
+#endif
+		uint32_t report_interval_ms;
 	} options;
 };
 
 struct zperf_download_params {
 	uint16_t port;
-	struct sockaddr addr;
+	struct net_sockaddr addr;
+	char if_name[NET_IFNAMSIZ];
 };
 
+#ifdef CONFIG_NET_ZPERF_RAW_TX
+/**
+ * Raw TX upload parameters
+ *
+ * Buffer structure sent to driver:
+ * [User-provided header] + [Payload 'z']
+ *
+ * The user provides everything as a single header blob (vendor metadata,
+ * frame header like 802.11/Ethernet, etc.). Zperf appends 'z' payload
+ * bytes to reach the desired packet_size. This is generic and works
+ * with any frame format.
+ *
+ * Header bytes are transmitted exactly as provided - no byte order conversion
+ * is performed. Users must provide bytes in the format expected by their
+ * target driver/hardware.
+ */
+struct zperf_raw_upload_params {
+	uint32_t duration_ms;         /**< Duration of the test in milliseconds */
+	uint32_t rate_kbps;           /**< Target rate in kilobits per second */
+	uint16_t packet_size;         /**< Total packet size (header + payload) */
+	uint8_t *hdr;                 /**< Header bytes (vendor metadata + frame hdr) */
+	uint16_t hdr_len;             /**< Length of header in bytes */
+	int if_index;                 /**< Network interface index */
+};
+#endif /* CONFIG_NET_ZPERF_RAW_TX */
+
+/** @endcond */
+
+/** Performance results */
 struct zperf_results {
-	uint32_t nb_packets_sent;
-	uint32_t nb_packets_rcvd;
-	uint32_t nb_packets_lost;
-	uint32_t nb_packets_outorder;
-	uint32_t total_len;
-	uint32_t time_in_us;
-	uint32_t jitter_in_us;
-	uint32_t client_time_in_us;
-	uint32_t packet_size;
-	uint32_t nb_packets_errors;
+	uint32_t nb_packets_sent;     /**< Number of packets sent */
+	uint32_t nb_packets_rcvd;     /**< Number of packets received */
+	uint32_t nb_packets_lost;     /**< Number of packets lost */
+	uint32_t nb_packets_outorder; /**< Number of packets out of order */
+	uint64_t total_len;           /**< Total length of the transferred data */
+	uint64_t time_in_us;          /**< Total time of the transfer in microseconds */
+	uint32_t jitter_in_us;        /**< Jitter in microseconds */
+	uint64_t client_time_in_us;   /**< Client connection time in microseconds */
+	uint32_t packet_size;         /**< Packet size */
+	uint32_t nb_packets_errors;   /**< Number of packet errors */
+	bool is_multicast;            /**< True if this session used IP multicast */
 };
 
 /**
@@ -165,6 +225,35 @@ int zperf_udp_download_stop(void);
  * @return 0 if server was stopped successfully, a negative error code otherwise.
  */
 int zperf_tcp_download_stop(void);
+
+#ifdef CONFIG_NET_ZPERF_RAW_TX
+/**
+ * @brief Synchronous raw packet TX upload operation. The function blocks until
+ *        the upload is complete.
+ *
+ * @param param Upload parameters including custom header and destination MAC.
+ * @param result Session results.
+ *
+ * @return 0 if session completed successfully, a negative error code otherwise.
+ */
+int zperf_raw_upload(const struct zperf_raw_upload_params *param,
+		     struct zperf_results *result);
+
+/**
+ * @brief Asynchronous raw packet TX upload operation.
+ *
+ * @note Only one asynchronous raw TX upload can be performed at a time.
+ *
+ * @param param Upload parameters including custom header and destination MAC.
+ * @param callback Session results callback.
+ * @param user_data A pointer to the user data to be provided with the callback.
+ *
+ * @return 0 if session was scheduled successfully, a negative error code
+ *         otherwise.
+ */
+int zperf_raw_upload_async(const struct zperf_raw_upload_params *param,
+			   zperf_callback callback, void *user_data);
+#endif /* CONFIG_NET_ZPERF_RAW_TX */
 
 #ifdef __cplusplus
 }

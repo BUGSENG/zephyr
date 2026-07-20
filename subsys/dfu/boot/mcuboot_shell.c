@@ -1,10 +1,11 @@
 /*
  * Copyright (c) 2020 Grinn
+ * Copyright (c) 2023 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "bootutil/bootutil_public.h"
+#include <bootutil/bootutil_public.h>
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/init.h>
 #include <zephyr/shell/shell.h>
@@ -87,9 +88,30 @@ static int cmd_mcuboot_erase(const struct shell *sh, size_t argc,
 			     char **argv)
 {
 	unsigned int id;
+	unsigned int active_slot;
 	int err;
 
 	id = strtoul(argv[1], NULL, 0);
+
+	/* Check if this is the parent (MCUboot) or own slot and if so, deny the request */
+#if PARTITION_EXISTS(boot_partition)
+	if (id == PARTITION_ID(boot_partition)) {
+		shell_error(sh, "Cannot erase boot partition");
+		return -EACCES;
+	}
+#endif
+
+	active_slot = boot_fetch_active_slot();
+
+	if (active_slot == BOOT_INVALID_SLOT_ID) {
+		shell_error(sh, "Failed to determive active partition");
+		return -EFAULT;
+	}
+
+	if (id == active_slot) {
+		shell_error(sh, "Cannot erase active partitions");
+		return -EACCES;
+	}
 
 	err = boot_erase_img_bank(id);
 	if (err) {

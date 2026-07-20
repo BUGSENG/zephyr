@@ -4,8 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef BT_MESH_OD_PRIV_PROXY_CLI_H__
-#define BT_MESH_OD_PRIV_PROXY_CLI_H__
+/**
+ * @file
+ * @brief Header file for the Bluetooth Mesh On-Demand Private GATT Proxy Client model API.
+ * @ingroup bt_mesh_od_priv_proxy_cli
+ */
+
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_MESH_OD_PRIV_PROXY_CLI_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_MESH_OD_PRIV_PROXY_CLI_H_
 
 #include <zephyr/bluetooth/mesh.h>
 
@@ -22,7 +28,7 @@ extern "C" {
 /** On-Demand Private Proxy Client Model Context */
 struct bt_mesh_od_priv_proxy_cli {
 	/** Solicitation PDU RPL model entry pointer. */
-	struct bt_mesh_model *model;
+	const struct bt_mesh_model *model;
 
 	/* Internal parameters for tracking message responses. */
 	struct bt_mesh_msg_ack_ctx ack_ctx;
@@ -99,4 +105,4 @@ extern const struct bt_mesh_model_cb _bt_mesh_od_priv_proxy_cli_cb;
 }
 #endif
 
-#endif /* BT_MESH_OD_PRIV_PROXY_CLI_H__ */
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_MESH_OD_PRIV_PROXY_CLI_H_ */

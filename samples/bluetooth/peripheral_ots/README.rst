@@ -1,12 +1,13 @@
-.. _peripheral_ots:
+.. zephyr:code-sample:: ble_peripheral_ots
+   :name: Peripheral Object Transfer Service (OTS)
+   :relevant-api: bt_ots bluetooth
 
-Bluetooth: Peripheral OTS
-#########################
+   Expose an Object Transfer Service (OTS) GATT Service.
 
 Overview
 ********
 
-Similar to the :ref:`Peripheral <ble_peripheral>` sample, except that this
+Similar to the :zephyr:code-sample:`ble_peripheral` sample, except that this
 application specifically exposes the OTS (Object Transfer) GATT Service.
 
 
@@ -14,11 +15,19 @@ Requirements
 ************
 
 * BlueZ running on the host, or
-* A board with BLE support
+* A board with Bluetooth LE support
 
 Building and Running
 ********************
-This sample can be found under :zephyr_file:`samples/bluetooth/peripheral_ots` in the
-Zephyr tree.
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/peripheral_ots
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+After flashing, use the :zephyr:code-sample:`ble_central_otc` sample on a second board to
+connect and interact with the Object Transfer Service (OTS), or use a Bluetooth scanner
+app with OTS client support (e.g. nRF Connect).

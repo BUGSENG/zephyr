@@ -11,7 +11,7 @@ Run PSA test suites tests with Zephyr and TFM.
 The PSA tests are implemented in the psa-arch-tests repo: https://github.com/ARM-software/psa-arch-tests
 
 This sample is supported for platforms that have a port in psa-arch-tests.
-See sample.yaml for a list of supported platforms.
+See tests.yaml for a list of supported platforms.
 
 Building and Running
 ********************
@@ -32,7 +32,7 @@ You can indicate the desired test suite at build time via a config flag:
    .. code-block:: bash
 
      $ west build samples/tfm_integration/tfm_psa_test/ \
-       -p -b mps2_an521_ns -t run -- \
+       -p -b mps2/an521/cpu0/ns -t run -- \
        -DCONFIG_TFM_PSA_TEST_STORAGE=y
 
 Note that not all test suites are valid on all boards.
@@ -40,17 +40,17 @@ Note that not all test suites are valid on all boards.
 On Target
 =========
 
-Refer to :ref:`tfm_ipc` for detailed instructions.
+Refer to :zephyr:code-sample:`tfm_ipc` for detailed instructions.
 
 On QEMU:
 ========
 
-Refer to :ref:`tfm_ipc` for detailed instructions.
+Refer to :zephyr:code-sample:`tfm_ipc` for detailed instructions.
 Following is an example based on ``west build``
 
    .. code-block:: bash
 
-      $ west build samples/tfm_integration/tfm_psa_test/ -p -b mps2_an521_ns -t run -- -DCONFIG_TFM_PSA_TEST_STORAGE=y
+      $ west build samples/tfm_integration/tfm_psa_test/ -p -b mps2/an521/cpu0/ns -t run -- -DCONFIG_TFM_PSA_TEST_STORAGE=y
 
 Sample Output
 =============

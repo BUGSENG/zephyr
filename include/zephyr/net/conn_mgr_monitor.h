@@ -4,8 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_CONN_MGR_H_
-#define ZEPHYR_INCLUDE_CONN_MGR_H_
+/**
+ * @file
+ * @brief API for monitoring network connections and interfaces.
+ */
+
+#ifndef ZEPHYR_INCLUDE_NET_CONN_MGR_MONITOR_H_
+#define ZEPHYR_INCLUDE_NET_CONN_MGR_MONITOR_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +21,8 @@ extern "C" {
 /**
  * @brief Connection Manager API
  * @defgroup conn_mgr Connection Manager API
+ * @since 2.0
+ * @version 0.1.0
  * @ingroup networking
  * @{
  */
@@ -102,4 +109,4 @@ void conn_mgr_watch_l2(const struct net_l2 *l2);
 }
 #endif
 
-#endif /* ZEPHYR_INCLUDE_CONN_MGR_H_ */
+#endif /* ZEPHYR_INCLUDE_NET_CONN_MGR_MONITOR_H_ */

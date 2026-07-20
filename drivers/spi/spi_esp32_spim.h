@@ -9,8 +9,13 @@
 
 #include <zephyr/drivers/pinctrl.h>
 #include <hal/spi_hal.h>
+#ifdef CONFIG_ESP32_SPI_TARGET
+#include <hal/spi_slave_hal.h>
+#endif
 #ifdef SOC_GDMA_SUPPORTED
 #include <hal/gdma_hal.h>
+#else
+#include <soc/lldesc.h>
 #endif
 
 #define SPI_MASTER_FREQ_8M      (APB_CLK_FREQ/10)
@@ -30,31 +35,60 @@ struct spi_esp32_config {
 	int duty_cycle;
 	int input_delay_ns;
 	int irq_source;
+	int irq_priority;
+	int irq_flags;
 	const struct pinctrl_dev_config *pcfg;
 	clock_control_subsys_t clock_subsys;
 	bool use_iomux;
 	bool dma_enabled;
-	int dma_clk_src;
 	int dma_host;
+#if defined(SOC_GDMA_SUPPORTED)
+	const struct device *dma_dev;
+	uint8_t dma_tx_ch;
+	uint8_t dma_rx_ch;
+#else
+	int dma_clk_src;
+#endif
 	int cs_setup;
 	int cs_hold;
 	bool line_idle_low;
+	spi_clock_source_t clock_source;
 };
 
 struct spi_esp32_data {
 	struct spi_context ctx;
 	spi_hal_context_t hal;
-	spi_hal_config_t hal_config;
 #ifdef SOC_GDMA_SUPPORTED
 	gdma_hal_context_t hal_gdma;
+#else
+	lldesc_t dma_desc_tx;
+	lldesc_t dma_desc_rx;
 #endif
 	spi_hal_timing_conf_t timing_config;
 	spi_hal_dev_config_t dev_config;
 	spi_hal_trans_config_t trans_config;
+#ifdef CONFIG_ESP32_SPI_TARGET
+	spi_slave_hal_context_t target_hal;
+	bool target_mode;
+	/* Staging buffers used to coalesce the scattered spi_context buffers
+	 * into one contiguous FIFO transaction, since an external controller
+	 * drives the whole frame within a single chip-select assertion.
+	 */
+	uint8_t target_tx_buf[SOC_SPI_MAXIMUM_BUFFER_SIZE];
+	uint8_t target_rx_buf[SOC_SPI_MAXIMUM_BUFFER_SIZE];
+	size_t target_frames;
+	struct {
+		uint8_t *buf;
+		size_t off;
+		size_t len;
+	} target_rx_seg[CONFIG_SPI_ESP32_TARGET_MAX_BUFS];
+	size_t target_rx_seg_cnt;
+#endif
 	uint8_t dfs;
-	int irq_line;
-	lldesc_t dma_desc_tx;
-	lldesc_t dma_desc_rx;
+	uint32_t clock_source_hz;
+#if CONFIG_PM
+	bool pm_policy_state_on;
+#endif
 };
 
 #endif /* ZEPHYR_DRIVERS_SPI_ESP32_SPIM_H_ */

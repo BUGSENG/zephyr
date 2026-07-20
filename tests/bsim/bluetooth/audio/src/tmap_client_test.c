@@ -1,31 +1,48 @@
 /*
  * Copyright 2023 NXP
+ * Copyright (c) 2025 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifdef CONFIG_BT_TMAP
-
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
-#include <errno.h>
+
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/assigned_numbers.h>
+#include <zephyr/bluetooth/audio/bap.h>
+#include <zephyr/bluetooth/audio/tmap.h>
+#include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/net_buf.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/toolchain.h>
 #include <zephyr/types.h>
 #include <zephyr/sys/byteorder.h>
 
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/uuid.h>
-#include <zephyr/bluetooth/gatt.h>
-#include <zephyr/bluetooth/audio/tmap.h>
-
+#include "bstests.h"
 #include "common.h"
 
+#ifdef CONFIG_BT_TMAP
 extern enum bst_result_t bst_result;
 
 CREATE_FLAG(flag_tmap_discovered);
 
 void tmap_discovery_complete_cb(enum bt_tmap_role role, struct bt_conn *conn, int err)
 {
+	ARG_UNUSED(role);
+	ARG_UNUSED(conn);
+
+	if (err != 0) {
+		FAIL("Failed to discover TMAS: %d", err);
+		return;
+	}
+
 	printk("TMAS discovery done\n");
 	SET_FLAG(flag_tmap_discovered);
 }
@@ -38,9 +55,9 @@ static bool check_audio_support_and_connect(struct bt_data *data, void *user_dat
 {
 	bt_addr_le_t *addr = user_data;
 	struct net_buf_simple tmas_svc_data;
-	struct bt_uuid *uuid;
+	const struct bt_uuid *uuid;
 	uint16_t uuid_val;
-	uint16_t peer_tmap_role = 0;
+	uint16_t peer_tmap_role = 0U;
 	int err;
 
 	printk("[AD]: %u data_len %u\n", data->type, data->data_len);
@@ -81,12 +98,11 @@ static bool check_audio_support_and_connect(struct bt_data *data, void *user_dat
 		return false;
 	}
 
-	err = bt_conn_le_create(addr, BT_CONN_LE_CREATE_CONN,
-				BT_LE_CONN_PARAM_DEFAULT,
+	err = bt_conn_le_create(addr, BT_CONN_LE_CREATE_CONN, BT_BAP_CONN_PARAM_RELAXED,
 				&default_conn);
 	if (err != 0) {
-		printk("Create conn to failed (%u)\n", err);
-		bt_le_scan_start(BT_LE_SCAN_PASSIVE, NULL);
+		FAIL("Create conn to failed: %d\n", err);
+		return false;
 	}
 
 	return false; /* Stop parsing */
@@ -95,15 +111,12 @@ static bool check_audio_support_and_connect(struct bt_data *data, void *user_dat
 static void scan_recv(const struct bt_le_scan_recv_info *info,
 		      struct net_buf_simple *buf)
 {
-	char le_addr[BT_ADDR_LE_STR_LEN];
-
 	printk("SCAN RCV CB\n");
 
 	/* Check for connectable, extended advertising */
 	if (((info->adv_props & BT_GAP_ADV_PROP_EXT_ADV) != 0) ||
 		((info->adv_props & BT_GAP_ADV_PROP_CONNECTABLE)) != 0) {
-		bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
-		printk("[DEVICE]: %s, ", le_addr);
+		printk("[DEVICE]: %s, ", bt_addr_le_str(info->addr));
 		/* Check for TMAS support in advertising data */
 		bt_data_parse(buf, check_audio_support_and_connect, (void *)info->addr);
 	}
@@ -112,6 +125,23 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 static struct bt_le_scan_cb scan_callbacks = {
 	.recv = scan_recv,
 };
+
+static void discover_tmas(void)
+{
+	int err;
+
+	UNSET_FLAG(flag_tmap_discovered);
+
+	/* Discover TMAS service on peer */
+	err = bt_tmap_discover(default_conn, &tmap_callbacks);
+	if (err != 0) {
+		FAIL("Failed to initiate TMAS discovery: %d\n", err);
+		return;
+	}
+
+	printk("TMAP Central Starting Service Discovery...\n");
+	WAIT_FOR_FLAG(flag_tmap_discovered);
+}
 
 static void test_main(void)
 {
@@ -127,6 +157,7 @@ static void test_main(void)
 	/* Initialize TMAP */
 	err = bt_tmap_register(BT_TMAP_ROLE_CG | BT_TMAP_ROLE_UMS);
 	if (err != 0) {
+		FAIL("Failed to register TMAP (err %d)\n", err);
 		return;
 	}
 
@@ -141,15 +172,9 @@ static void test_main(void)
 
 	printk("Scanning successfully started\n");
 	WAIT_FOR_FLAG(flag_connected);
-	/* Discover TMAS service on peer */
-	err = bt_tmap_discover(default_conn, &tmap_callbacks);
-	if (err != 0) {
-		FAIL("Failed to initiate TMAS discovery: %d\n", err);
-		return;
-	}
 
-	printk("TMAP Central Starting Service Discovery...\n");
-	WAIT_FOR_FLAG(flag_tmap_discovered);
+	discover_tmas();
+	discover_tmas(); /* test that we can discover twice */
 
 	PASS("TMAP Client test passed\n");
 }
@@ -157,7 +182,7 @@ static void test_main(void)
 static const struct bst_test_instance test_tmap_client[] = {
 	{
 		.test_id = "tmap_client",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main,
 	},

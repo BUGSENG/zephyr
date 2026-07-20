@@ -1,14 +1,38 @@
 /*
  * Copyright (c) 2020 Vestas Wind Systems A/S
+ * Copyright 2025 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT nxp_kinetis_lptmr
+#define DT_DRV_COMPAT nxp_lptmr
 
+#include <zephyr/devicetree.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/drivers/counter.h>
 #include <zephyr/irq.h>
+#if defined(CONFIG_GIC)
+#include <zephyr/drivers/interrupt_controller/gic.h>
+#endif /* CONFIG_GIC */
 #include <fsl_lptmr.h>
+#include <zephyr/spinlock.h>
+
+/*
+ * Skip the instance reserved as the system timer via zephyr,system-timer.
+ * When both drivers are enabled, they must operate on separate hardware.
+ */
+#define COUNTER_MCUX_LPTMR_IS_SYSTEM_TIMER(n)				\
+	COND_CODE_1(DT_HAS_CHOSEN(zephyr_system_timer),			\
+		(DT_SAME_NODE(DT_INST(n, nxp_lptmr),			\
+			      DT_CHOSEN(zephyr_system_timer))),		\
+		(0))
+
+#define COUNTER_MCUX_LPTMR_COUNT_USABLE(n) + (!COUNTER_MCUX_LPTMR_IS_SYSTEM_TIMER(n))
+
+#define COUNTER_MCUX_LPTMR_DEVICE_COUNT \
+	(0 DT_INST_FOREACH_STATUS_OKAY(COUNTER_MCUX_LPTMR_COUNT_USABLE))
+
+#if COUNTER_MCUX_LPTMR_DEVICE_COUNT > 0
 
 struct mcux_lptmr_config {
 	struct counter_config_info info;
@@ -16,15 +40,44 @@ struct mcux_lptmr_config {
 	lptmr_prescaler_clock_select_t clk_source;
 	lptmr_prescaler_glitch_value_t prescaler_glitch;
 	bool bypass_prescaler_glitch;
+	bool free_running;
 	lptmr_timer_mode_t mode;
 	lptmr_pin_select_t pin;
 	lptmr_pin_polarity_t polarity;
+	unsigned int irqn;
 	void (*irq_config_func)(const struct device *dev);
 };
 
+static ALWAYS_INLINE void irq_set_pending(unsigned int irq)
+{
+#if defined(CONFIG_GIC)
+	arm_gic_irq_set_pending(irq);
+#else
+	NVIC_SetPendingIRQ(irq);
+#endif /* CONFIG_GIC */
+}
+
+static ALWAYS_INLINE bool irq_is_pending(unsigned int irq)
+{
+#if defined(CONFIG_GIC)
+	return arm_gic_irq_is_pending(irq);
+#else
+	return NVIC_GetPendingIRQ((IRQn_Type)irq) != 0U;
+#endif /* CONFIG_GIC */
+}
+
 struct mcux_lptmr_data {
+#if defined(CONFIG_COUNTER_MCUX_LPTMR_ALARM)
+	counter_alarm_callback_t alarm_callback;
+	void *alarm_user_data;
+	uint32_t guard_period;
+	bool alarm_active;
+	bool alarm_sw_pending;
+	struct k_spinlock lock;
+#else
 	counter_top_callback_t top_callback;
 	void *top_user_data;
+#endif
 };
 
 static int mcux_lptmr_start(const struct device *dev)
@@ -58,6 +111,194 @@ static int mcux_lptmr_get_value(const struct device *dev, uint32_t *ticks)
 	return 0;
 }
 
+#if defined(CONFIG_COUNTER_MCUX_LPTMR_ALARM)
+static int mcux_lptmr_set_alarm(const struct device *dev, uint8_t chan_id,
+				const struct counter_alarm_cfg *alarm_cfg)
+{
+	const struct mcux_lptmr_config *config = dev->config;
+	struct mcux_lptmr_data *data = dev->data;
+	uint32_t now;
+	uint32_t ticks;
+	bool absolute;
+	bool late;
+	bool irq_on_late;
+	bool sw_pending;
+	int ret = 0;
+
+	/* Counter API: Alarm callback cannot be NULL. */
+	if ((chan_id >= config->info.channels) || (alarm_cfg == NULL) ||
+		(alarm_cfg->callback == NULL) ||
+		(alarm_cfg->ticks > config->info.max_top_value)) {
+		return -EINVAL;
+	}
+
+	absolute = (alarm_cfg->flags & COUNTER_ALARM_CFG_ABSOLUTE) != 0U;
+	irq_on_late =
+		(alarm_cfg->flags & COUNTER_ALARM_CFG_EXPIRE_WHEN_LATE) != 0U;
+	now = LPTMR_GetCurrentTimerCount(config->base);
+	ticks = alarm_cfg->ticks;
+	late = false;
+
+	if (absolute) {
+		uint32_t back = (now >= ticks) ?
+			(now - ticks) : (config->info.max_top_value - ticks + now + 1U);
+
+		if ((data->guard_period != 0U) && (back < data->guard_period)) {
+			late = true;
+			ret = -ETIME;
+		} else {
+			ticks = (ticks >= now) ?
+				(ticks - now) : (config->info.max_top_value - now + ticks + 1U);
+		}
+	}
+
+	sw_pending = late || (ticks == 0U);
+
+	k_spinlock_key_t key = k_spin_lock(&data->lock);
+
+	if (data->alarm_active) {
+		k_spin_unlock(&data->lock, key);
+		return -EBUSY;
+	}
+
+	if (late && !irq_on_late) {
+		k_spin_unlock(&data->lock, key);
+		return ret;
+	}
+
+	data->alarm_callback = alarm_cfg->callback;
+	data->alarm_user_data = alarm_cfg->user_data;
+	data->alarm_active = true;
+	data->alarm_sw_pending = sw_pending;
+
+	k_spin_unlock(&data->lock, key);
+
+	if (late) {
+		LPTMR_EnableInterrupts(config->base, kLPTMR_TimerInterruptEnable);
+		irq_set_pending(config->irqn);
+		return ret;
+	}
+
+	/* Handle timer state: stop if running, clear flags if stopped */
+	if (config->base->CSR & LPTMR_CSR_TEN_MASK) {
+		/* Already enabled, first stop then set period (HW constraint). */
+		LPTMR_StopTimer(config->base);
+	}
+
+	if (ticks == 0U) {
+		/*
+		 * Trigger the alarm callback immediately by setting the IRQ pending.
+		 * The ISR checks alarm_active/callback and does not require HW flags.
+		 */
+		LPTMR_EnableInterrupts(config->base, kLPTMR_TimerInterruptEnable);
+		LPTMR_StartTimer(config->base);
+		irq_set_pending(config->irqn);
+		return 0;
+	}
+
+	/* Normal case: set period and start timer */
+	LPTMR_SetTimerPeriod(config->base, ticks);
+	/* RM recommendation: clear status flag after setting period
+	 * when timer is disabled.
+	 */
+	LPTMR_ClearStatusFlags(config->base, kLPTMR_TimerCompareFlag);
+	LPTMR_EnableInterrupts(config->base, kLPTMR_TimerInterruptEnable);
+	LPTMR_StartTimer(config->base);
+
+	return 0;
+}
+
+static int mcux_lptmr_cancel_alarm(const struct device *dev, uint8_t chan_id)
+{
+	const struct mcux_lptmr_config *config = dev->config;
+	struct mcux_lptmr_data *data = dev->data;
+	k_spinlock_key_t key;
+
+	if (chan_id >= config->info.channels) {
+		return -EINVAL;
+	}
+
+	key = k_spin_lock(&data->lock);
+	if (!data->alarm_active) {
+		k_spin_unlock(&data->lock, key);
+		return 0;
+	}
+
+	LPTMR_DisableInterrupts(config->base, kLPTMR_TimerInterruptEnable);
+
+	data->alarm_callback = NULL;
+	data->alarm_user_data = NULL;
+	data->alarm_sw_pending = false;
+	data->alarm_active = false;
+
+	k_spin_unlock(&data->lock, key);
+
+	LPTMR_StopTimer(config->base);
+	/*
+	 * LPTMR only has one register (CMR) for both period and alarm.
+	 * if cancel doesn't affect the period, no need restoration.
+	 */
+	LPTMR_SetTimerPeriod(config->base, config->info.max_top_value);
+	LPTMR_ClearStatusFlags(config->base, kLPTMR_TimerCompareFlag);
+
+	return 0;
+}
+
+static uint32_t mcux_lptmr_get_guard_period(const struct device *dev, uint32_t flags)
+{
+	struct mcux_lptmr_data *data = dev->data;
+
+	if (flags & COUNTER_GUARD_PERIOD_LATE_TO_SET) {
+		return data->guard_period;
+	}
+
+	return 0U;
+}
+
+static int mcux_lptmr_set_guard_period(const struct device *dev, uint32_t ticks, uint32_t flags)
+{
+	const struct mcux_lptmr_config *config = dev->config;
+	struct mcux_lptmr_data *data = dev->data;
+
+	if (!(flags & COUNTER_GUARD_PERIOD_LATE_TO_SET)) {
+		return -ENOSYS;
+	}
+
+	if (ticks >= config->info.max_top_value) {
+		return -EINVAL;
+	}
+
+	data->guard_period = ticks;
+	return 0;
+}
+
+static int mcux_lptmr_set_top_value(const struct device *dev,
+				    const struct counter_top_cfg *cfg)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(cfg);
+
+	return -ENOTSUP;
+}
+#else
+static int mcux_lptmr_set_alarm(const struct device *dev, uint8_t chan_id,
+				const struct counter_alarm_cfg *alarm_cfg)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(chan_id);
+	ARG_UNUSED(alarm_cfg);
+
+	return -ENOTSUP;
+}
+
+static int mcux_lptmr_cancel_alarm(const struct device *dev, uint8_t chan_id)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(chan_id);
+
+	return -ENOTSUP;
+}
+
 static int mcux_lptmr_set_top_value(const struct device *dev,
 				    const struct counter_top_cfg *cfg)
 {
@@ -86,15 +327,42 @@ static int mcux_lptmr_set_top_value(const struct device *dev,
 	return 0;
 }
 
+static uint32_t mcux_lptmr_get_guard_period(const struct device *dev, uint32_t flags)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(flags);
+
+	return 0U;
+}
+
+static int mcux_lptmr_set_guard_period(const struct device *dev, uint32_t ticks, uint32_t flags)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(ticks);
+	ARG_UNUSED(flags);
+
+	return -ENOSYS;
+}
+#endif /* CONFIG_COUNTER_MCUX_LPTMR_ALARM */
+
 static uint32_t mcux_lptmr_get_pending_int(const struct device *dev)
 {
 	const struct mcux_lptmr_config *config = dev->config;
 	uint32_t mask = LPTMR_CSR_TCF_MASK | LPTMR_CSR_TIE_MASK;
-	uint32_t flags;
 
-	flags = LPTMR_GetStatusFlags(config->base);
+	/* "Pending" if the peripheral has a real compare pending (TCF+TIE). */
+	if ((config->base->CSR & mask) == mask) {
+		return 1U;
+	}
 
-	return ((flags & mask) == mask);
+	/* Also report pending if the IRQ is pending in the interrupt controller.
+	 * This covers the ticks==0 path where we set NVIC pending without TCF.
+	 */
+	if ((config->base->CSR & LPTMR_CSR_TIE_MASK) && irq_is_pending(config->irqn)) {
+		return 1U;
+	}
+
+	return 0U;
 }
 
 static uint32_t mcux_lptmr_get_top_value(const struct device *dev)
@@ -102,6 +370,13 @@ static uint32_t mcux_lptmr_get_top_value(const struct device *dev)
 	const struct mcux_lptmr_config *config = dev->config;
 
 	return (config->base->CMR & LPTMR_CMR_COMPARE_MASK) + 1U;
+}
+
+static uint32_t mcux_lptmr_get_freq(const struct device *dev)
+{
+	const struct mcux_lptmr_config *config = dev->config;
+
+	return config->info.freq;
 }
 
 static void mcux_lptmr_isr(const struct device *dev)
@@ -113,9 +388,72 @@ static void mcux_lptmr_isr(const struct device *dev)
 	flags = LPTMR_GetStatusFlags(config->base);
 	LPTMR_ClearStatusFlags(config->base, flags);
 
+#if defined(CONFIG_COUNTER_MCUX_LPTMR_ALARM)
+	k_spinlock_key_t key = k_spin_lock(&data->lock);
+	counter_alarm_callback_t callback = data->alarm_callback;
+
+	if ((callback != NULL) && (data->alarm_active)) {
+		void *user_data = data->alarm_user_data;
+		bool sw_pending = data->alarm_sw_pending;
+
+		LPTMR_DisableInterrupts(config->base, kLPTMR_TimerInterruptEnable);
+
+		data->alarm_callback = NULL;
+		data->alarm_user_data = NULL;
+		data->alarm_sw_pending = false;
+		data->alarm_active = false;
+
+		k_spin_unlock(&data->lock, key);
+
+		uint32_t current_count = sw_pending ? 0U :
+			LPTMR_GetCurrentTimerCount(config->base);
+
+		/* Defer stop/restore until after callback: stop would reset the
+		 * counter and break counter_get_value() consistency with the ticks
+		 * arg; also skip when callback re-armed (set_alarm reconfigured timer).
+		 */
+		callback(dev, 0, current_count, user_data);
+
+		key = k_spin_lock(&data->lock);
+		/* Check re-arm and stop/restore atomically under the lock so a
+		 * concurrent set_alarm() cannot have its config clobbered.
+		 */
+		if (!data->alarm_active) {
+			LPTMR_StopTimer(config->base);
+			LPTMR_SetTimerPeriod(config->base, config->info.max_top_value);
+		}
+		k_spin_unlock(&data->lock, key);
+
+		return;
+	}
+
+	k_spin_unlock(&data->lock, key);
+#else
 	if (data->top_callback) {
 		data->top_callback(dev, data->top_user_data);
 	}
+#endif
+}
+
+static int mcux_lptmr_reset(const struct device *dev)
+{
+	const struct mcux_lptmr_config *config = dev->config;
+#if defined(CONFIG_COUNTER_MCUX_LPTMR_ALARM)
+	struct mcux_lptmr_data *data = dev->data;
+	k_spinlock_key_t key = k_spin_lock(&data->lock);
+#endif
+
+	/* If stopped, the internal counter is already reset. */
+	if (config->base->CSR & LPTMR_CSR_TEN_MASK) {
+		LPTMR_StopTimer(config->base);
+		LPTMR_StartTimer(config->base);
+	}
+
+#if defined(CONFIG_COUNTER_MCUX_LPTMR_ALARM)
+	k_spin_unlock(&data->lock, key);
+#endif
+
+	return 0;
 }
 
 static int mcux_lptmr_init(const struct device *dev)
@@ -125,7 +463,7 @@ static int mcux_lptmr_init(const struct device *dev)
 
 	LPTMR_GetDefaultConfig(&lptmr_config);
 	lptmr_config.timerMode = config->mode;
-	lptmr_config.enableFreeRunning = false;
+	lptmr_config.enableFreeRunning = config->free_running;
 	lptmr_config.prescalerClockSource = config->clk_source;
 	lptmr_config.bypassPrescaler = config->bypass_prescaler_glitch;
 	lptmr_config.value = config->prescaler_glitch;
@@ -137,112 +475,109 @@ static int mcux_lptmr_init(const struct device *dev)
 
 	LPTMR_Init(config->base, &lptmr_config);
 
+	LPTMR_SetTimerPeriod(config->base, config->info.max_top_value);
+
 	config->irq_config_func(dev);
 
 	return 0;
 }
 
-static const struct counter_driver_api mcux_lptmr_driver_api = {
+static DEVICE_API(counter, mcux_lptmr_driver_api) = {
 	.start = mcux_lptmr_start,
 	.stop = mcux_lptmr_stop,
+	.set_alarm = mcux_lptmr_set_alarm,
+	.cancel_alarm = mcux_lptmr_cancel_alarm,
 	.get_value = mcux_lptmr_get_value,
 	.set_top_value = mcux_lptmr_set_top_value,
 	.get_pending_int = mcux_lptmr_get_pending_int,
 	.get_top_value = mcux_lptmr_get_top_value,
+	.get_guard_period = mcux_lptmr_get_guard_period,
+	.set_guard_period = mcux_lptmr_set_guard_period,
+	.get_freq = mcux_lptmr_get_freq,
+	.reset = mcux_lptmr_reset,
 };
-
-#define TO_LPTMR_CLK_SEL(val) _DO_CONCAT(kLPTMR_PrescalerClock_, val)
-#define TO_LPTMR_PIN_SEL(val) _DO_CONCAT(kLPTMR_PinSelectInput_, val)
-
-/* Prescaler mapping */
-#define LPTMR_PRESCALER_2     kLPTMR_Prescale_Glitch_0
-#define LPTMR_PRESCALER_4     kLPTMR_Prescale_Glitch_1
-#define LPTMR_PRESCALER_8     kLPTMR_Prescale_Glitch_2
-#define LPTMR_PRESCALER_16    kLPTMR_Prescale_Glitch_3
-#define LPTMR_PRESCALER_32    kLPTMR_Prescale_Glitch_4
-#define LPTMR_PRESCALER_64    kLPTMR_Prescale_Glitch_5
-#define LPTMR_PRESCALER_128   kLPTMR_Prescale_Glitch_6
-#define LPTMR_PRESCALER_256   kLPTMR_Prescale_Glitch_7
-#define LPTMR_PRESCALER_512   kLPTMR_Prescale_Glitch_8
-#define LPTMR_PRESCALER_1024  kLPTMR_Prescale_Glitch_9
-#define LPTMR_PRESCALER_2048  kLPTMR_Prescale_Glitch_10
-#define LPTMR_PRESCALER_4096  kLPTMR_Prescale_Glitch_11
-#define LPTMR_PRESCALER_8192  kLPTMR_Prescale_Glitch_12
-#define LPTMR_PRESCALER_16384 kLPTMR_Prescale_Glitch_13
-#define LPTMR_PRESCALER_32768 kLPTMR_Prescale_Glitch_14
-#define LPTMR_PRESCALER_65536 kLPTMR_Prescale_Glitch_15
-#define TO_LPTMR_PRESCALER(val) _DO_CONCAT(LPTMR_PRESCALER_, val)
-
-/* Glitch filter mapping */
-#define LPTMR_GLITCH_2     kLPTMR_Prescale_Glitch_1
-#define LPTMR_GLITCH_4     kLPTMR_Prescale_Glitch_2
-#define LPTMR_GLITCH_8     kLPTMR_Prescale_Glitch_3
-#define LPTMR_GLITCH_16    kLPTMR_Prescale_Glitch_4
-#define LPTMR_GLITCH_32    kLPTMR_Prescale_Glitch_5
-#define LPTMR_GLITCH_64    kLPTMR_Prescale_Glitch_6
-#define LPTMR_GLITCH_128   kLPTMR_Prescale_Glitch_7
-#define LPTMR_GLITCH_256   kLPTMR_Prescale_Glitch_8
-#define LPTMR_GLITCH_512   kLPTMR_Prescale_Glitch_9
-#define LPTMR_GLITCH_1024  kLPTMR_Prescale_Glitch_10
-#define LPTMR_GLITCH_2048  kLPTMR_Prescale_Glitch_11
-#define LPTMR_GLITCH_4096  kLPTMR_Prescale_Glitch_12
-#define LPTMR_GLITCH_8192  kLPTMR_Prescale_Glitch_13
-#define LPTMR_GLITCH_16384 kLPTMR_Prescale_Glitch_14
-#define LPTMR_GLITCH_32768 kLPTMR_Prescale_Glitch_15
-#define TO_LPTMR_GLITCH(val) _DO_CONCAT(LPTMR_GLITCH_, val)
 
 /*
- * This driver is single-instance. If the devicetree contains multiple
- * instances, this will fail and the driver needs to be revisited.
+ * Devicetree mapping notes
+ * - In time counter mode, prescaler divides by 2^(value + 1)
+ * - In pulse counter mode, glitch filter recognizes a change after 2^value edges
+ * - prescale-glitch-filter-bypass bypasses prescaler/glitch filter entirely
  */
-BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) <= 1,
-	     "unsupported lptmr instance");
+#define MCUX_LPTMR_PRESCALE_GLITCH_VAL(n) DT_INST_PROP(n, prescale_glitch_filter)
+#define MCUX_LPTMR_MODE(n) DT_INST_PROP(n, timer_mode_sel)
+/*
+ * Default must be false so prescale-glitch-filter can be used without requiring
+ * an explicit bypass property.
+ */
+#define MCUX_LPTMR_BYPASS(n) DT_INST_PROP_OR(n, prescale_glitch_filter_bypass, false)
 
-#if DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay)
-static struct mcux_lptmr_data mcux_lptmr_data_0;
+#define MCUX_LPTMR_TIME_DIV(n) BIT(MCUX_LPTMR_PRESCALE_GLITCH_VAL(n) + 1)
+#define MCUX_LPTMR_PULSE_DIV(n) BIT(MCUX_LPTMR_PRESCALE_GLITCH_VAL(n))
 
-static void mcux_lptmr_irq_config_0(const struct device *dev);
+#define MCUX_LPTMR_EFFECTIVE_FREQ(n) \
+	(MCUX_LPTMR_BYPASS(n) ? DT_INST_PROP(n, clock_frequency) : \
+		((MCUX_LPTMR_MODE(n) == kLPTMR_TimerModeTimeCounter) ? \
+			(DT_INST_PROP(n, clock_frequency) / MCUX_LPTMR_TIME_DIV(n)) : \
+			(DT_INST_PROP(n, clock_frequency) / MCUX_LPTMR_PULSE_DIV(n))))
 
-static struct mcux_lptmr_config mcux_lptmr_config_0 = {
-	.info = {
-		.max_top_value = UINT16_MAX,
-		.freq = DT_INST_PROP(0, clock_frequency) /
-			DT_INST_PROP(0, prescaler),
-		.flags = COUNTER_CONFIG_INFO_COUNT_UP,
-		.channels = 0,
-	},
-	.base = (LPTMR_Type *)DT_INST_REG_ADDR(0),
-	.clk_source = TO_LPTMR_CLK_SEL(DT_INST_PROP(0, clk_source)),
-#if DT_INST_NODE_HAS_PROP(0, input_pin)
-#if DT_INST_PROP(0, prescaler) == 1
-	.bypass_prescaler_glitch = true,
-#else
-	.prescaler_glitch = TO_LPTMR_GLITCH(DT_INST_PROP(0, prescaler)),
-#endif
-	.mode = kLPTMR_TimerModePulseCounter,
-	.pin = TO_LPTMR_PIN_SEL(DT_INST_PROP(0, input_pin)),
-	.polarity = DT_INST_PROP(0, active_low),
-#else /* !DT_INST_NODE_HAS_PROP(0, input_pin) */
-	.mode = kLPTMR_TimerModeTimeCounter,
-#if DT_INST_PROP(0, prescaler) == 1
-	.bypass_prescaler_glitch = true,
-#else
-	.prescaler_glitch = TO_LPTMR_PRESCALER(DT_INST_PROP(0, prescaler)),
-#endif
-#endif /* !DT_INST_NODE_HAS_PROP(0, input_pin) */
-	.irq_config_func = mcux_lptmr_irq_config_0,
-};
+/* DT run-mode enum order: restart(0), free-run(1). Default: restart(0). */
+#define MCUX_LPTMR_IS_FREE_RUN(n) (DT_INST_ENUM_IDX_OR(n, run_mode, 0) == 1)
 
-DEVICE_DT_INST_DEFINE(0, &mcux_lptmr_init, NULL,
-		    &mcux_lptmr_data_0,
-		    &mcux_lptmr_config_0,
-		    POST_KERNEL, CONFIG_COUNTER_INIT_PRIORITY,
-		    &mcux_lptmr_driver_api);
+#define COUNTER_MCUX_LPTMR_DEVICE_INIT(n)					\
+	static void mcux_lptmr_irq_config_##n(const struct device *dev)		\
+	{									\
+		IRQ_CONNECT(DT_INST_IRQN(n), DT_INST_IRQ(n, priority),		\
+			mcux_lptmr_isr, DEVICE_DT_INST_GET(n), 0);		\
+		irq_enable(DT_INST_IRQN(n));					\
+	}									\
+										\
+	static struct mcux_lptmr_data mcux_lptmr_data_##n;			\
+	static void mcux_lptmr_irq_config_##n(const struct device *dev);	\
+										\
+	BUILD_ASSERT(!(DT_INST_PROP(n, timer_mode_sel) == 1 &&			\
+		DT_INST_PROP(n, prescale_glitch_filter) > 15),			\
+		"prescale-glitch-filter must be in range 0..15");			\
+								\
+	BUILD_ASSERT(!(DT_INST_PROP(n, timer_mode_sel) == 1 &&			\
+		!MCUX_LPTMR_BYPASS(n) &&				\
+		DT_INST_PROP(n, prescale_glitch_filter) == 0),			\
+		"Pulse mode: prescale-glitch-filter=0 is invalid unless bypass is enabled");\
+										\
+	BUILD_ASSERT(DT_INST_PROP(n, resolution) <= 32 &&			\
+		DT_INST_PROP(n, resolution) > 0,				\
+		"LPTMR resolution property should be a width between 0 and 32");\
+										\
+	static struct mcux_lptmr_config mcux_lptmr_config_##n = {		\
+		.info = {							\
+			.max_top_value =					\
+				GENMASK(DT_INST_PROP(n, resolution) - 1, 0),	\
+			.freq = MCUX_LPTMR_EFFECTIVE_FREQ(n),			\
+			.flags = COUNTER_CONFIG_INFO_COUNT_UP,			\
+			.channels = 1,						\
+		},								\
+		.base = (LPTMR_Type *)DT_INST_REG_ADDR(n),			\
+		.clk_source = DT_INST_PROP(n, clk_source),			\
+		.bypass_prescaler_glitch = MCUX_LPTMR_BYPASS(n),	\
+		.free_running = MCUX_LPTMR_IS_FREE_RUN(n),			\
+		.mode = DT_INST_PROP(n, timer_mode_sel),			\
+		.pin = DT_INST_PROP_OR(n, input_pin, 0),			\
+		.polarity = DT_INST_PROP(n, active_low),			\
+		.prescaler_glitch = (lptmr_prescaler_glitch_value_t)		\
+			MCUX_LPTMR_PRESCALE_GLITCH_VAL(n),			\
+		.irqn = DT_INST_IRQN(n),					\
+		.irq_config_func = mcux_lptmr_irq_config_##n,			\
+	};									\
+										\
+	DEVICE_DT_INST_DEFINE(n, &mcux_lptmr_init, NULL,			\
+		&mcux_lptmr_data_##n,						\
+		&mcux_lptmr_config_##n,						\
+		POST_KERNEL, CONFIG_COUNTER_INIT_PRIORITY,			\
+		&mcux_lptmr_driver_api);
 
-static void mcux_lptmr_irq_config_0(const struct device *dev)
-{
-	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority),
-		    mcux_lptmr_isr, DEVICE_DT_INST_GET(0), 0);
-	irq_enable(DT_INST_IRQN(0));
-}
-#endif	/* DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay) */
+#define COUNTER_MCUX_LPTMR_DEVICE_INIT_COND(n)				\
+	COND_CODE_0(COUNTER_MCUX_LPTMR_IS_SYSTEM_TIMER(n),		\
+		(COUNTER_MCUX_LPTMR_DEVICE_INIT(n)), ())
+
+DT_INST_FOREACH_STATUS_OKAY(COUNTER_MCUX_LPTMR_DEVICE_INIT_COND)
+
+#endif /* COUNTER_MCUX_LPTMR_DEVICE_COUNT > 0 */

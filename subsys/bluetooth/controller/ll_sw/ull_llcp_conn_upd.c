@@ -79,7 +79,7 @@
 
 /* LLCP Local Procedure Connection Update FSM states */
 enum {
-	LP_CU_STATE_IDLE,
+	LP_CU_STATE_IDLE = LLCP_STATE_IDLE,
 	LP_CU_STATE_WAIT_TX_CONN_PARAM_REQ,
 	LP_CU_STATE_WAIT_RX_CONN_PARAM_RSP,
 	LP_CU_STATE_WAIT_TX_CONN_UPDATE_IND,
@@ -109,7 +109,7 @@ enum {
 
 /* LLCP Remote Procedure Connection Update FSM states */
 enum {
-	RP_CU_STATE_IDLE,
+	RP_CU_STATE_IDLE = LLCP_STATE_IDLE,
 	RP_CU_STATE_WAIT_RX_CONN_PARAM_REQ,
 	RP_CU_STATE_WAIT_CONN_PARAM_REQ_AVAILABLE,
 	RP_CU_STATE_WAIT_NTF_CONN_PARAM_REQ,
@@ -196,6 +196,22 @@ static bool cu_check_conn_parameters(struct ll_conn *conn, struct proc_ctx *ctx)
 }
 #endif /* CONFIG_BT_CTLR_CONN_PARAM_REQ */
 
+static bool cu_check_conn_ind_parameters(struct ll_conn *conn, struct proc_ctx *ctx)
+{
+	const uint16_t interval_max = ctx->data.cu.interval_max; /* unit 1.25ms */
+	const uint16_t timeout = ctx->data.cu.timeout; /* unit 10ms */
+	const uint16_t latency = ctx->data.cu.latency;
+
+	/* Valid conn_update_ind parameters */
+	return (interval_max >= CONN_INTERVAL_MIN(conn)) &&
+	       (interval_max <= CONN_UPDATE_CONN_INTV_4SEC) &&
+	       (latency <= CONN_UPDATE_LATENCY_MAX) &&
+	       (timeout >= CONN_UPDATE_TIMEOUT_100MS) &&
+	       (timeout <= CONN_UPDATE_TIMEOUT_32SEC) &&
+	       ((timeout * 4U) > /* *4U re. conn events is equivalent to *2U re. ms */
+		((latency + 1U) * interval_max));
+}
+
 static void cu_prepare_update_ind(struct ll_conn *conn, struct proc_ctx *ctx)
 {
 	ctx->data.cu.win_size = 1U;
@@ -244,7 +260,7 @@ static void cu_ntf(struct ll_conn *conn, struct proc_ctx *ctx)
 	/* Allocate ntf node */
 	ntf = ctx->node_ref.rx;
 	ctx->node_ref.rx = NULL;
-	LL_ASSERT(ntf);
+	LL_ASSERT_DBG(ntf);
 
 	piggy_back = (ntf->hdr.type != NODE_RX_TYPE_RETAIN);
 
@@ -284,7 +300,7 @@ static void lp_cu_tx(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t opcode)
 	if (!tx) {
 		/* Allocate tx node if non pre-alloc'ed */
 		tx = llcp_tx_alloc(conn, ctx);
-		LL_ASSERT(tx);
+		LL_ASSERT_DBG(tx);
 	}
 
 	pdu = (struct pdu_data *)tx->pdu;
@@ -307,7 +323,7 @@ static void lp_cu_tx(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t opcode)
 #endif /* CONFIG_BT_CENTRAL */
 	default:
 		/* Unknown opcode */
-		LL_ASSERT(0);
+		LL_ASSERT_DBG(0);
 		break;
 	}
 
@@ -392,7 +408,7 @@ static void lp_cu_send_conn_param_req(struct ll_conn *conn, struct proc_ctx *ctx
 #endif /* CONFIG_BT_PERIPHERAL */
 		default:
 			/* Unknown role */
-			LL_ASSERT(0);
+			LL_ASSERT_DBG(0);
 			break;
 		}
 	}
@@ -422,7 +438,9 @@ static void lp_cu_send_conn_update_ind_finalize(struct ll_conn *conn, struct pro
 static void lp_cu_send_conn_update_ind(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t evt,
 				       void *param)
 {
-	if (llcp_lr_ispaused(conn) || !llcp_tx_alloc_peek(conn, ctx)) {
+	if (llcp_lr_ispaused(conn) || !llcp_tx_alloc_peek(conn, ctx) ||
+	    (ull_tx_q_peek(&conn->tx_q) != NULL) || !ull_conn_lll_tx_queue_is_empty(conn)) {
+		llcp_tx_pause_data(conn, LLCP_TX_QUEUE_PAUSE_DATA_CONN_UPD);
 		ctx->state = LP_CU_STATE_WAIT_TX_CONN_UPDATE_IND;
 	} else {
 		/* ensure alloc of TX node, before possibly waiting for NTF node */
@@ -432,6 +450,7 @@ static void lp_cu_send_conn_update_ind(struct ll_conn *conn, struct proc_ctx *ct
 			ctx->state = LP_CU_STATE_WAIT_NTF_AVAIL;
 		} else {
 			lp_cu_send_conn_update_ind_finalize(conn, ctx, evt, param);
+			llcp_tx_resume_data(conn, LLCP_TX_QUEUE_PAUSE_DATA_CONN_UPD);
 		}
 	}
 }
@@ -443,6 +462,7 @@ static void lp_cu_st_wait_ntf_avail(struct ll_conn *conn, struct proc_ctx *ctx, 
 	case LP_CU_EVT_RUN:
 		if (llcp_ntf_alloc_is_available()) {
 			lp_cu_send_conn_update_ind_finalize(conn, ctx, evt, param);
+			llcp_tx_resume_data(conn, LLCP_TX_QUEUE_PAUSE_DATA_CONN_UPD);
 		}
 		break;
 	default:
@@ -471,7 +491,7 @@ static void lp_cu_st_idle(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t ev
 #endif /* CONFIG_BT_CENTRAL */
 		default:
 			/* Unknown procedure */
-			LL_ASSERT(0);
+			LL_ASSERT_DBG(0);
 			break;
 		}
 		break;
@@ -585,8 +605,20 @@ static void lp_cu_st_wait_rx_conn_update_ind(struct ll_conn *conn, struct proc_c
 	switch (evt) {
 	case LP_CU_EVT_CONN_UPDATE_IND:
 		llcp_pdu_decode_conn_update_ind(ctx, param);
+
+		/* Invalid PDU, mark the connection for termination */
+		if (!cu_check_conn_ind_parameters(conn, ctx)) {
+			llcp_rr_set_incompat(conn, INCOMPAT_NO_COLLISION);
+			conn->llcp_terminate.reason_final = BT_HCI_ERR_INVALID_LL_PARAM;
+			lp_cu_complete(conn, ctx);
+			break;
+		}
+
+		llcp_rr_set_incompat(conn, INCOMPAT_RESERVED);
+
 		/* Keep RX node to use for NTF */
 		llcp_rx_node_retain(ctx);
+
 		ctx->state = LP_CU_STATE_WAIT_INSTANT;
 		break;
 	case LP_CU_EVT_UNKNOWN:
@@ -609,7 +641,7 @@ static void lp_cu_st_wait_rx_conn_update_ind(struct ll_conn *conn, struct proc_c
 static void lp_cu_check_instant(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t evt,
 				void *param)
 {
-	uint16_t event_counter = ull_conn_event_counter(conn);
+	uint16_t event_counter = ull_conn_event_counter_at_prepare(conn);
 
 	if (is_instant_reached_or_passed(ctx->data.cu.instant, event_counter)) {
 		bool notify;
@@ -633,8 +665,7 @@ static void lp_cu_check_instant(struct ll_conn *conn, struct proc_ctx *ctx, uint
 			lp_cu_ntf_complete(conn, ctx, evt, param);
 		} else {
 			/* Release RX node kept for NTF */
-			ctx->node_ref.rx->hdr.type = NODE_RX_TYPE_RELEASE;
-			ll_rx_put_sched(ctx->node_ref.rx->hdr.link, ctx->node_ref.rx);
+			llcp_rx_node_release(ctx);
 			ctx->node_ref.rx = NULL;
 
 			lp_cu_complete(conn, ctx);
@@ -649,6 +680,42 @@ static void lp_cu_st_wait_instant(struct ll_conn *conn, struct proc_ctx *ctx, ui
 	case LP_CU_EVT_RUN:
 		lp_cu_check_instant(conn, ctx, evt, param);
 		break;
+	case LP_CU_EVT_REJECT:
+		/* In case of a central overtaking a peripheral initiated connection
+		 * param request the following will occur:
+		 * Since CONNECTION_UPDATE_IND PDU is used both as response to the peripheral
+		 * connection param request AND as initiation of a remote connection update
+		 * the peripheral cannot tell the difference in the case when there is a
+		 * collision. Ie when the central and peripheral 'exchange' CONNECTION_PARAM_REQ
+		 * and CONNECTION_UPDATE_IND in the same connection event. In this case
+		 * the central should follow the CONNECTION_UPDATE_IND with a REJECT_IND to
+		 * signal procedure collision and then complete procedure as initiated.
+		 * The peer on the other hand, should abandon the local initiated procedure
+		 * and instead run the remote connection update to completion. What happens
+		 * instead is that the peripheral reaches WAIT_FOR_INSTANT state as it
+		 * assumes the UPDATE_IND was a response to the local procedure. As a result
+		 * the REJECT_IND will be passed into the local procedure RX path and end up
+		 * 'here'. See test case: test_conn_update_periph_loc_reject_central_overlap
+		 * in unit test: tests/bluetooth/controller/ctrl_conn_update/src/main.c
+		 *
+		 * In the current implementation of LLCP there is no way of handling
+		 * this transition from local initiated to remote initiated procedure and thus
+		 * the only way to handle this 'corner' case is to allow the local procedure to
+		 * complete and accept impact of not having it complete as a remote procedure.
+		 *
+		 * The impact being:
+		 *  -> since it runs as a local procedure it will block other local procedures
+		 *     from being initiated while non-complete. Since non-instant based procedures
+		 *     are allowed this is a limitation
+		 *  -> since procedure continues as local initiated the procedure timeout will
+		 *     be off (too short) by as much as the time between CONNECTION_PARAM_REQ
+		 *     and CONNECTION_UPDATE_IND pdus
+		 *
+		 * The work around for this is to ignore the REJECT_IND at this stage and
+		 * ensure proper function of RX node retention mechanism.
+		 * (see comment in ull_llcp_local.c::llcp_lr_rx() for details on this)
+		 */
+		/* Fall through to ignore */
 	default:
 		/* Ignore other evts */
 		break;
@@ -694,7 +761,7 @@ static void lp_cu_execute_fsm(struct ll_conn *conn, struct proc_ctx *ctx, uint8_
 		break;
 	default:
 		/* Unknown state */
-		LL_ASSERT(0);
+		LL_ASSERT_DBG(0);
 		break;
 	}
 }
@@ -727,11 +794,6 @@ void llcp_lp_cu_rx(struct ll_conn *conn, struct proc_ctx *ctx, struct node_rx_pd
 	}
 }
 
-void llcp_lp_cu_init_proc(struct proc_ctx *ctx)
-{
-	ctx->state = LP_CU_STATE_IDLE;
-}
-
 void llcp_lp_cu_run(struct ll_conn *conn, struct proc_ctx *ctx, void *param)
 {
 	lp_cu_execute_fsm(conn, ctx, LP_CU_EVT_RUN, param);
@@ -753,7 +815,7 @@ static void rp_cu_tx(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t opcode)
 	if (!tx) {
 		/* Allocate tx node if non pre-alloc'ed */
 		tx = llcp_tx_alloc(conn, ctx);
-		LL_ASSERT(tx);
+		LL_ASSERT_DBG(tx);
 	}
 
 	pdu = (struct pdu_data *)tx->pdu;
@@ -779,7 +841,7 @@ static void rp_cu_tx(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t opcode)
 		break;
 	default:
 		/* Unknown opcode */
-		LL_ASSERT(0);
+		LL_ASSERT_DBG(0);
 		break;
 	}
 
@@ -807,7 +869,7 @@ static void rp_cu_conn_param_req_ntf(struct ll_conn *conn, struct proc_ctx *ctx)
 	/* Allocate ntf node */
 	ntf = ctx->node_ref.rx;
 	ctx->node_ref.rx = NULL;
-	LL_ASSERT(ntf);
+	LL_ASSERT_DBG(ntf);
 
 	piggy_back = (ntf->hdr.type != NODE_RX_TYPE_RETAIN);
 
@@ -841,7 +903,7 @@ static void rp_cu_send_conn_update_ind_finalize(struct ll_conn *conn, struct pro
 						uint8_t evt, void *param)
 {
 	/* Central role path, should not get here with !=NULL rx-node reference */
-	LL_ASSERT(ctx->node_ref.rx == NULL);
+	LL_ASSERT_DBG(ctx->node_ref.rx == NULL);
 	/* We pre-alloc NTF node */
 	ctx->node_ref.rx = llcp_ntf_alloc();
 
@@ -857,7 +919,9 @@ static void rp_cu_send_conn_update_ind_finalize(struct ll_conn *conn, struct pro
 static void rp_cu_send_conn_update_ind(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t evt,
 				       void *param)
 {
-	if (llcp_rr_ispaused(conn) || !llcp_tx_alloc_peek(conn, ctx)) {
+	if (llcp_rr_ispaused(conn) || !llcp_tx_alloc_peek(conn, ctx) ||
+	    (ull_tx_q_peek(&conn->tx_q) != NULL) || !ull_conn_lll_tx_queue_is_empty(conn)) {
+		llcp_tx_pause_data(conn, LLCP_TX_QUEUE_PAUSE_DATA_CONN_UPD);
 		ctx->state = RP_CU_STATE_WAIT_TX_CONN_UPDATE_IND;
 	} else {
 		/* ensure alloc of TX node, before possibly waiting for NTF node */
@@ -867,6 +931,7 @@ static void rp_cu_send_conn_update_ind(struct ll_conn *conn, struct proc_ctx *ct
 			ctx->state = RP_CU_STATE_WAIT_NTF_AVAIL;
 		} else {
 			rp_cu_send_conn_update_ind_finalize(conn, ctx, evt, param);
+			llcp_tx_resume_data(conn, LLCP_TX_QUEUE_PAUSE_DATA_CONN_UPD);
 		}
 	}
 }
@@ -879,6 +944,7 @@ static void rp_cu_st_wait_ntf_avail(struct ll_conn *conn, struct proc_ctx *ctx, 
 		if (llcp_ntf_alloc_is_available()) {
 			/* If NTF node is now avail, so pick it up and continue */
 			rp_cu_send_conn_update_ind_finalize(conn, ctx, evt, param);
+			llcp_tx_resume_data(conn, LLCP_TX_QUEUE_PAUSE_DATA_CONN_UPD);
 		}
 		break;
 	default:
@@ -949,7 +1015,7 @@ static void rp_cu_st_idle(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t ev
 			break;
 		default:
 			/* Unknown procedure */
-			LL_ASSERT(0);
+			LL_ASSERT_DBG(0);
 			break;
 		}
 		break;
@@ -973,11 +1039,18 @@ static void rp_cu_st_wait_conn_param_req_available(struct ll_conn *conn, struct 
 	case RP_CU_EVT_RUN:
 		if (cpr_active_is_set(conn)) {
 			ctx->state = RP_CU_STATE_WAIT_CONN_PARAM_REQ_AVAILABLE;
+
 			if (!llcp_rr_ispaused(conn) && llcp_tx_alloc_peek(conn, ctx)) {
 				/* We're good to reject immediately */
 				ctx->data.cu.rejected_opcode = PDU_DATA_LLCTRL_TYPE_CONN_PARAM_REQ;
 				ctx->data.cu.error = BT_HCI_ERR_UNSUPP_LL_PARAM_VAL;
 				rp_cu_send_reject_ext_ind(conn, ctx, evt, param);
+
+				/* Possibly retained rx node to be released as we won't need it */
+				llcp_rx_node_release(ctx);
+				ctx->node_ref.rx = NULL;
+
+				break;
 			}
 			/* In case we have to defer NTF */
 			llcp_rx_node_retain(ctx);
@@ -992,6 +1065,9 @@ static void rp_cu_st_wait_conn_param_req_available(struct ll_conn *conn, struct 
 				rp_cu_conn_param_req_ntf(conn, ctx);
 				ctx->state = RP_CU_STATE_WAIT_CONN_PARAM_REQ_REPLY;
 			} else {
+				/* Possibly retained rx node to be released as we won't need it */
+				llcp_rx_node_release(ctx);
+				ctx->node_ref.rx = NULL;
 #if defined(CONFIG_BT_CTLR_USER_CPR_ANCHOR_POINT_MOVE)
 				/* Handle APM as a vendor specific user extension */
 				if (conn->lll.role == BT_HCI_ROLE_PERIPHERAL &&
@@ -1086,7 +1162,7 @@ static void rp_cu_state_wait_conn_param_req_reply_continue(struct ll_conn *conn,
 			}
 		} else {
 			/* Unknown role */
-			LL_ASSERT(0);
+			LL_ASSERT_DBG(0);
 		}
 		break;
 	default:
@@ -1151,11 +1227,9 @@ static void rp_cu_st_wait_tx_conn_update_ind(struct ll_conn *conn, struct proc_c
 	}
 }
 
-static void rp_cu_check_instant(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t evt,
-				void *param)
+static void rp_cu_check_instant_by_counter(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t evt,
+					   uint16_t event_counter, void *param)
 {
-	uint16_t event_counter = ull_conn_event_counter(conn);
-
 	if (is_instant_reached_or_passed(ctx->data.cu.instant, event_counter)) {
 		bool notify;
 
@@ -1177,12 +1251,27 @@ static void rp_cu_check_instant(struct ll_conn *conn, struct proc_ctx *ctx, uint
 			cu_ntf(conn, ctx);
 		} else {
 			/* Release RX node kept for NTF */
-			ctx->node_ref.rx->hdr.type = NODE_RX_TYPE_RELEASE;
-			ll_rx_put_sched(ctx->node_ref.rx->hdr.link, ctx->node_ref.rx);
+			llcp_rx_node_release(ctx);
 			ctx->node_ref.rx = NULL;
 		}
 		rp_cu_complete(conn, ctx);
 	}
+}
+
+static void rp_cu_check_instant(struct ll_conn *conn, struct proc_ctx *ctx, uint8_t evt,
+				void *param)
+{
+	uint16_t event_counter = ull_conn_event_counter_at_prepare(conn);
+
+	rp_cu_check_instant_by_counter(conn, ctx, evt, event_counter, param);
+}
+
+static void rp_cu_check_instant_rx_conn_update_ind(struct ll_conn *conn, struct proc_ctx *ctx,
+						   uint8_t evt, void *param)
+{
+	uint16_t event_counter = ull_conn_event_counter(conn);
+
+	rp_cu_check_instant_by_counter(conn, ctx, evt, event_counter, param);
 }
 
 static void rp_cu_st_wait_rx_conn_update_ind(struct ll_conn *conn, struct proc_ctx *ctx,
@@ -1198,23 +1287,33 @@ static void rp_cu_st_wait_rx_conn_update_ind(struct ll_conn *conn, struct proc_c
 		case BT_HCI_ROLE_PERIPHERAL:
 			llcp_pdu_decode_conn_update_ind(ctx, param);
 
-			if (is_instant_not_passed(ctx->data.cu.instant,
-						  ull_conn_event_counter(conn))) {
+			/* Valid PDU */
+			if (cu_check_conn_ind_parameters(conn, ctx)) {
+				uint16_t event_counter = ull_conn_event_counter(conn);
 
-				llcp_rx_node_retain(ctx);
+				if (is_instant_not_passed(ctx->data.cu.instant, event_counter)) {
+					/* Keep RX node to use for NTF */
+					llcp_rx_node_retain(ctx);
 
-				ctx->state = RP_CU_STATE_WAIT_INSTANT;
-				/* In case we only just received it in time */
-				rp_cu_check_instant(conn, ctx, evt, param);
-			} else {
+					ctx->state = RP_CU_STATE_WAIT_INSTANT;
+
+					/* In case we only just received it in time */
+					rp_cu_check_instant_rx_conn_update_ind(conn, ctx, evt,
+									       param);
+					break;
+				}
+
 				conn->llcp_terminate.reason_final = BT_HCI_ERR_INSTANT_PASSED;
-				llcp_rr_complete(conn);
-				ctx->state = RP_CU_STATE_IDLE;
+			} else {
+				conn->llcp_terminate.reason_final = BT_HCI_ERR_INVALID_LL_PARAM;
 			}
+
+			llcp_rr_complete(conn);
+			ctx->state = RP_CU_STATE_IDLE;
 			break;
 		default:
 			/* Unknown role */
-			LL_ASSERT(0);
+			LL_ASSERT_DBG(0);
 		}
 	default:
 		/* Ignore other evts */
@@ -1283,7 +1382,7 @@ static void rp_cu_execute_fsm(struct ll_conn *conn, struct proc_ctx *ctx, uint8_
 		break;
 	default:
 		/* Unknown state */
-		LL_ASSERT(0);
+		LL_ASSERT_DBG(0);
 		break;
 	}
 }
@@ -1308,11 +1407,6 @@ void llcp_rp_cu_rx(struct ll_conn *conn, struct proc_ctx *ctx, struct node_rx_pd
 		rp_cu_complete(conn, ctx);
 		break;
 	}
-}
-
-void llcp_rp_cu_init_proc(struct proc_ctx *ctx)
-{
-	ctx->state = RP_CU_STATE_IDLE;
 }
 
 void llcp_rp_cu_run(struct ll_conn *conn, struct proc_ctx *ctx, void *param)

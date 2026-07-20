@@ -15,15 +15,27 @@
 struct int_list_header {
 	uint32_t table_size;
 	uint32_t offset;
+#if defined(CONFIG_ISR_TABLES_LOCAL_DECLARATION)
+	uint32_t swi_table_entry_size;
+	uint32_t shared_isr_table_entry_size;
+	uint32_t shared_isr_client_num_offset;
+#endif /* defined(CONFIG_ISR_TABLES_LOCAL_DECLARATION) */
 };
 
 /* These values are not included in the resulting binary, but instead form the
  * header of the initList section, which is used by gen_isr_tables.py to create
  * the vector and sw isr tables,
  */
-Z_GENERIC_SECTION(.irq_info) struct int_list_header _iheader = {
+Z_GENERIC_SECTION(.irq_info) __used struct int_list_header _iheader = {
 	.table_size = IRQ_TABLE_SIZE,
 	.offset = CONFIG_GEN_IRQ_START_VECTOR,
+#if defined(CONFIG_ISR_TABLES_LOCAL_DECLARATION)
+	.swi_table_entry_size = sizeof(struct _isr_table_entry),
+#if defined(CONFIG_SHARED_INTERRUPTS)
+	.shared_isr_table_entry_size = sizeof(struct z_shared_isr_table_entry),
+	.shared_isr_client_num_offset = offsetof(struct z_shared_isr_table_entry, client_num),
+#endif /* defined(CONFIG_SHARED_INTERRUPTS) */
+#endif /* defined(CONFIG_ISR_TABLES_LOCAL_DECLARATION) */
 };
 
 /* These are placeholder tables. They will be replaced by the real tables
@@ -66,7 +78,7 @@ void __irq_vector_table __attribute__((naked)) _irq_vector_table(void) {
 #else
 
 /* The IRQ vector table is an array of vector addresses */
-uintptr_t __irq_vector_table _irq_vector_table[IRQ_TABLE_SIZE] = {
+const uintptr_t __irq_vector_table _irq_vector_table[IRQ_TABLE_SIZE] = {
 	[0 ...(IRQ_TABLE_SIZE - 1)] = (uintptr_t)&IRQ_VECTOR_TABLE_DEFAULT_ISR,
 };
 #endif /* CONFIG_IRQ_VECTOR_TABLE_JUMP_BY_CODE */
@@ -75,14 +87,25 @@ uintptr_t __irq_vector_table _irq_vector_table[IRQ_TABLE_SIZE] = {
 /* If there are no interrupts at all, or all interrupts are of the 'direct'
  * type and bypass the _sw_isr_table, then do not generate one.
  */
-#ifdef CONFIG_GEN_SW_ISR_TABLE
-struct _isr_table_entry __sw_isr_table _sw_isr_table[IRQ_TABLE_SIZE] = {
-	[0 ...(IRQ_TABLE_SIZE - 1)] = {(const void *)0x42,
-				       (void *)&z_irq_spurious},
+#if defined(CONFIG_GEN_SW_ISR_TABLE_ARRAY)
+#ifndef CONFIG_DYNAMIC_INTERRUPTS
+const
+#endif /* CONFIG_DYNAMIC_INTERRUPTS */
+	struct _isr_table_entry __sw_isr_table _sw_isr_table[IRQ_TABLE_SIZE] = {
+		[0 ...(IRQ_TABLE_SIZE - 1)] = {(const void *)0x42, &z_irq_spurious},
 };
-#endif
+#elif defined(CONFIG_GEN_SW_ISR_TABLE_SWITCH)
+void __sw_isr_table get_isr_entry(int irq_number, struct _isr_table_entry *entry)
+{
+	entry->arg = (const void *)0x0;
+	entry->isr = z_irq_spurious;
+}
+#endif /* CONFIG_GEN_SW_ISR_TABLE_ARRAY */
 
 #ifdef CONFIG_SHARED_INTERRUPTS
+#ifndef CONFIG_DYNAMIC_INTERRUPTS
+const
+#endif
 struct z_shared_isr_table_entry __shared_sw_isr_table z_shared_sw_isr_table[IRQ_TABLE_SIZE] = {
 };
 #endif

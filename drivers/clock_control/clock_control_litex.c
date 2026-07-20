@@ -18,13 +18,15 @@
 #include <stdio.h>
 #include <zephyr/kernel.h>
 
+#include <soc.h>
+
 LOG_MODULE_REGISTER(CLK_CTRL_LITEX, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 
 static struct litex_clk_device *ldev;	/* global struct for whole driver */
 static struct litex_clk_clkout *clkouts;/* clkout array for whole driver */
 
 /* All DRP regs addresses and sizes */
-static struct litex_drp_reg drp[] = {
+static const struct litex_drp_reg drp[] = {
 	{DRP_ADDR_RESET,  1},
 	{DRP_ADDR_LOCKED, 1},
 	{DRP_ADDR_READ,   1},
@@ -256,7 +258,7 @@ static int litex_clk_wait(uint32_t reg)
 		k_sleep(K_MSEC(1));
 	}
 	if (timeout == 0) {
-		LOG_WRN("Timeout occured when waiting for the register: 0x%x", reg);
+		LOG_WRN("Timeout occurred when waiting for the register: 0x%x", reg);
 		return -ETIME;
 	}
 	return 0;
@@ -326,7 +328,7 @@ static uint64_t litex_clk_calc_global_frequency(uint32_t mul, uint32_t div)
 {
 	uint64_t f;
 
-	f = (uint64_t)ldev->sys_clk_freq * (uint64_t)mul;
+	f = CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC * (uint64_t)mul;
 	f /= div;
 
 	return f;
@@ -384,10 +386,11 @@ static void litex_clk_check_DO(char *reg_name, uint8_t clk_reg_addr,
 	int ret;
 
 	ret = litex_clk_get_DO(clk_reg_addr, res);
-	if (ret != 0)
+	if (ret != 0) {
 		LOG_ERR("%s: read error: %d", reg_name, ret);
-	else
+	} else {
 		LOG_DBG("%s:  0x%x", reg_name, *res);
+	}
 }
 
 static void litex_clk_print_general_regs(void)
@@ -903,11 +906,15 @@ static int litex_clk_calc_duty_normal(struct litex_clk_clkout *lcko,
 	uint32_t ht_aprox, synth_duty, min_d;
 	uint8_t high_time_it, edge_it, high_duty,
 	   divider = lcko->config.div;
+	int err;
 
 	if (calc_new) {
 		duty = lcko->ts_config.duty;
 	} else {
-		litex_clk_get_duty_cycle(lcko, &duty);
+		err = litex_clk_get_duty_cycle(lcko, &duty);
+		if (err != 0) {
+			return err;
+		}
 	}
 
 	high_duty = litex_clk_calc_duty_percent(&duty);
@@ -949,17 +956,6 @@ static int litex_clk_calc_duty_normal(struct litex_clk_clkout *lcko,
 	lcko->frac.frac_wf_r = 0;
 
 	return 0;
-}
-
-/* Calculates duty high_time for given divider and ratio */
-static inline int litex_clk_calc_duty_high_time(struct clk_duty *duty,
-						   uint32_t divider)
-{
-	uint32_t high_duty;
-
-	high_duty = litex_clk_calc_duty_percent(duty) * divider;
-
-	return litex_round(high_duty, 100);
 }
 
 /* Set duty cycle with given ratio */
@@ -1125,9 +1121,13 @@ int litex_clk_get_phase(struct litex_clk_clkout *lcko)
 	uint32_t divider = 0, fract_cnt, post_glob_div_f,
 	    pm, global_period, clkout_period, period;
 	uint8_t phase_mux = 0, delay_time = 0;
+	int err = 0;
 
 	litex_clk_get_phase_data(lcko, &phase_mux, &delay_time);
-	litex_clk_get_clkout_divider(lcko, &divider, &fract_cnt);
+	err = litex_clk_get_clkout_divider(lcko, &divider, &fract_cnt);
+	if (err != 0) {
+		return err;
+	}
 
 	post_glob_div_f = (uint32_t)litex_clk_get_real_global_frequency();
 	period_buff = PICOS_IN_SEC;
@@ -1237,7 +1237,7 @@ static int litex_clk_calc_clkout_params(struct litex_clk_clkout *lcko,
 					 uint64_t vco_freq)
 {
 	int delta_f;
-	uint64_t m, clk_freq = 0;
+	uint64_t m, clk_freq;
 	uint32_t d, margin = 1;
 
 	if (lcko->margin.exp) {
@@ -1300,15 +1300,15 @@ static int litex_clk_calc_all_clkout_params(uint64_t vco_freq)
 static int litex_clk_calc_all_params(void)
 {
 	uint32_t div, mul;
-	uint64_t vco_freq = 0;
+	uint64_t vco_freq;
 
 	for (div = ldev->divclk.min; div <= ldev->divclk.max; div++) {
 		ldev->ts_g_config.div = div;
 		for (mul = ldev->clkfbout.max; mul >= ldev->clkfbout.min;
 								 mul--) {
-			int below, above, all_valid = true;
+			int below, above, all_valid;
 
-			vco_freq = (uint64_t)ldev->sys_clk_freq * (uint64_t)mul;
+			vco_freq = CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC * (uint64_t)mul;
 			vco_freq /= div;
 			below = vco_freq < (ldev->vco.min
 					     * (1 + ldev->vco_margin));
@@ -1344,12 +1344,12 @@ int litex_clk_check_rate_range(struct litex_clk_clkout *lcko, uint32_t rate)
 		margin = litex_clk_pow(10, lcko->margin.exp);
 	}
 
-	max = (uint64_t)ldev->sys_clk_freq * (uint64_t)ldev->clkfbout.max;
+	max = CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC * (uint64_t)ldev->clkfbout.max;
 	div = ldev->divclk.min * lcko->clkout_div.min;
 	max /= div;
 	max += m;
 
-	min = ldev->sys_clk_freq * ldev->clkfbout.min;
+	min = CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC * ldev->clkfbout.min;
 	div = ldev->divclk.max * lcko->clkout_div.max;
 	min /= div;
 
@@ -1594,7 +1594,7 @@ static inline int litex_clk_off(const struct device *dev,
 	return litex_clk_change_value(ZERO_REG, ZERO_REG, POWER_REG);
 }
 
-static const struct clock_control_driver_api litex_clk_api = {
+static DEVICE_API(clock_control, litex_clk_api) = {
 	.on = litex_clk_on,
 	.off = litex_clk_off,
 	.get_rate = litex_clk_get_subsys_rate,
@@ -1626,7 +1626,7 @@ static int litex_clk_dts_timeout_read(struct litex_clk_timeout *timeout)
 	return 0;
 }
 
-static int litex_clk_dts_clkouts_read(void)
+static void litex_clk_dts_clkouts_read(void)
 {
 	struct litex_clk_range clkout_div;
 	struct litex_clk_clkout *lcko;
@@ -1654,7 +1654,6 @@ static int litex_clk_dts_clkouts_read(void)
 #if CLKOUT_EXIST(6) == 1
 		CLKOUT_INIT(6)
 #endif
-	return 0;
 }
 
 static void litex_clk_init_clkouts(void)
@@ -1691,8 +1690,6 @@ static void litex_clk_dts_global_ranges_read(void)
 static int litex_clk_dts_global_read(void)
 {
 	int ret;
-
-	ldev->sys_clk_freq = SYS_CLOCK_FREQUENCY;
 
 	ldev->nclkout = litex_clk_dts_cnt_clocks();
 
@@ -1747,10 +1744,7 @@ static int litex_clk_init(const struct device *dev)
 		return ret;
 	}
 
-	ret = litex_clk_dts_clkouts_read();
-	if (ret != 0) {
-		return ret;
-	}
+	litex_clk_dts_clkouts_read();
 
 	litex_clk_init_clkouts();
 
@@ -1779,11 +1773,10 @@ static const struct litex_clk_device ldev_init = {
 	.divclk = {DIVCLK_DIVIDE_MIN, DIVCLK_DIVIDE_MAX},
 	.clkfbout = {CLKFBOUT_MULT_MIN, CLKFBOUT_MULT_MAX},
 	.vco = {VCO_FREQ_MIN, VCO_FREQ_MAX},
-	.sys_clk_freq = SYS_CLOCK_FREQUENCY,
 	.vco_margin = VCO_MARGIN,
 	.nclkout = NCLKOUT
 };
 
-DEVICE_DT_DEFINE(DT_NODELABEL(clock0), &litex_clk_init, NULL,
+DEVICE_DT_DEFINE(DT_NODELABEL(clock0), litex_clk_init, NULL,
 		    NULL, &ldev_init, POST_KERNEL,
 		    CONFIG_CLOCK_CONTROL_INIT_PRIORITY, &litex_clk_api);

@@ -139,7 +139,7 @@ static struct lwm2m_engine_obj_inst *security_create(uint16_t obj_inst_id)
 	/* default values */
 	security_uri[index][0] = '\0';
 	client_identity[index][0] = '\0';
-	bootstrap_flag[index] = 0;
+	bootstrap_flag[index] = false;
 	security_mode[index] = 0U;
 	short_server_id[index] = 0U;
 
@@ -212,6 +212,16 @@ int lwm2m_security_index_to_inst_id(int index)
 	return inst[index].obj_inst_id;
 }
 
+int lwm2m_security_short_id_to_inst(uint16_t short_id)
+{
+	for (int i = 0; i < MAX_INSTANCE_COUNT; i++) {
+		if (short_server_id[i] == short_id) {
+			return inst[i].obj_inst_id;
+		}
+	}
+	return -ENOENT;
+}
+
 int lwm2m_security_mode(struct lwm2m_ctx *ctx)
 {
 	int ret;
@@ -251,4 +261,4 @@ static int lwm2m_security_init(void)
 	return ret;
 }
 
-SYS_INIT(lwm2m_security_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+LWM2M_CORE_INIT(lwm2m_security_init);

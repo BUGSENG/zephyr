@@ -43,13 +43,32 @@ struct z_spinlock_key {
  * application code.
  */
 struct k_spinlock {
+/**
+ * @cond INTERNAL_HIDDEN
+ */
 #ifdef CONFIG_SMP
+#ifdef CONFIG_TICKET_SPINLOCKS
+	/*
+	 * Ticket spinlocks are conceptually two atomic variables,
+	 * one indicating the current FIFO head (spinlock owner),
+	 * and the other indicating the current FIFO tail.
+	 * Spinlock is acquired in the following manner:
+	 * - current FIFO tail value is atomically incremented while it's
+	 *   original value is saved as a "ticket"
+	 * - we spin until the FIFO head becomes equal to the ticket value
+	 *
+	 * Spinlock is released by atomic increment of the FIFO head
+	 */
+	atomic_t owner;
+	atomic_t tail;
+#else
 	atomic_t locked;
-#endif
+#endif /* CONFIG_TICKET_SPINLOCKS */
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_SPIN_VALIDATE
 	/* Stores the thread that holds the lock with the locking CPU
-	 * ID in the bottom two bits.
+	 * ID in the bottom bits (2 bits on 32-bit, 3 bits on 64-bit).
 	 */
 	uintptr_t thread_cpu;
 #ifdef CONFIG_SPIN_LOCK_TIME_LIMIT
@@ -59,23 +78,22 @@ struct k_spinlock {
 #endif /* CONFIG_SPIN_LOCK_TIME_LIMIT */
 #endif /* CONFIG_SPIN_VALIDATE */
 
-#if defined(CONFIG_CPP) && !defined(CONFIG_SMP) && \
-	!defined(CONFIG_SPIN_VALIDATE)
-	/* If CONFIG_SMP and CONFIG_SPIN_VALIDATE are both not defined
-	 * the k_spinlock struct will have no members. The result
-	 * is that in C sizeof(k_spinlock) is 0 and in C++ it is 1.
+#if defined(CONFIG_NONZERO_SPINLOCK_SIZE) && !defined(CONFIG_SMP) && !defined(CONFIG_SPIN_VALIDATE)
+	/* Add a dummy field to guarantee the spinlock has a non-zero
+	 * size. If neither CONFIG_SMP nor CONFIG_SPIN_VALIDATE are
+	 * defined then the k_spinlock struct would otherwise have no
+	 * members and sizeof(k_spinlock) would be 0 in C and 1 in C++.
 	 *
-	 * This size difference causes problems when the k_spinlock
+	 * That size difference causes problems when the k_spinlock
 	 * is embedded into another struct like k_msgq, because C and
 	 * C++ will have different ideas on the offsets of the members
 	 * that come after the k_spinlock member.
-	 *
-	 * To prevent this we add a 1 byte dummy member to k_spinlock
-	 * when the user selects C++ support and k_spinlock would
-	 * otherwise be empty.
 	 */
 	char dummy;
 #endif
+/**
+ * INTERNAL_HIDDEN @endcond
+ */
 };
 
 /* There's a spinlock validation framework available when asserts are
@@ -86,7 +104,18 @@ struct k_spinlock {
 bool z_spin_lock_valid(struct k_spinlock *l);
 bool z_spin_unlock_valid(struct k_spinlock *l);
 void z_spin_lock_set_owner(struct k_spinlock *l);
+void z_spin_lock_transfer_owner(struct k_spinlock *l);
+void z_assert_can_swap(unsigned int key, struct k_spinlock *swap_lock);
+void z_spin_validate_reset(bool lock_held);
+extern const uint8_t z_spinlock_abort_sentinel;
+#ifdef CONFIG_TEST
+struct k_spinlock *z_spin_get_held_lock(void);
+#endif /* CONFIG_TEST */
+#if defined(CONFIG_64BIT)
+BUILD_ASSERT(CONFIG_MP_MAX_NUM_CPUS <= 8, "Too many CPUs for mask");
+#else
 BUILD_ASSERT(CONFIG_MP_MAX_NUM_CPUS <= 4, "Too many CPUs for mask");
+#endif
 
 # ifdef CONFIG_KERNEL_COHERENCE
 bool z_spin_lock_mem_coherent(struct k_spinlock *l);
@@ -153,6 +182,9 @@ static ALWAYS_INLINE void z_spinlock_validate_post(struct k_spinlock *l)
  * in uniprocessor contexts such that the locking reduces to an
  * interrupt mask operation.
  *
+ * @warning
+ * Holding a spinlock when a context switch occurs is illegal.
+ *
  * @param l A pointer to the spinlock to lock
  * @return A key value that must be passed to k_spin_unlock() when the
  *         lock is released.
@@ -170,10 +202,24 @@ static ALWAYS_INLINE k_spinlock_key_t k_spin_lock(struct k_spinlock *l)
 
 	z_spinlock_validate_pre(l);
 #ifdef CONFIG_SMP
-	while (!atomic_cas(&l->locked, 0, 1)) {
+#ifdef CONFIG_TICKET_SPINLOCKS
+	/*
+	 * Enqueue ourselves to the end of a spinlock waiters queue
+	 * receiving a ticket
+	 */
+	atomic_val_t ticket = atomic_inc(&l->tail);
+	/* Spin until our ticket is served */
+	while (atomic_get(&l->owner) != ticket) {
 		arch_spin_relax();
 	}
-#endif
+#else
+	while (!atomic_cas(&l->locked, 0, 1)) {
+		do {
+			arch_spin_relax();
+		} while (atomic_get(&l->locked) != 0);
+	}
+#endif /* CONFIG_TICKET_SPINLOCKS */
+#endif /* CONFIG_SMP */
 	z_spinlock_validate_post(l);
 
 	return k;
@@ -199,16 +245,47 @@ static ALWAYS_INLINE int k_spin_trylock(struct k_spinlock *l, k_spinlock_key_t *
 
 	z_spinlock_validate_pre(l);
 #ifdef CONFIG_SMP
-	if (!atomic_cas(&l->locked, 0, 1)) {
-		arch_irq_unlock(key);
-		return -EBUSY;
+#ifdef CONFIG_TICKET_SPINLOCKS
+	/*
+	 * atomic_get and atomic_cas operations below are not executed
+	 * simultaneously.
+	 * So in theory k_spin_trylock can lock an already locked spinlock.
+	 * To reproduce this the following conditions should be met after we
+	 * executed atomic_get and before we executed atomic_cas:
+	 *
+	 * - spinlock needs to be taken 0xffff_..._ffff + 1 times
+	 * (which requires 0xffff_..._ffff number of CPUs, as k_spin_lock call
+	 * is blocking) or
+	 * - spinlock needs to be taken and released 0xffff_..._ffff times and
+	 * then taken again
+	 *
+	 * In real-life systems this is considered non-reproducible given that
+	 * required actions need to be done during this tiny window of several
+	 * CPU instructions (which execute with interrupt locked,
+	 * so no preemption can happen here)
+	 */
+	atomic_val_t ticket_val = atomic_get(&l->owner);
+
+	if (!atomic_cas(&l->tail, ticket_val, ticket_val + 1)) {
+		goto busy;
 	}
-#endif
+#else
+	if (!atomic_cas(&l->locked, 0, 1)) {
+		goto busy;
+	}
+#endif /* CONFIG_TICKET_SPINLOCKS */
+#endif /* CONFIG_SMP */
 	z_spinlock_validate_post(l);
 
 	k->key = key;
 
 	return 0;
+
+#ifdef CONFIG_SMP
+busy:
+	arch_irq_unlock(key);
+	return -EBUSY;
+#endif /* CONFIG_SMP */
 }
 
 /**
@@ -249,6 +326,10 @@ static ALWAYS_INLINE void k_spin_unlock(struct k_spinlock *l,
 #endif /* CONFIG_SPIN_VALIDATE */
 
 #ifdef CONFIG_SMP
+#ifdef CONFIG_TICKET_SPINLOCKS
+	/* Give the spinlock to the next CPU in a FIFO */
+	(void)atomic_inc(&l->owner);
+#else
 	/* Strictly we don't need atomic_clear() here (which is an
 	 * exchange operation that returns the old value).  We are always
 	 * setting a zero and (because we hold the lock) know the existing
@@ -256,8 +337,9 @@ static ALWAYS_INLINE void k_spin_unlock(struct k_spinlock *l,
 	 * a memory barrier when used like this, and we don't have a
 	 * Zephyr framework for that.
 	 */
-	atomic_clear(&l->locked);
-#endif
+	(void)atomic_clear(&l->locked);
+#endif /* CONFIG_TICKET_SPINLOCKS */
+#endif /* CONFIG_SMP */
 	arch_irq_unlock(key.key);
 }
 
@@ -265,19 +347,32 @@ static ALWAYS_INLINE void k_spin_unlock(struct k_spinlock *l,
  * @cond INTERNAL_HIDDEN
  */
 
-#if defined(CONFIG_SMP) && defined(CONFIG_TEST)
+#if defined(CONFIG_TEST) || defined(CONFIG_ASSERT)
 /*
  * @brief Checks if spinlock is held by some CPU, including the local CPU.
- *		This API shouldn't be used outside the tests for spinlock
+ *		This should only be used in tests or assertions, not to make
+ *		runtime control flow decisions.
  *
  * @param l A pointer to the spinlock
  * @retval true - if spinlock is held by some CPU; false - otherwise
  */
 static ALWAYS_INLINE bool z_spin_is_locked(struct k_spinlock *l)
 {
+#ifdef CONFIG_SMP
+#ifdef CONFIG_TICKET_SPINLOCKS
+	atomic_val_t ticket_val = atomic_get(&l->owner);
+
+	return !atomic_cas(&l->tail, ticket_val, ticket_val);
+#else
 	return l->locked;
+#endif /* CONFIG_TICKET_SPINLOCKS */
+#else
+	ARG_UNUSED(l);
+	/* In UP builds a spinlock reduces to an IRQ lock. */
+	return !arch_cpu_irqs_are_enabled();
+#endif /* CONFIG_SMP */
 }
-#endif
+#endif /* defined(CONFIG_TEST) || defined(CONFIG_ASSERT) */
 
 /* Internal function: releases the lock, but leaves local interrupts disabled */
 static ALWAYS_INLINE void k_spin_release(struct k_spinlock *l)
@@ -287,8 +382,12 @@ static ALWAYS_INLINE void k_spin_release(struct k_spinlock *l)
 	__ASSERT(z_spin_unlock_valid(l), "Not my spinlock %p", l);
 #endif
 #ifdef CONFIG_SMP
-	atomic_clear(&l->locked);
-#endif
+#ifdef CONFIG_TICKET_SPINLOCKS
+	(void)atomic_inc(&l->owner);
+#else
+	(void)atomic_clear(&l->locked);
+#endif /* CONFIG_TICKET_SPINLOCKS */
+#endif /* CONFIG_SMP */
 }
 
 #if defined(CONFIG_SPIN_VALIDATE) && defined(__GNUC__)
@@ -357,7 +456,7 @@ static ALWAYS_INLINE void z_spin_onexit(__maybe_unused k_spinlock_key_t *k)
  */
 #define K_SPINLOCK(lck)                                                                            \
 	for (k_spinlock_key_t __i K_SPINLOCK_ONEXIT = {}, __key = k_spin_lock(lck); !__i.key;      \
-	     k_spin_unlock(lck, __key), __i.key = 1)
+	     k_spin_unlock((lck), __key), __i.key = 1)
 
 /** @} */
 

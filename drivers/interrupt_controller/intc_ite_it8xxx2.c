@@ -6,6 +6,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/arch/cpu.h>
+#include <zephyr/arch/riscv/irq.h>
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(intc_it8xxx2, LOG_LEVEL_DBG);
@@ -17,7 +18,7 @@ LOG_MODULE_REGISTER(intc_it8xxx2, LOG_LEVEL_DBG);
 #define IVECT_OFFSET_WITH_IRQ		0x10
 
 /* Interrupt number of INTC module */
-static uint8_t intc_irq;
+static ite_irq_t intc_irq;
 
 static volatile uint8_t *const reg_status[] = {
 	&ISR0, &ISR1, &ISR2, &ISR3,
@@ -114,6 +115,7 @@ void __soc_ram_code ite_intc_irq_enable(unsigned int irq)
 {
 	uint32_t g, i;
 	volatile uint8_t *en;
+	volatile uint8_t _ier __unused;
 
 	if (irq > CONFIG_NUM_IRQS) {
 		return;
@@ -125,6 +127,12 @@ void __soc_ram_code ite_intc_irq_enable(unsigned int irq)
 	/* critical section due to run a bit-wise OR operation */
 	unsigned int key = irq_lock();
 	SET_MASK(*en, BIT(i));
+	ier_setting[g] |= BIT(i);
+	/*
+	 * This load operation will guarantee the above modification of
+	 * SOC's register can be seen by any following instructions.
+	 */
+	_ier = *en;
 	irq_unlock(key);
 }
 
@@ -144,6 +152,7 @@ void __soc_ram_code ite_intc_irq_disable(unsigned int irq)
 	/* critical section due to run a bit-wise OR operation */
 	unsigned int key = irq_lock();
 	CLEAR_MASK(*en, BIT(i));
+	ier_setting[g] &= ~BIT(i);
 	/*
 	 * This load operation will guarantee the above modification of
 	 * SOC's register can be seen by any following instructions.
@@ -190,7 +199,7 @@ int __soc_ram_code ite_intc_irq_is_enable(unsigned int irq)
 	return IS_MASK_SET(*en, BIT(i));
 }
 
-uint8_t __soc_ram_code ite_intc_get_irq_num(void)
+ite_irq_t __soc_ram_code ite_intc_get_irq_num(void)
 {
 	return intc_irq;
 }
@@ -200,7 +209,7 @@ bool __soc_ram_code ite_intc_no_irq(void)
 	return (IVECT == IVECT_OFFSET_WITH_IRQ);
 }
 
-uint8_t __soc_ram_code get_irq(void *arg)
+unsigned long __soc_ram_code __soc_handle_irq(unsigned long arg)
 {
 	ARG_UNUSED(arg);
 
@@ -243,9 +252,41 @@ uint8_t __soc_ram_code get_irq(void *arg)
 
 void soc_interrupt_init(void)
 {
+#ifdef CONFIG_ZTEST
+	/*
+	 * After flashed EC image, we needed to manually press the reset button
+	 * on it8xxx2_evb, then run the test. Now, without pressing the button,
+	 * we can disable debug mode and trigger a watchdog hard reset then
+	 * run tests.
+	 */
+	struct wdt_it8xxx2_regs *const wdt_regs = WDT_IT8XXX2_REGS_BASE;
+	struct gctrl_it8xxx2_regs *const gctrl_regs = GCTRL_IT8XXX2_REGS_BASE;
+
+	if (gctrl_regs->GCTRL_DBGROS & IT8XXX2_GCTRL_SMB_DBGR) {
+		/* Disable debug mode through i2c */
+		IT8XXX2_SMB_SLVISELR |= BIT(4);
+		/* Enable ETWD reset */
+		wdt_regs->ETWCFG = 0;
+		wdt_regs->ET1PSR = IT8XXX2_WDT_ETPS_1P024_KHZ;
+		wdt_regs->ETWCFG = (IT8XXX2_WDT_EWDKEYEN | IT8XXX2_WDT_EWDSRC);
+		/* Enable ETWD hardware reset */
+		gctrl_regs->GCTRL_ETWDUARTCR |= IT8XXX2_GCTRL_ETWD_HW_RST_EN;
+		/* Trigger ETWD reset */
+		wdt_regs->EWDKEYR = 0;
+
+		/* Spin and wait for reboot */
+		while (1) {
+		}
+	} else {
+		/* Disable ETWD hardware reset */
+		gctrl_regs->GCTRL_ETWDUARTCR &= ~IT8XXX2_GCTRL_ETWD_HW_RST_EN;
+	}
+#endif
+
 	/* Ensure interrupts of soc are disabled at default */
-	for (int i = 0; i < ARRAY_SIZE(reg_enable); i++)
+	for (int i = 0; i < ARRAY_SIZE(reg_enable); i++) {
 		*reg_enable[i] = 0;
+	}
 
 	/* Enable M-mode external interrupt */
 	csr_set(mie, MIP_MEIP);

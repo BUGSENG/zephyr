@@ -3,17 +3,18 @@
  * Written by: Nicolas Pitre
  * SPDX-License-Identifier: Apache-2.0
  *
- * The purpose of this test is to exercize and validate the on-demand and
+ * The purpose of this test is to exercise and validate the on-demand and
  * preemptive FPU access algorithms implemented in arch/riscv/core/fpu.c.
  */
 
 #include <zephyr/ztest.h>
 #include <zephyr/kernel.h>
 #include <zephyr/irq_offload.h>
+#include <zephyr/arch/riscv/arch.h>
 
 static inline unsigned long fpu_state(void)
 {
-	return csr_read(mstatus) & MSTATUS_FS;
+	return z_riscv_status_read() & MSTATUS_FS;
 }
 
 static inline bool fpu_is_off(void)
@@ -78,7 +79,7 @@ static void new_thread_check(const char *name)
 	 * Registers are initialized with zeroes but single precision values
 	 * are expected to be "NaN-boxed" to be valid. So don't use the s
 	 * format here as it won't convert to zero. It's not a problem
-	 * otherwise as proper code is not supposed to rely on unitialized
+	 * otherwise as proper code is not supposed to rely on uninitialized
 	 * registers anyway.
 	 */
 	__asm__ volatile ("fcvt.w.d %0, fa0, rtz" : "=r" (val));
@@ -245,7 +246,7 @@ ZTEST(riscv_fpu_sharing, test_multi_thread_interaction)
 			thread2_entry, NULL, NULL, NULL,
 			-1, 0, K_NO_WAIT);
 	zassert_true(k_thread_join(&thread1, K_FOREVER) == 0);
-	zassert_true(k_thread_join(&thread1, K_FOREVER) == 0);
+	zassert_true(k_thread_join(&thread2, K_FOREVER) == 0);
 }
 
 /*
@@ -270,7 +271,7 @@ static void exception_context(const void *arg)
 	}
 
 	/* Simulate a user syscall environment by having IRQs enabled */
-	csr_set(mstatus, MSTATUS_IEN);
+	z_riscv_status_set(RV_STATUS_IE);
 
 	/* make sure the FPU is still off */
 	zassert_true(fpu_is_off());
@@ -282,7 +283,7 @@ static void exception_context(const void *arg)
 	zassert_true(fpu_is_dirty());
 
 	/* IRQs should have been disabled on us to prevent recursive FPU usage */
-	zassert_true((csr_read(mstatus) & MSTATUS_IEN) == 0, "IRQs should be disabled");
+	zassert_true((z_riscv_status_read() & RV_STATUS_IE) == 0, "IRQs should be disabled");
 }
 
 ZTEST(riscv_fpu_sharing, test_thread_vs_exc_interaction)
@@ -294,11 +295,11 @@ ZTEST(riscv_fpu_sharing, test_thread_vs_exc_interaction)
 	zassert_true(fpu_is_dirty());
 
 	/* We're not in exception so IRQs should be enabled. */
-	zassert_true((csr_read(mstatus) & MSTATUS_IEN) != 0, "IRQs should be enabled");
+	zassert_true((z_riscv_status_read() & RV_STATUS_IE) != 0, "IRQs should be enabled");
 
 	/* Exceptions with no FPU usage shouldn't affect our state. */
 	irq_offload(exception_context, NO_FPU);
-	zassert_true((csr_read(mstatus) & MSTATUS_IEN) != 0, "IRQs should be enabled");
+	zassert_true((z_riscv_status_read() & RV_STATUS_IE) != 0, "IRQs should be enabled");
 	zassert_true(fpu_is_dirty());
 	__asm__ volatile ("fcvt.w.s %0, fa1" : "=r" (val));
 	zassert_true(val == 654, "got %d instead", val);
@@ -311,7 +312,7 @@ ZTEST(riscv_fpu_sharing, test_thread_vs_exc_interaction)
 	 * upon leaving the exception, but with a clean state at that point.
 	 */
 	irq_offload(exception_context, WITH_FPU);
-	zassert_true((csr_read(mstatus) & MSTATUS_IEN) != 0, "IRQs should be enabled");
+	zassert_true((z_riscv_status_read() & RV_STATUS_IE) != 0, "IRQs should be enabled");
 	zassert_true(fpu_is_clean());
 	__asm__ volatile ("fcvt.w.s %0, fa1" : "=r" (val));
 	zassert_true(val == 654, "got %d instead", val);
@@ -322,7 +323,7 @@ ZTEST(riscv_fpu_sharing, test_thread_vs_exc_interaction)
 	 * This means our FPU context should not be preemptively restored.
 	 */
 	irq_offload(exception_context, WITH_FPU);
-	zassert_true((csr_read(mstatus) & MSTATUS_IEN) != 0, "IRQs should be enabled");
+	zassert_true((z_riscv_status_read() & RV_STATUS_IE) != 0, "IRQs should be enabled");
 	zassert_true(fpu_is_off());
 
 	/* Make sure we still have proper context when accessing the FPU. */
@@ -417,6 +418,34 @@ ZTEST(riscv_fpu_sharing, test_fp_insn_trap)
 		     "got %#llx instead", buf64);
 #endif
 #endif /* CONFIG_RISCV_ISA_EXT_C */
+
+	/* MADD major opcode space */
+	reg = 3579;
+	TEST_TRAP("fcvt.s.w fa1, %0");
+	TEST_TRAP("fmadd.s fa0, fa1, fa1, fa1");
+	TEST_TRAP("fcvt.w.s %0, fa0");
+	zassert_true(reg == 12812820, "got %ld instead", reg);
+
+	/* MSUB major opcode space */
+	reg = 1234;
+	TEST_TRAP("fcvt.s.w fa1, %0");
+	TEST_TRAP("fmsub.s fa0, fa1, fa1, fa0");
+	TEST_TRAP("fcvt.w.s %0, fa0");
+	zassert_true(reg == -11290064, "got %ld instead", reg);
+
+	/* NMSUB major opcode space */
+	reg = -23;
+	TEST_TRAP("fcvt.s.w fa1, %0");
+	TEST_TRAP("fnmsub.s fa0, fa1, fa1, fa0");
+	TEST_TRAP("fcvt.w.s %0, fa0");
+	zassert_true(reg == -11290593, "got %ld instead", reg);
+
+	/* NMADD major opcode space */
+	reg = 765;
+	TEST_TRAP("fcvt.s.w fa1, %0");
+	TEST_TRAP("fnmadd.s fa0, fa1, fa1, fa1");
+	TEST_TRAP("fcvt.w.s %0, fa0");
+	zassert_true(reg == -585990, "got %ld instead", reg);
 }
 
 ZTEST_SUITE(riscv_fpu_sharing, NULL, NULL, NULL, NULL, NULL);

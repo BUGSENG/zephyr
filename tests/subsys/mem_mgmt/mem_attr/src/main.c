@@ -26,15 +26,15 @@ ZTEST(mem_attr, test_mem_attr)
 			zassert_equal(region[idx].dt_attr, DT_MEM_ARM_MPU_FLASH |
 							   DT_MEM_NON_VOLATILE,
 							   "Wrong region address");
-			zassert_true((strcmp(region[idx].dt_name, "memory@10000000") == 0),
-				     "Wrong name");
+			zassert_str_equal(region[idx].dt_name,
+					  "memory@10000000", "Wrong name");
 		} else {
 			zassert_equal(region[idx].dt_addr, 0x20000000, "Wrong region address");
 			zassert_equal(region[idx].dt_size, 0x2000, "Wrong region size");
 			zassert_equal(region[idx].dt_attr, DT_MEM_ARM_MPU_RAM_NOCACHE,
 							   "Wrong region address");
-			zassert_true((strcmp(region[idx].dt_name, "memory@20000000") == 0),
-				      "Wrong name");
+			zassert_str_equal(region[idx].dt_name,
+					  "memory@20000000", "Wrong name");
 		}
 	}
 
@@ -82,6 +82,28 @@ ZTEST(mem_attr, test_mem_attr)
 	 */
 	zassert_equal(mem_attr_check_buf((void *) 0x30000000, 0x1000, DT_MEM_OOO),
 		      -ENOBUFS, "Unexpected return value");
+}
+
+ZTEST(mem_attr, test_get_index_by_name_success)
+{
+	int index;
+
+	/* Check first region */
+	index = mem_attr_get_region_index_by_name("memory@10000000");
+	zassert_equal(index, 0, "Index for 'memory@10000000 should be 0");
+
+	/* Check second region */
+	index = mem_attr_get_region_index_by_name("memory@20000000");
+	zassert_equal(index, 1, "Index for 'memory@20000000 should be 1");
+}
+
+ZTEST(mem_attr, test_get_index_by_name_not_found)
+{
+	int index;
+
+	/* Search for a non-existent memory node name */
+	index = mem_attr_get_region_index_by_name("memory@30000000");
+	zassert_equal(index, -ENOENT, "Should return -ENOENT for unknown names");
 }
 
 ZTEST_SUITE(mem_attr, NULL, NULL, NULL, NULL, NULL);

@@ -222,6 +222,18 @@ static size_t get_package_len(void *packaged)
 
 static int append_string(cbprintf_convert_cb cb, void *ctx, const char *str, uint16_t strl)
 {
+	/* Guard against NULL string pointers. Passing NULL to %s is a
+	 * caller bug, but deferred log packages (see cbvprintf_package())
+	 * can capture a NULL argument now and dereference it much later,
+	 * disconnecting the fault from the offending call site and making
+	 * triage difficult. Substitute "(null)", matching glibc's printf
+	 * family, so the bad caller shows up in the log instead of the
+	 * log infrastructure crashing.
+	 */
+	if (str == NULL) {
+		str = "(null)";
+	}
+
 	if (cb == NULL) {
 		return 1 + strlen(str);
 	}
@@ -242,10 +254,10 @@ int cbvprintf_package(void *packaged, size_t len, uint32_t flags,
 #define STR_POS_MASK BIT_MASK(7)
 
 /* Buffer offset abstraction for better code clarity. */
-#define BUF_OFFSET ((uintptr_t)buf - (uintptr_t)buf0)
+#define BUF_OFFSET (buf - (uintptr_t)buf0)
 
 	uint8_t *buf0 = packaged;  /* buffer start (may be NULL) */
-	uint8_t *buf = buf0;       /* current buffer position */
+	uintptr_t buf = (uintptr_t)buf0; /* current buffer position */
 	unsigned int size;         /* current argument's size */
 	unsigned int align;        /* current argument's required alignment */
 	uint8_t str_ptr_pos[16];   /* string pointer positions */
@@ -324,7 +336,7 @@ int cbvprintf_package(void *packaged, size_t len, uint32_t flags,
 	 * Otherwise we must ensure we can store at least
 	 * the pointer to the format string itself.
 	 */
-	if (buf0 != NULL && BUF_OFFSET + sizeof(char *) > len) {
+	if ((buf0 != NULL) && (BUF_OFFSET + sizeof(char *)) > len) {
 		return -ENOSPC;
 	}
 
@@ -335,7 +347,8 @@ int cbvprintf_package(void *packaged, size_t len, uint32_t flags,
 	 * reason for the post-decrement on fmt as it will be incremented
 	 * prior to the next (actually first) round of that loop.
 	 */
-	s = fmt--;
+	s = fmt;
+	--fmt;
 	align = VA_STACK_ALIGN(char *);
 	size = sizeof(char *);
 	goto process_string;
@@ -354,7 +367,7 @@ int cbvprintf_package(void *packaged, size_t len, uint32_t flags,
 			size = sizeof(int);
 
 			/* align destination buffer location */
-			buf = (void *)ROUND_UP(buf, align);
+			buf = ROUND_UP(buf, align);
 
 			/* make sure the data fits */
 			if (buf0 != NULL && BUF_OFFSET + size > len) {
@@ -429,14 +442,14 @@ int cbvprintf_package(void *packaged, size_t len, uint32_t flags,
 				}
 
 				/* align destination buffer location */
-				buf = (void *) ROUND_UP(buf, align);
+				buf = ROUND_UP(buf, align);
 				if (buf0 != NULL) {
 					/* make sure it fits */
-					if (BUF_OFFSET + size > len) {
+					if ((BUF_OFFSET + size) > len) {
 						return -ENOSPC;
 					}
 					if (Z_CBPRINTF_VA_STACK_LL_DBL_MEMCPY) {
-						memcpy(buf, &v, size);
+						memcpy((void *)buf, (uint8_t *)&v, size);
 					} else if (fmt[-1] == 'L') {
 						*(long double *)buf = v.ld;
 					} else {
@@ -576,14 +589,14 @@ int cbvprintf_package(void *packaged, size_t len, uint32_t flags,
 					size = sizeof(double);
 				}
 				/* align destination buffer location */
-				buf = (void *) ROUND_UP(buf, align);
+				buf = ROUND_UP(buf, align);
 				if (buf0 != NULL) {
 					/* make sure it fits */
 					if (BUF_OFFSET + size > len) {
 						return -ENOSPC;
 					}
 					if (Z_CBPRINTF_VA_STACK_LL_DBL_MEMCPY) {
-						memcpy(buf, &v, size);
+						memcpy((void *)buf, (uint8_t *)&v, size);
 					} else if (fmt[-1] == 'L') {
 						*(long double *)buf = v.ld;
 					} else {
@@ -602,10 +615,10 @@ int cbvprintf_package(void *packaged, size_t len, uint32_t flags,
 		}
 
 		/* align destination buffer location */
-		buf = (void *) ROUND_UP(buf, align);
+		buf = ROUND_UP(buf, align);
 
 		/* make sure the data fits */
-		if (buf0 != NULL && BUF_OFFSET + size > len) {
+		if ((buf0 != NULL) && (BUF_OFFSET + size) > len) {
 			return -ENOSPC;
 		}
 
@@ -699,7 +712,7 @@ process_string:
 
 			if (buf0 != NULL) {
 				if (Z_CBPRINTF_VA_STACK_LL_DBL_MEMCPY) {
-					memcpy(buf, &v, sizeof(long long));
+					memcpy((void *)buf, (uint8_t *)&v, sizeof(long long));
 				} else {
 					*(long long *)buf = v;
 				}
@@ -717,7 +730,7 @@ process_string:
 	 * worth of va_list, or about 127 arguments on a 64-bit system
 	 * (twice that on 32-bit systems). That ought to be good enough.
 	 */
-	if (BUF_OFFSET / sizeof(int) > 255) {
+	if ((BUF_OFFSET / sizeof(int)) > 255) {
 		__ASSERT(false, "too many format args");
 		return -EINVAL;
 	}
@@ -753,7 +766,7 @@ process_string:
 #endif
 
 	/* Store strings pointer locations of read only strings. */
-	if (s_ro_cnt) {
+	if (s_ro_cnt != 0U) {
 		for (i = 0; i < s_idx; i++) {
 			if (!(str_ptr_pos[i] & STR_POS_RO_FLAG)) {
 				continue;
@@ -762,11 +775,12 @@ process_string:
 			uint8_t pos = str_ptr_pos[i] & STR_POS_MASK;
 
 			/* make sure it fits */
-			if (BUF_OFFSET + 1 > len) {
+			if ((BUF_OFFSET + 1) > len) {
 				return -ENOSPC;
 			}
 			/* store the pointer position prefix */
-			*buf++ = pos;
+			*(uint8_t *)buf = pos;
+			++buf;
 		}
 	}
 
@@ -779,7 +793,8 @@ process_string:
 
 		if (rws_pos_en) {
 			size = 0;
-			*buf++ = str_ptr_arg[i];
+			*(uint8_t *)buf = str_ptr_arg[i];
+			++buf;
 		} else {
 			/* retrieve the string pointer */
 			s = *(char **)(buf0 + str_ptr_pos[i] * sizeof(int));
@@ -790,13 +805,14 @@ process_string:
 		}
 
 		/* make sure it fits */
-		if (BUF_OFFSET + 1 + size > len) {
+		if ((BUF_OFFSET + 1 + size) > len) {
 			return -ENOSPC;
 		}
 		/* store the pointer position prefix */
-		*buf++ = str_ptr_pos[i];
+		*(uint8_t *)buf = str_ptr_pos[i];
+		++buf;
 		/* copy the string with its terminating '\0' */
-		memcpy(buf, s, size);
+		memcpy((void *)buf, (uint8_t *)s, size);
 		buf += size;
 	}
 
@@ -851,7 +867,8 @@ int cbpprintf_external(cbprintf_cb out,
 	 */
 	for (i = 0; i < s_nbr; i++) {
 		/* Locate pointer location for this string */
-		s_idx = *(uint8_t *)s++;
+		s_idx = *(uint8_t *)s;
+		++s;
 		ps = (char **)(buf + s_idx * sizeof(int));
 		/* update the pointer with current string location */
 		*ps = s;
@@ -875,7 +892,7 @@ static bool is_fmt_spec(char c)
 	return (c >= 64) && (c <= 122);
 }
 
-/* Function checks if nth argument is a pointer (%p). Returns true is yes. Returns
+/* Function checks if nth argument is a pointer (%p). Returns true if yes. Returns
  * false if not or if string does not have nth argument.
  */
 bool is_ptr(const char *fmt, int n)
@@ -982,9 +999,7 @@ int cbprintf_package_convert(void *in_packaged,
 				str_pos++;
 			}
 		} else {
-			if (ros_nbr && flags & CBPRINTF_PACKAGE_CONVERT_KEEP_RO_STR) {
-				str_pos += ros_nbr;
-			}
+			str_pos += ros_nbr;
 		}
 
 		bool drop_ro_str_pos = !(flags &
@@ -999,7 +1014,8 @@ int cbprintf_package_convert(void *in_packaged,
 			bool is_ro = ptr_in_rodata(str);
 			int len;
 
-			if (fmt_present && is_ptr(fmt, arg_idx)) {
+			if (IS_ENABLED(CONFIG_CBPRINTF_CONVERT_CHECK_PTR) &&
+			    fmt_present && is_ptr(fmt, arg_idx)) {
 				LOG_WRN("(unsigned) char * used for %%p argument. "
 					"It's recommended to cast it to void * because "
 					"it may cause misbehavior in certain "
@@ -1050,10 +1066,24 @@ calculate_string_length:
 	 * shall remain in the output package.
 	 */
 	if (ro_cpy) {
+		__ASSERT_NO_MSG(ros_nbr <= sizeof(cpy_str_pos));
+		if (ros_nbr > sizeof(cpy_str_pos)) {
+			/* If assertions are not enabled, silently truncate
+			 * number of strings to avoid buffer overflow.
+			 */
+			ros_nbr = sizeof(cpy_str_pos);
+		}
 		scpy_cnt = ros_nbr;
 		keep_cnt = 0;
 		dst = cpy_str_pos;
 	} else if (ros_nbr && flags & CBPRINTF_PACKAGE_CONVERT_KEEP_RO_STR) {
+		__ASSERT_NO_MSG(ros_nbr <= sizeof(keep_str_pos));
+		if (ros_nbr > sizeof(keep_str_pos)) {
+			/* If assertions are not enabled, silently truncate
+			 * number of strings to avoid buffer overflow.
+			 */
+			ros_nbr = sizeof(keep_str_pos);
+		}
 		scpy_cnt = 0;
 		keep_cnt = ros_nbr;
 		dst = keep_str_pos;
@@ -1065,7 +1095,11 @@ calculate_string_length:
 	if (dst) {
 		memcpy(dst, str_pos, ros_nbr);
 	}
-	str_pos += ros_nbr;
+
+	/* As 'ros_nbr' may have been capped to prevent overflowing on local
+	 * arrays, adjust 'str_pos' by the actual number of strings.
+	 */
+	str_pos += in_desc->ro_str_cnt;
 
 	/* Go through read-write strings and identify which shall be appended.
 	 * Note that there may be read-only strings there. Use address evaluation
@@ -1077,28 +1111,37 @@ calculate_string_length:
 		const char *str = *(const char **)&buf32[arg_pos];
 		bool is_ro = ptr_in_rodata(str);
 
-		if (fmt_present && is_ptr(fmt, arg_idx)) {
+		if (IS_ENABLED(CONFIG_CBPRINTF_CONVERT_CHECK_PTR) &&
+		    fmt_present && is_ptr(fmt, arg_idx)) {
 			continue;
 		}
 
 		if (is_ro) {
 			if (flags & CBPRINTF_PACKAGE_CONVERT_RO_STR) {
 				__ASSERT_NO_MSG(scpy_cnt < sizeof(cpy_str_pos));
-				cpy_str_pos[scpy_cnt++] = arg_pos;
+				if (scpy_cnt < sizeof(cpy_str_pos)) {
+					cpy_str_pos[scpy_cnt++] = arg_pos;
+				}
 			} else if (flags & CBPRINTF_PACKAGE_CONVERT_KEEP_RO_STR) {
 				__ASSERT_NO_MSG(keep_cnt < sizeof(keep_str_pos));
-				keep_str_pos[keep_cnt++] = arg_pos;
+				if (keep_cnt < sizeof(keep_str_pos)) {
+					keep_str_pos[keep_cnt++] = arg_pos;
+				}
 			} else {
 				/* Drop information about ro_str location. */
 			}
 		} else {
 			if (flags & CBPRINTF_PACKAGE_CONVERT_RW_STR) {
 				__ASSERT_NO_MSG(scpy_cnt < sizeof(cpy_str_pos));
-				cpy_str_pos[scpy_cnt++] = arg_pos;
+				if (scpy_cnt < sizeof(cpy_str_pos)) {
+					cpy_str_pos[scpy_cnt++] = arg_pos;
+				}
 			} else {
 				__ASSERT_NO_MSG(keep_cnt < sizeof(keep_str_pos));
-				keep_str_pos[keep_cnt++] = arg_idx;
-				keep_str_pos[keep_cnt++] = arg_pos;
+				if (keep_cnt < sizeof(keep_str_pos)) {
+					keep_str_pos[keep_cnt++] = arg_idx;
+					keep_str_pos[keep_cnt++] = arg_pos;
+				}
 			}
 		}
 	}
@@ -1143,7 +1186,7 @@ calculate_string_length:
 	for (unsigned int i = 0; i < scpy_cnt; i++) {
 		uint8_t loc = cpy_str_pos[i];
 		const char *str = *(const char **)&buf32[loc];
-		uint16_t str_len = strl ? strl[i] : 0;
+		uint16_t str_len = (strl && (i < strl_len)) ? strl[i] : 0;
 
 		rv = cb(&loc, 1, ctx);
 		if (rv < 0) {

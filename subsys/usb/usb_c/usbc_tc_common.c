@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2022 The Chromium OS Authors
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,12 +12,14 @@ LOG_MODULE_DECLARE(usbc_stack, CONFIG_USBC_STACK_LOG_LEVEL);
 #include "usbc_tc_snk_states_internal.h"
 #include "usbc_tc_src_states_internal.h"
 #include "usbc_tc_common_internal.h"
+#include "usbc_config.h"
+#include <zephyr/drivers/usb_c/usbc_ppc.h>
 
 static const struct smf_state tc_states[TC_STATE_COUNT];
 static int tc_init(const struct device *dev);
 
 /**
- * @brief Initializes the state machine and enters the Disabled state
+ * @brief Initializes the state machine and enters the Startup state
  */
 void tc_subsys_init(const struct device *dev)
 {
@@ -27,7 +30,7 @@ void tc_subsys_init(const struct device *dev)
 	tc->dev = dev;
 
 	/* Initialize the state machine */
-	smf_set_initial(SMF_CTX(tc), &tc_states[TC_DISABLED_STATE]);
+	smf_set_initial(SMF_CTX(tc), &tc_states[TC_STARTUP_STATE]);
 }
 
 /**
@@ -90,7 +93,7 @@ void tc_run(const struct device *dev, const int32_t dpm_request)
 		/* Detect polarity */
 		tc->cc_polarity = (tc->cc1 > tc->cc2) ? TC_POLARITY_CC1 : TC_POLARITY_CC2;
 
-		/* Execute any asyncronous Device Policy Manager Requests */
+		/* Execute any asynchronous Device Policy Manager Requests */
 		if (dpm_request == REQUEST_TC_ERROR_RECOVERY) {
 			/* Transition to Error Recovery State */
 			tc_set_state(dev, TC_ERROR_RECOVERY_STATE);
@@ -109,10 +112,14 @@ void tc_run(const struct device *dev, const int32_t dpm_request)
  */
 bool tc_is_in_attached_state(const struct device *dev)
 {
-#ifdef CONFIG_USBC_CSM_SINK_ONLY
-	return (tc_get_state(dev) == TC_ATTACHED_SNK_STATE);
+	enum tc_state_t state = tc_get_state(dev);
+
+#ifdef CONFIG_USBC_CSM_DRP
+	return (state == TC_ATTACHED_SNK_STATE || state == TC_ATTACHED_SRC_STATE);
+#elif defined(CONFIG_USBC_CSM_SINK_ONLY)
+	return (state == TC_ATTACHED_SNK_STATE);
 #else
-	return (tc_get_state(dev) == TC_ATTACHED_SRC_STATE);
+	return (state == TC_ATTACHED_SRC_STATE);
 #endif
 }
 
@@ -130,8 +137,11 @@ static int tc_init(const struct device *dev)
 	usbc_timer_init(&tc->tc_t_error_recovery, TC_T_ERROR_RECOVERY_SOURCE_MIN_MS);
 	usbc_timer_init(&tc->tc_t_cc_debounce, TC_T_CC_DEBOUNCE_MAX_MS);
 	usbc_timer_init(&tc->tc_t_rp_value_change, TC_T_RP_VALUE_CHANGE_MAX_MS);
-#ifdef CONFIG_USBC_CSM_SOURCE_ONLY
+#ifdef CONFIG_USBC_CSM_SUPPORTS_SOURCE
 	usbc_timer_init(&tc->tc_t_vconn_off, TC_T_VCONN_OFF_MAX_MS);
+#endif
+#ifdef CONFIG_USBC_CSM_DRP
+	usbc_timer_init(&tc->tc_t_drp_toggle, TC_T_DRP_SNK_MS);
 #endif
 
 	/* Clear the flags */
@@ -144,12 +154,17 @@ static int tc_init(const struct device *dev)
 		return ret;
 	}
 
-#ifdef CONFIG_USBC_CSM_SOURCE_ONLY
+#ifdef CONFIG_USBC_CSM_SUPPORTS_SOURCE
 	/* Stop sourcing VBUS by policy callback and/or TCPC */
-	ret = data->policy_cb_src_en(dev, false);
+	ret = usbc_policy_src_en(dev, tcpc, false);
 	if (ret != 0) {
 		LOG_ERR("Couldn't disable vbus sourcing: %d", ret);
 		return ret;
+	}
+
+	/* Disable VBUS sourcing by the PPC */
+	if (data->ppc != NULL) {
+		ppc_set_src_ctrl(data->ppc, false);
 	}
 
 	/* Stop sourcing VCONN */
@@ -161,6 +176,11 @@ static int tc_init(const struct device *dev)
 #endif
 
 	/* Initialize the state machine */
+	/*
+	 * Transition to Disabled state to ensure port is in a known disabled state.
+	 */
+	tc_set_state(dev, TC_DISABLED_STATE);
+
 	/*
 	 * Start out in error recovery state so the CC lines are opened for a
 	 * short while if this is a system reset.
@@ -244,12 +264,14 @@ static void tc_cc_open_entry(void *obj)
 
 	tc->cc_voltage = TC_CC_VOLT_OPEN;
 
-	/* Disable VCONN */
-	ret = tcpc_set_vconn(tcpc, false);
-	if (ret != 0 && ret != -ENOSYS) {
-		LOG_ERR("Couldn't disable vconn: %d", ret);
-		tc_set_state(dev, TC_ERROR_RECOVERY_STATE);
-		return;
+	if (IS_ENABLED(CONFIG_USBC_CSM_SUPPORTS_SOURCE)) {
+		/* Disable VCONN */
+		ret = tcpc_set_vconn(tcpc, false);
+		if (ret != 0 && ret != -ENOSYS) {
+			LOG_ERR("Couldn't disable vconn: %d", ret);
+			tc_set_state(dev, TC_ERROR_RECOVERY_STATE);
+			return;
+		}
 	}
 
 	/* Open CC lines */
@@ -258,6 +280,14 @@ static void tc_cc_open_entry(void *obj)
 		LOG_ERR("Couldn't set CC lines to open: %d", ret);
 		tc_set_state(dev, TC_ERROR_RECOVERY_STATE);
 	}
+}
+
+/**
+ * @brief Startup Entry
+ */
+static void tc_startup_entry(void *obj)
+{
+	LOG_INF("Startup");
 }
 
 /**
@@ -271,9 +301,10 @@ static void tc_disabled_entry(void *obj)
 /**
  * @brief Disabled Run
  */
-static void tc_disabled_run(void *obj)
+static enum smf_state_result tc_disabled_run(void *obj)
 {
 	/* Do nothing */
+	return SMF_EVENT_PROPAGATE;
 }
 
 /**
@@ -292,96 +323,120 @@ static void tc_error_recovery_entry(void *obj)
 /**
  * @brief ErrorRecovery Run
  */
-static void tc_error_recovery_run(void *obj)
+static enum smf_state_result tc_error_recovery_run(void *obj)
 {
 	struct tc_sm_t *tc = (struct tc_sm_t *)obj;
 	const struct device *dev = tc->dev;
 
 	/* Wait for expiry */
 	if (usbc_timer_expired(&tc->tc_t_error_recovery) == false) {
-		return;
+		return SMF_EVENT_PROPAGATE;
 	}
 
-#ifdef CONFIG_USBC_CSM_SINK_ONLY
+	/* Per USB Type-C spec: Always transition to Unattached.SNK for DRP */
+#ifdef CONFIG_USBC_CSM_SUPPORTS_SINK
 	/* Transition to Unattached.SNK */
 	tc_set_state(dev, TC_UNATTACHED_SNK_STATE);
 #else
 	/* Transition to Unattached.SRC */
 	tc_set_state(dev, TC_UNATTACHED_SRC_STATE);
 #endif
+	return SMF_EVENT_HANDLED;
 }
 
 /**
  * @brief Type-C State Table
  */
+/* clang-format off */
 static const struct smf_state tc_states[TC_STATE_COUNT] = {
 	/* Super States */
 	[TC_CC_OPEN_SUPER_STATE] = SMF_CREATE_STATE(
 		tc_cc_open_entry,
 		NULL,
 		NULL,
+		NULL,
 		NULL),
-#ifdef CONFIG_USBC_CSM_SINK_ONLY
+#ifdef CONFIG_USBC_CSM_SUPPORTS_SINK
 	[TC_CC_RD_SUPER_STATE] = SMF_CREATE_STATE(
 		tc_cc_rd_entry,
 		NULL,
 		NULL,
+		NULL,
 		NULL),
-#else
+#endif
+#ifdef CONFIG_USBC_CSM_SUPPORTS_SOURCE
 	[TC_CC_RP_SUPER_STATE] = SMF_CREATE_STATE(
 		tc_cc_rp_entry,
+		NULL,
 		NULL,
 		NULL,
 		NULL),
 #endif
 	/* Normal States */
-#ifdef CONFIG_USBC_CSM_SINK_ONLY
+#ifdef CONFIG_USBC_CSM_SUPPORTS_SINK
 	[TC_UNATTACHED_SNK_STATE] = SMF_CREATE_STATE(
 		tc_unattached_snk_entry,
 		tc_unattached_snk_run,
 		NULL,
-		&tc_states[TC_CC_RD_SUPER_STATE]),
+		&tc_states[TC_CC_RD_SUPER_STATE],
+		NULL),
 	[TC_ATTACH_WAIT_SNK_STATE] = SMF_CREATE_STATE(
 		tc_attach_wait_snk_entry,
 		tc_attach_wait_snk_run,
 		tc_attach_wait_snk_exit,
-		&tc_states[TC_CC_RD_SUPER_STATE]),
+		&tc_states[TC_CC_RD_SUPER_STATE],
+		NULL),
 	[TC_ATTACHED_SNK_STATE] = SMF_CREATE_STATE(
 		tc_attached_snk_entry,
 		tc_attached_snk_run,
 		tc_attached_snk_exit,
+		NULL,
 		NULL),
-#else
+#endif
+#ifdef CONFIG_USBC_CSM_SUPPORTS_SOURCE
 	[TC_UNATTACHED_SRC_STATE] = SMF_CREATE_STATE(
 		tc_unattached_src_entry,
 		tc_unattached_src_run,
 		NULL,
-		&tc_states[TC_CC_RP_SUPER_STATE]),
+		&tc_states[TC_CC_RP_SUPER_STATE],
+		NULL),
 	[TC_UNATTACHED_WAIT_SRC_STATE] = SMF_CREATE_STATE(
 		tc_unattached_wait_src_entry,
 		tc_unattached_wait_src_run,
 		tc_unattached_wait_src_exit,
+		NULL,
 		NULL),
 	[TC_ATTACH_WAIT_SRC_STATE] = SMF_CREATE_STATE(
 		tc_attach_wait_src_entry,
 		tc_attach_wait_src_run,
 		tc_attach_wait_src_exit,
-		&tc_states[TC_CC_RP_SUPER_STATE]),
+		&tc_states[TC_CC_RP_SUPER_STATE],
+		NULL),
 	[TC_ATTACHED_SRC_STATE] = SMF_CREATE_STATE(
 		tc_attached_src_entry,
 		tc_attached_src_run,
 		tc_attached_src_exit,
+		NULL,
 		NULL),
 #endif
+	[TC_STARTUP_STATE] = SMF_CREATE_STATE(
+		tc_startup_entry,
+		NULL,
+		NULL,
+		NULL,
+		NULL),
 	[TC_DISABLED_STATE] = SMF_CREATE_STATE(
 		tc_disabled_entry,
 		tc_disabled_run,
 		NULL,
-		&tc_states[TC_CC_OPEN_SUPER_STATE]),
+		&tc_states[TC_CC_OPEN_SUPER_STATE],
+		NULL),
 	[TC_ERROR_RECOVERY_STATE] = SMF_CREATE_STATE(
 		tc_error_recovery_entry,
 		tc_error_recovery_run,
 		NULL,
-		&tc_states[TC_CC_OPEN_SUPER_STATE]),
+		&tc_states[TC_CC_OPEN_SUPER_STATE],
+		NULL),
 };
+/* clang-format on */
 BUILD_ASSERT(ARRAY_SIZE(tc_states) == TC_STATE_COUNT);

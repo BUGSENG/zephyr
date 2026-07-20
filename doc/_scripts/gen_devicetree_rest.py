@@ -7,20 +7,20 @@ devicetree bindings.
 """
 
 import argparse
-from collections import defaultdict
 import glob
 import io
 import logging
 import os
-from pathlib import Path
 import pprint
 import re
 import sys
 import textwrap
+from collections import defaultdict
+from pathlib import Path
 
-from devicetree import edtlib
-
+import dts_binding_types
 import gen_helpers
+from devicetree import edtlib
 
 ZEPHYR_BASE = Path(__file__).parents[2]
 
@@ -30,9 +30,23 @@ UNKNOWN_VENDOR = 'Unknown vendor'
 ZEPHYR_BASE = Path(__file__).parents[2]
 
 # Base properties that have documentation in 'dt-important-props'.
-DETAILS_IN_IMPORTANT_PROPS = set('compatible label reg status interrupts'.split())
+DETAILS_IN_IMPORTANT_PROPS = {'compatible', 'label', 'reg', 'status', 'interrupts'}
 
 logger = logging.getLogger('gen_devicetree_rest')
+
+
+def format_value(value) -> str:
+    """
+    Format a property value, preserving hexadecimal notation for HexInt values.
+    For lists/arrays, formats each element individually and joins with ", ".
+    """
+    if isinstance(value, list):
+        return "[" + ", ".join(map(format_value, value)) + "]"
+    elif isinstance(value, edtlib.HexInt):
+        return hex(value)
+    else:
+        return str(value)
+
 
 class VndLookup:
     """
@@ -160,13 +174,84 @@ class VndLookup:
 
         return vnd2ref_target
 
+
+class TypeLookup:
+    """
+    A convenience class for looking up information based on a
+    devicetree compatible's binding type.
+    """
+
+    def __init__(self, bindings):
+        self.type2name = {
+            "misc": [{"type": "text", "content": "Miscellaneous"}],
+            "generic": [{"type": "text", "content": "Generic"}],
+        }
+        self.type2name.update(dts_binding_types.load_binding_types())
+        self.type2bindings = self.init_type2bindings(bindings)
+        self.type2ref_target = self.init_type2ref_target()
+
+    def name(self, btype):
+        chunks = self.type2name.get(
+            btype,
+            [{"type": "text", "content": btype.capitalize()}]
+        )
+        parts = []
+        for chunk in chunks:
+            if chunk["type"] == "acronym":
+                parts.append(
+                    f":abbr:`{chunk['abbr']} ({chunk['explanation']})`"
+                )
+            else:
+                parts.append(chunk["content"])
+        return "".join(parts)
+
+    def plain_name(self, btype):
+        """
+        Human-readable type title without RST markup, for sorting and display logic.
+        """
+        chunks = self.type2name.get(btype, [{"type": "text", "content": btype}])
+        parts = [
+            f"{c['abbr']} ({c['explanation']})" if c["type"] == "acronym" else c["content"]
+            for c in chunks
+        ]
+        return "".join(parts)
+
+    def target(self, btype):
+        return self.type2ref_target.get(btype, f"dt_type_{btype}")
+
+    def init_type2bindings(self, bindings):
+        unsorted = defaultdict(list)
+        for binding in bindings:
+            if binding.path:
+                btype = dts_binding_types.get_binding_type_from_path(Path(binding.path))
+            else:
+                btype = "misc"
+            unsorted[btype].append(binding)
+
+        def binding_key(binding):
+            return binding.compatible
+
+        type2bindings = {}
+        for btype in sorted(unsorted, key=lambda t: self.plain_name(t).casefold()):
+            type2bindings[btype] = sorted(unsorted[btype], key=binding_key)
+
+        return type2bindings
+
+    def init_type2ref_target(self):
+        type2ref_target = {}
+        for btype in self.type2bindings:
+            type2ref_target[btype] = f'dt_type_{btype}'
+        return type2ref_target
+
 def main():
     args = parse_args()
     setup_logging(args.verbose)
-    bindings = load_bindings(args.dts_roots)
+    bindings = load_bindings(args.dts_roots, args.dts_folders, args.dts_files)
     base_binding = load_base_binding()
+    driver_sources = load_driver_sources()
     vnd_lookup = VndLookup(args.vendor_prefixes, bindings)
-    dump_content(bindings, base_binding, vnd_lookup, args.out_dir,
+    type_lookup = TypeLookup(bindings)
+    dump_content(bindings, base_binding, vnd_lookup, type_lookup, driver_sources, args.out_dir,
                  args.turbo_mode)
 
 def parse_args():
@@ -180,6 +265,10 @@ def parse_args():
     parser.add_argument('--dts-root', dest='dts_roots', action='append',
                         help='''additional DTS root directory as it would
                         be set in DTS_ROOTS''')
+    parser.add_argument('--dts-folder', dest='dts_folders', action='append', default=[],
+                        help='additional DTS folders containing binding files')
+    parser.add_argument('--dts-file', dest='dts_files', action='append', default=[],
+                        help='additional individual DTS binding files')
     parser.add_argument('--turbo-mode', action='store_true',
                         help='Enable turbo mode (dummy references)')
     parser.add_argument('out_dir', help='output files are generated here')
@@ -196,7 +285,7 @@ def setup_logging(verbose):
     logging.basicConfig(format='%(filename)s:%(levelname)s: %(message)s',
                         level=log_level)
 
-def load_bindings(dts_roots):
+def load_bindings(dts_roots, dts_folders, dts_files):
     # Get a list of edtlib.Binding objects from searching 'dts_roots'.
 
     if not dts_roots:
@@ -208,6 +297,10 @@ def load_bindings(dts_roots):
                                        recursive=True))
         binding_files.extend(glob.glob(f'{dts_root}/dts/bindings/**/*.yaml',
                                        recursive=True))
+    for folders in dts_folders:
+        binding_files.extend(glob.glob(f'{folders}/*.yml', recursive=False))
+        binding_files.extend(glob.glob(f'{folders}/*.yaml', recursive=False))
+    binding_files.extend(dts_files)
 
     bindings = edtlib.bindings_from_paths(binding_files, ignore_errors=True)
 
@@ -238,7 +331,61 @@ def load_base_binding():
     return edtlib.Binding(os.fspath(base_yaml), base_includes, require_compatible=False,
                           require_description=False)
 
-def dump_content(bindings, base_binding, vnd_lookup, out_dir, turbo_mode):
+def load_driver_sources():
+    driver_sources = {}
+    dt_drv_compat_occurrences = defaultdict(list)
+
+    dt_drv_compat_pattern = re.compile(r"#define DT_DRV_COMPAT\s+(.*)")
+    device_dt_inst_define_pattern = re.compile(r"DEVICE_DT_INST_DEFINE")
+
+    folders_to_scan = ["boards", "drivers", "modules", "soc", "subsys"]
+
+    # When looking at folders_to_scan, a file is considered as a likely driver source if:
+    # - There is only one and only one file with a "#define DT_DRV_COMPAT <compatible>" for a given
+    #   compatible.
+    # - or, a file contains both a "#define DT_DRV_COMPAT <compatible>" and a
+    #   DEVICE_DT_INST_DEFINE(...) call.
+
+    for folder in folders_to_scan:
+        for dirpath, _, filenames in os.walk(ZEPHYR_BASE / folder):
+            for filename in filenames:
+                if not filename.endswith(('.c', '.h')):
+                    continue
+                filepath = Path(dirpath) / filename
+                with open(filepath, encoding="utf-8") as f:
+                    content = f.read()
+
+                relative_path = filepath.relative_to(ZEPHYR_BASE)
+
+                # Find all DT_DRV_COMPAT occurrences in the file
+                dt_drv_compat_matches = dt_drv_compat_pattern.findall(content)
+                for compatible in dt_drv_compat_matches:
+                    dt_drv_compat_occurrences[compatible].append(relative_path)
+
+                if dt_drv_compat_matches and device_dt_inst_define_pattern.search(content):
+                    for compatible in dt_drv_compat_matches:
+                        if compatible in driver_sources:
+                            # Mark as ambiguous if multiple files define the same compatible
+                            driver_sources[compatible] = None
+                        else:
+                            driver_sources[compatible] = relative_path
+
+    # Remove ambiguous driver sources
+    driver_sources = {k: v for k, v in driver_sources.items() if v is not None}
+
+    # Consider DT_DRV_COMPATs with only one occurrence as driver sources
+    for compatible, occurrences in dt_drv_compat_occurrences.items():
+        if compatible not in driver_sources and len(occurrences) == 1:
+            path = occurrences[0]
+            # Assume the driver is defined in the enclosing folder if it's a header file
+            if path.suffix == ".h":
+                path = path.parent
+            driver_sources[compatible] = path
+
+    return driver_sources
+
+def dump_content(bindings, base_binding, vnd_lookup, type_lookup, driver_sources, out_dir,
+                 turbo_mode):
     # Dump the generated .rst files for a vnd2bindings dict.
     # Files are only written if they are changed. Existing .rst
     # files which would not be written by the 'vnd2bindings'
@@ -248,10 +395,10 @@ def dump_content(bindings, base_binding, vnd_lookup, out_dir, turbo_mode):
 
     setup_bindings_dir(bindings, out_dir)
     if turbo_mode:
-        write_dummy_index(bindings, out_dir)
+        write_dummy_index(bindings, vnd_lookup, out_dir)
     else:
-        write_bindings_rst(vnd_lookup, out_dir)
-        write_orphans(bindings, base_binding, vnd_lookup, out_dir)
+        write_bindings_rst(vnd_lookup, type_lookup, out_dir)
+        write_orphans(bindings, base_binding, vnd_lookup, driver_sources, out_dir)
 
 def setup_bindings_dir(bindings, out_dir):
     # Make a set of all the Path objects we will be creating for
@@ -275,13 +422,21 @@ def setup_bindings_dir(bindings, out_dir):
                 path.unlink()
 
 
-def write_dummy_index(bindings, out_dir):
+def write_dummy_index(bindings, vnd_lookup, out_dir):
     # Write out_dir / bindings.rst, with dummy anchors
 
     # header
     content = '\n'.join((
         '.. _devicetree_binding_index:',
-        '.. _dt_vendor_zephyr:',
+        ''
+    ))
+
+    content += '\n'.join(
+        f'.. _dt_vendor_{vnd}:' for vnd in vnd_lookup.vnd2bindings if isinstance(vnd, str)
+    )
+
+    content += '\n'.join((
+        '',
         '',
         'Dummy bindings index',
         '####################',
@@ -290,14 +445,14 @@ def write_dummy_index(bindings, out_dir):
 
     # build compatibles set and dump it
     compatibles = {binding.compatible for binding in bindings}
-    content += '\n'.join((
+    content += '\n'.join(
         f'.. dtcompatible:: {compatible}' for compatible in compatibles
-    ))
+    )
 
     write_if_updated(out_dir / 'bindings.rst', content)
 
 
-def write_bindings_rst(vnd_lookup, out_dir):
+def write_bindings_rst(vnd_lookup, type_lookup, out_dir):
     # Write out_dir / bindings.rst, the top level index of bindings.
 
     string_io = io.StringIO()
@@ -312,31 +467,8 @@ def write_bindings_rst(vnd_lookup, out_dir):
     See {zref('dt-bindings')} for an introduction to the Zephyr bindings
     file format.
 
-    Vendor index
-    ************
-
-    This section contains an index of hardware vendors.
-    Click on a vendor's name to go to the list of bindings for
-    that vendor.
-
-    .. rst-class:: rst-columns
-    ''', string_io)
-
-    for vnd in vnd_lookup.vnd2bindings:
-        print(f'- :ref:`{vnd_lookup.target(vnd)}`', file=string_io)
-
-    print_block('''\
-
-    Bindings by vendor
-    ******************
-
-    This section contains available bindings, grouped by vendor.
-    Within each group, bindings are listed by the "compatible" property
-    they apply to, like this:
-
-    **Vendor name (vendor prefix)**
-
-    .. rst-class:: rst-columns
+    The bindings are grouped both by **type** and by **vendor**. Within each group,
+    bindings are listed by the "compatible" property they apply to, like this:
 
     - <compatible-A>
     - <compatible-B> (on <bus-name> bus)
@@ -347,6 +479,73 @@ def write_bindings_rst(vnd_lookup, out_dir):
     differently depending on the bus the node appears on.
     For example, this applies to some sensor device nodes, which may
     appear as children of either I2C or SPI bus nodes.
+
+    Type index
+    **********
+
+    This section contains an index of bindings by type.
+    Click on a type's name to go to the list of bindings for that type.
+
+    .. rst-class:: rst-columns
+    ''', string_io)
+
+    for btype, bindings in type_lookup.type2bindings.items():
+        if len(bindings) == 0:
+            continue
+        print(f'- :ref:`{type_lookup.target(btype)}`', file=string_io)
+
+    print_block('''\
+
+    Vendor index
+    ************
+
+    This section contains an index of hardware vendors.
+    Click on a vendor's name to go to the list of bindings for
+    that vendor.
+
+    .. rst-class:: rst-columns
+    ''', string_io)
+
+    for vnd, bindings in vnd_lookup.vnd2bindings.items():
+        if len(bindings) == 0:
+            continue
+        print(f'- :ref:`{vnd_lookup.target(vnd)}`', file=string_io)
+
+    print_block('''\
+
+    Bindings by type
+    ****************
+
+    .. rst-class:: rst-columns
+    ''', string_io)
+
+    for btype, bindings in type_lookup.type2bindings.items():
+        if len(bindings) == 0:
+            continue
+
+        title = type_lookup.name(btype).strip()
+        underline = '=' * len(title)
+
+        print_block(f'''\
+        .. _{type_lookup.target(btype)}:
+
+        {title}
+        {underline}
+
+        .. rst-class:: rst-columns
+        ''', string_io)
+        for binding in bindings:
+            print(f'- :ref:`{binding_ref_target(binding)}`', file=string_io)
+        print(file=string_io)
+
+    print_block('''\
+
+    Bindings by vendor
+    ******************
+
+    **Vendor name (vendor prefix)**
+
+    .. rst-class:: rst-columns
     ''', string_io)
 
     for vnd, bindings in vnd_lookup.vnd2bindings.items():
@@ -357,6 +556,9 @@ def write_bindings_rst(vnd_lookup, out_dir):
             if isinstance(vnd, str):
                 title += f' ({vnd})'
         underline = '=' * len(title)
+
+        if len(bindings) == 0:
+            continue
 
         print_block(f'''\
         .. _{vnd_lookup.target(vnd)}:
@@ -372,7 +574,7 @@ def write_bindings_rst(vnd_lookup, out_dir):
 
     write_if_updated(out_dir / 'bindings.rst', string_io.getvalue())
 
-def write_orphans(bindings, base_binding, vnd_lookup, out_dir):
+def write_orphans(bindings, base_binding, vnd_lookup, driver_sources, out_dir):
     # Write out_dir / bindings / foo / binding_page.rst for each binding
     # in 'bindings', along with any "disambiguation" pages needed when a
     # single compatible string can be handled by multiple bindings.
@@ -405,7 +607,7 @@ def write_orphans(bindings, base_binding, vnd_lookup, out_dir):
         string_io = io.StringIO()
 
         print_binding_page(binding, base_names, vnd_lookup,
-                           dup_compat2bindings, string_io)
+                           driver_sources, dup_compat2bindings, string_io)
 
         written = write_if_updated(out_dir / 'bindings' /
                                    binding_filename(binding),
@@ -433,7 +635,20 @@ def write_orphans(bindings, base_binding, vnd_lookup, out_dir):
     logging.info('done writing :orphan: files; %d files needed updates',
                  num_written)
 
-def print_binding_page(binding, base_names, vnd_lookup, dup_compats,
+def make_sidebar(compatible, vendor_name, vendor_ref_target, driver_path=None):
+    lines = [
+        ".. sidebar:: Overview",
+        "",
+        f"   :Name: ``{compatible}``",
+        f"   :Vendor: :ref:`{vendor_name} <{vendor_ref_target}>`",
+        f"   :Used in: :zephyr:board-catalog:`List of boards <#compatibles={compatible}>` using",
+        "               this compatible",
+    ]
+    if driver_path:
+        lines.append(f"   :Driver: :zephyr_file:`{driver_path}`")
+    return "\n".join(lines) + "\n"
+
+def print_binding_page(binding, base_names, vnd_lookup, driver_sources,dup_compats,
                        string_io):
     # Print the rst content for 'binding' to 'string_io'. The
     # 'dup_compats' argument should support membership testing for
@@ -484,11 +699,18 @@ def print_binding_page(binding, base_names, vnd_lookup, dup_compats,
     {underline}
     ''', string_io)
 
-    # Vendor: <link-to-vendor-section>
     vnd = compatible_vnd(compatible)
-    print('Vendor: '
-          f':ref:`{vnd_lookup.vendor(vnd)} <{vnd_lookup.target(vnd)}>`\n',
-          file=string_io)
+    vendor_name = vnd_lookup.vendor(vnd)
+    vendor_target = vnd_lookup.target(vnd)
+    driver_path = driver_sources.get(re.sub("[-,.@/+]", "_", compatible.lower()))
+
+    sidebar_content = make_sidebar(
+        compatible=compatible,
+        vendor_name=vendor_name,
+        vendor_ref_target=vendor_target,
+        driver_path=driver_path,
+    )
+    print_block(sidebar_content, string_io)
 
     # Binding description.
     if binding.bus:
@@ -501,7 +723,24 @@ def print_binding_page(binding, base_names, vnd_lookup, dup_compats,
 
     {bus_help}
     ''', string_io)
-    print(to_code_block(binding.description.strip()), file=string_io)
+
+    if binding.title:
+        description = ("\n\n"
+                       .join([binding.title, binding.description])
+                       .strip())
+    else:
+        description = binding.description.strip()
+    print(to_code_block(description), file=string_io)
+
+    # Examples
+    if binding.examples:
+        print_block('''\
+        Examples
+        ********
+        ''', string_io)
+        blocks = [to_code_block(example, language='dts')
+                  for example in binding.examples]
+        print("\n\n----\n\n".join(blocks), file=string_io)
 
     # Properties.
     print_block('''\
@@ -650,15 +889,32 @@ def print_property_table(prop_specs, string_io, deprecated=False):
         if prop_spec.required:
             details += '\n\nThis property is **required**.'
 
-        if prop_spec.default:
-            details += f'\n\nDefault value: ``{prop_spec.default}``'
+        if prop_spec.default is not None:
+            details += f'\n\nDefault value: ``{format_value(prop_spec.default)}``'
 
-        if prop_spec.const:
-            details += f'\n\nConstant value: ``{prop_spec.const}``'
-        elif prop_spec.enum:
+        if prop_spec.const is not None:
+            details += f'\n\nConstant value: ``{format_value(prop_spec.const)}``'
+
+        if prop_spec.enum is not None:
             details += ('\n\nLegal values: ' +
-                        ', '.join(f'``{repr(val)}``' for val in
+                        ', '.join(f'``{format_value(val)}``' for val in
                                   prop_spec.enum))
+
+        if prop_spec.min is not None and prop_spec.max is not None:
+            details += (f'\n\nValue range: ``{format_value(prop_spec.min)}`` to '
+                        f'``{format_value(prop_spec.max)}``')
+        elif prop_spec.min is not None:
+            details += f'\n\nMinimum value: ``{format_value(prop_spec.min)}``'
+        elif prop_spec.max is not None:
+            details += f'\n\nMaximum value: ``{format_value(prop_spec.max)}``'
+
+        if prop_spec.min_len is not None and prop_spec.max_len is not None:
+            details += (f'\n\nLength range: ``{format_value(prop_spec.min_len)}`` to '
+                        f'``{format_value(prop_spec.max_len)}``')
+        elif prop_spec.min_len is not None:
+            details += f'\n\nMinimum length: ``{format_value(prop_spec.min_len)}``'
+        elif prop_spec.max_len is not None:
+            details += f'\n\nMaximum length: ``{format_value(prop_spec.max_len)}``'
 
         if prop_spec.name in DETAILS_IN_IMPORTANT_PROPS:
             details += (f'\n\nSee {zref("dt-important-props")} for more '
@@ -726,13 +982,13 @@ def print_block(block, string_io):
 
     print(textwrap.dedent(block), file=string_io)
 
-def to_code_block(s, indent=0):
+def to_code_block(s, indent=0, language='none'):
     # Converts 's', a string, to an indented rst .. code-block::. The
     # 'indent' argument is a leading indent for each line in the code
     # block, in spaces.
     indent = indent * ' '
-    return ('.. code-block:: none\n\n' +
-            textwrap.indent(s, indent + '   ') + '\n')
+    return (f".. code-block:: {language}\n\n"
+            f"{textwrap.indent(s, f'{indent}   ')}\n")
 
 def compatible_vnd(compatible):
     # Get the vendor prefix for a compatible string 'compatible'.

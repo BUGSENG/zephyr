@@ -51,10 +51,10 @@ For threads running in a non-privileged CPU state (hereafter referred to as
     - A user thread may have read/write access to the stacks of other user
       threads in the same memory domain, depending on hardware.
 
-       - On MPU systems, threads may only access their own stack buffer.
+      - On MPU systems, threads may only access their own stack buffer.
 
-       - On MMU systems, threads may access any user thread stack in the same
-         memory domain. Portable code should not assume this.
+      - On MMU systems, threads may access any user thread stack in the same
+        memory domain. Portable code should not assume this.
 
   - By default, program text and read-only data are accessible to all threads
     on read-only basis, kernel-wide. This policy may be adjusted.
@@ -84,11 +84,11 @@ For threads running in a non-privileged CPU state (hereafter referred to as
 - We prevent invoking system calls to functions excluded by the kernel
   configuration.
 
-- We prevent disabling of or tampering with kernel-defined and hardware-
-  enforced memory protections.
+- We prevent disabling of or tampering with kernel-defined and
+  hardware-enforced memory protections.
 
-- We prevent re-entry from user to supervisor mode except through the kernel-
-  defined system calls and interrupt handlers.
+- We prevent re-entry from user to supervisor mode except through the
+  kernel-defined system calls and interrupt handlers.
 
 - We prevent the introduction of new executable code by user mode threads,
   except to the extent to which this is supported by kernel system calls.

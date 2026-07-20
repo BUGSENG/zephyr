@@ -11,7 +11,6 @@
 
 #ifdef CONFIG_GROVE_LCD_RGB
 #include <zephyr/drivers/misc/grove_lcd/grove_lcd.h>
-#include <stdio.h>
 #include <string.h>
 #endif
 
@@ -29,10 +28,9 @@ int main(void)
 	}
 
 #ifdef CONFIG_GROVE_LCD_RGB
-	const struct device *glcd;
+	const struct device *glcd = DEVICE_DT_GET_ANY(seeed_grove_lcd_rgb);
 
-	glcd = device_get_binding(GROVE_LCD_NAME);
-	if (glcd == NULL) {
+	if (!device_is_ready(glcd)) {
 		printf("Failed to get Grove LCD\n");
 		return 0;
 	}
@@ -63,7 +61,7 @@ int main(void)
 
 		/* display temperature on LCD */
 		glcd_cursor_pos_set(glcd, 0, 0);
-#ifdef CONFIG_NEWLIB_LIBC_FLOAT_PRINTF
+#ifdef CONFIG_REQUIRES_FLOAT_PRINTF
 		sprintf(row, "T:%.2f%cC",
 			sensor_value_to_double(&temp),
 			223 /* degree symbol */);
@@ -75,7 +73,7 @@ int main(void)
 
 #endif
 
-#ifdef CONFIG_NEWLIB_LIBC_FLOAT_PRINTF
+#ifdef CONFIG_REQUIRES_FLOAT_PRINTF
 		printf("Temperature: %.2f C\n", sensor_value_to_double(&temp));
 #else
 		printk("Temperature: %d\n", temp.val1);

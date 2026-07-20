@@ -11,6 +11,7 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/irq.h>
+#include <zephyr/drivers/interrupt_controller/riscv_plic.h>
 
 
 /* Driver dts compatibility: telink,b91_uart */
@@ -499,15 +500,6 @@ static int uart_b91_irq_is_pending(const struct device *dev)
 	return ((uart->status & UART_IRQ_STATUS) != 0) ? 1 : 0;
 }
 
-/* API implementation: irq_update */
-static int uart_b91_irq_update(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-
-	/* nothing to be done */
-	return 1;
-}
-
 /* API implementation: irq_callback_set */
 static void uart_b91_irq_callback_set(const struct device *dev,
 				      uart_irq_callback_user_data_t cb,
@@ -521,7 +513,7 @@ static void uart_b91_irq_callback_set(const struct device *dev,
 
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
-static const struct uart_driver_api uart_b91_driver_api = {
+static DEVICE_API(uart, uart_b91_driver_api) = {
 	.poll_in = uart_b91_poll_in,
 	.poll_out = uart_b91_poll_out,
 	.err_check = uart_b91_err_check,
@@ -542,7 +534,6 @@ static const struct uart_driver_api uart_b91_driver_api = {
 	.irq_err_enable = uart_b91_irq_err_enable,
 	.irq_err_disable = uart_b91_irq_err_disable,
 	.irq_is_pending = uart_b91_irq_is_pending,
-	.irq_update = uart_b91_irq_update,
 	.irq_callback_set = uart_b91_irq_callback_set,
 #endif
 };

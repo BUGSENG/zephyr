@@ -5,6 +5,7 @@
  */
 
 #include <soc.h>
+#include <stm32_bitops.h>
 #include <stm32_ll_bus.h>
 #include <stm32_ll_pwr.h>
 #include <stm32_ll_rcc.h>
@@ -14,23 +15,15 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
-#include "stm32_hsem.h"
+#include <stm32_backup_domain.h>
+#include <stm32_hsem.h>
 
 /* Macros to fill up prescaler values */
-#define fn_ahb_prescaler(v) LL_RCC_SYSCLK_DIV_ ## v
-#define ahb_prescaler(v) fn_ahb_prescaler(v)
-
-#define fn_ahb5_prescaler(v) LL_RCC_AHB5_DIV_ ## v
-#define ahb5_prescaler(v) fn_ahb5_prescaler(v)
-
-#define fn_apb1_prescaler(v) LL_RCC_APB1_DIV_ ## v
-#define apb1_prescaler(v) fn_apb1_prescaler(v)
-
-#define fn_apb2_prescaler(v) LL_RCC_APB2_DIV_ ## v
-#define apb2_prescaler(v) fn_apb2_prescaler(v)
-
-#define fn_apb7_prescaler(v) LL_RCC_APB7_DIV_ ## v
-#define apb7_prescaler(v) fn_apb7_prescaler(v)
+#define ahb_prescaler(v) CONCAT(LL_RCC_SYSCLK_DIV_, v)
+#define ahb5_prescaler(v) CONCAT(LL_RCC_AHB5_DIV_, v)
+#define apb1_prescaler(v) CONCAT(LL_RCC_APB1_DIV_, v)
+#define apb2_prescaler(v) CONCAT(LL_RCC_APB2_DIV_, v)
+#define apb7_prescaler(v) CONCAT(LL_RCC_APB7_DIV_, v)
 
 #define RCC_CALC_FLASH_FREQ __LL_RCC_CALC_HCLK_FREQ
 #define GET_CURRENT_FLASH_PRESCALER LL_RCC_GetAHBPrescaler
@@ -41,10 +34,16 @@ static uint32_t get_bus_clock(uint32_t clock, uint32_t prescaler)
 }
 
 /** @brief Verifies clock is part of active clock configuration */
-__unused
-static int enabled_clock(uint32_t src_clk)
+int enabled_clock(uint32_t src_clk)
 {
 	if ((src_clk == STM32_SRC_SYSCLK) ||
+	    (src_clk == STM32_SRC_HCLK1) ||
+	    (src_clk == STM32_SRC_HCLK5) ||
+	    (src_clk == STM32_SRC_PCLK1) ||
+	    (src_clk == STM32_SRC_PCLK2) ||
+	    (src_clk == STM32_SRC_PCLK7) ||
+	    (src_clk == STM32_SRC_TIMPCLK1) ||
+	    (src_clk == STM32_SRC_TIMPCLK2) ||
 	    ((src_clk == STM32_SRC_HSE) && IS_ENABLED(STM32_HSE_ENABLED)) ||
 	    ((src_clk == STM32_SRC_HSI16) && IS_ENABLED(STM32_HSI_ENABLED)) ||
 	    ((src_clk == STM32_SRC_LSE) && IS_ENABLED(STM32_LSE_ENABLED)) ||
@@ -58,32 +57,35 @@ static int enabled_clock(uint32_t src_clk)
 	return -ENOTSUP;
 }
 
-static inline int stm32_clock_control_on(const struct device *dev,
-					 clock_control_subsys_t sub_system)
+static int stm32_clock_control_on(const struct device *dev, clock_control_subsys_t sub_system)
 {
 	struct stm32_pclken *pclken = (struct stm32_pclken *)(sub_system);
+	volatile int temp;
 
 	ARG_UNUSED(dev);
 
-	if (IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX) == 0) {
-		/* Attemp to toggle a wrong periph clock bit */
+	if (!IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX)) {
+		/* Attempt to toggle a wrong periph clock bit */
 		return -ENOTSUP;
 	}
 
 	sys_set_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + pclken->bus,
 		     pclken->enr);
+	/* Delay after enabling the clock, to allow it to become active */
+	temp = sys_read32(DT_REG_ADDR(DT_NODELABEL(rcc)) + pclken->bus);
+	UNUSED(temp);
+
 	return 0;
 }
 
-static inline int stm32_clock_control_off(const struct device *dev,
-					  clock_control_subsys_t sub_system)
+static int stm32_clock_control_off(const struct device *dev, clock_control_subsys_t sub_system)
 {
 	struct stm32_pclken *pclken = (struct stm32_pclken *)(sub_system);
 
 	ARG_UNUSED(dev);
 
-	if (IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX) == 0) {
-		/* Attemp to toggle a wrong periph clock bit */
+	if (!IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX)) {
+		/* Attempt to toggle a wrong periph clock bit */
 		return -ENOTSUP;
 	}
 
@@ -93,13 +95,16 @@ static inline int stm32_clock_control_off(const struct device *dev,
 	return 0;
 }
 
-static inline int stm32_clock_control_configure(const struct device *dev,
-						clock_control_subsys_t sub_system,
-						void *data)
+static int stm32_clock_control_configure(const struct device *dev,
+					 clock_control_subsys_t sub_system,
+					 void *data)
 {
 #if defined(STM32_SRC_CLOCK_MIN)
 	/* At least one alt src clock available */
 	struct stm32_pclken *pclken = (struct stm32_pclken *)(sub_system);
+	uint32_t enr = pclken->enr;
+	uint32_t reg = STM32_DT_CLKSEL_REG_GET(enr);
+	uint32_t shift = STM32_DT_CLKSEL_SHIFT_GET(enr);
 	int err;
 
 	ARG_UNUSED(dev);
@@ -111,10 +116,14 @@ static inline int stm32_clock_control_configure(const struct device *dev,
 		return err;
 	}
 
-	sys_clear_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_CLOCK_REG_GET(pclken->enr),
-		       STM32_CLOCK_MASK_GET(pclken->enr) << STM32_CLOCK_SHIFT_GET(pclken->enr));
-	sys_set_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_CLOCK_REG_GET(pclken->enr),
-		     STM32_CLOCK_VAL_GET(pclken->enr) << STM32_CLOCK_SHIFT_GET(pclken->enr));
+	if (pclken->enr == NO_SEL) {
+		/* Domain clock is fixed. Nothing to set. Exit */
+		return 0;
+	}
+
+	stm32_reg_modify_bits((uint32_t *)(DT_REG_ADDR(DT_NODELABEL(rcc)) + reg),
+			      STM32_DT_CLKSEL_MASK_GET(enr) << shift,
+			      STM32_DT_CLKSEL_VAL_GET(enr) << shift);
 
 	return 0;
 #else
@@ -190,19 +199,24 @@ static int stm32_clock_control_get_subsys_rate(const struct device *dev,
 	case STM32_CLOCK_BUS_AHB1:
 	case STM32_CLOCK_BUS_AHB2:
 	case STM32_CLOCK_BUS_AHB4:
+	case STM32_SRC_HCLK1:
 		*rate = ahb_clock;
 		break;
 	case STM32_CLOCK_BUS_AHB5:
+	case STM32_SRC_HCLK5:
 		*rate = ahb5_clock;
 		break;
 	case STM32_CLOCK_BUS_APB1:
 	case STM32_CLOCK_BUS_APB1_2:
+	case STM32_SRC_PCLK1:
 		*rate = apb1_clock;
 		break;
 	case STM32_CLOCK_BUS_APB2:
+	case STM32_SRC_PCLK2:
 		*rate = apb2_clock;
 		break;
 	case STM32_CLOCK_BUS_APB7:
+	case STM32_SRC_PCLK7:
 		*rate = apb7_clock;
 		break;
 	case STM32_SRC_SYSCLK:
@@ -253,17 +267,53 @@ static int stm32_clock_control_get_subsys_rate(const struct device *dev,
 
 		break;
 #endif
+	case STM32_SRC_TIMPCLK1:
+		*rate = STM32_APB1_PRESCALER <= 2 ? ahb_clock : apb1_clock * 2;
+		break;
+	case STM32_SRC_TIMPCLK2:
+		*rate = STM32_APB2_PRESCALER <= 2 ? ahb_clock : apb2_clock * 2;
+		break;
 	default:
 		return -ENOTSUP;
+	}
+
+	if (pclken->div) {
+		*rate /= (pclken->div + 1);
 	}
 
 	return 0;
 }
 
-static struct clock_control_driver_api stm32_clock_control_api = {
+static enum clock_control_status stm32_clock_control_get_status(const struct device *dev,
+								clock_control_subsys_t sub_system)
+{
+	struct stm32_pclken *pclken = (struct stm32_pclken *)sub_system;
+
+	ARG_UNUSED(dev);
+
+	if (IN_RANGE(pclken->bus, STM32_PERIPH_BUS_MIN, STM32_PERIPH_BUS_MAX)) {
+		/* Gated clocks */
+		if ((sys_read32(DT_REG_ADDR(DT_NODELABEL(rcc)) + pclken->bus) & pclken->enr)
+		    == pclken->enr) {
+			return CLOCK_CONTROL_STATUS_ON;
+		} else {
+			return CLOCK_CONTROL_STATUS_OFF;
+		}
+	} else {
+		/* Domain clock sources */
+		if (enabled_clock(pclken->bus) == 0) {
+			return CLOCK_CONTROL_STATUS_ON;
+		} else {
+			return CLOCK_CONTROL_STATUS_OFF;
+		}
+	}
+}
+
+static DEVICE_API(clock_control, stm32_clock_control_api) = {
 	.on = stm32_clock_control_on,
 	.off = stm32_clock_control_off,
 	.get_rate = stm32_clock_control_get_subsys_rate,
+	.get_status = stm32_clock_control_get_status,
 	.configure = stm32_clock_control_configure,
 };
 
@@ -287,7 +337,7 @@ static int get_vco_input_range(uint32_t m_div, uint32_t *range)
 
 static void set_regu_voltage(uint32_t hclk_freq)
 {
-	if (hclk_freq < MHZ(16)) {
+	if (hclk_freq <= MHZ(16)) {
 		LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE2);
 	} else {
 		LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE1);
@@ -315,6 +365,22 @@ static void stm32_clock_switch_to_hsi(void)
 	LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_HSI);
 	while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_HSI) {
 	}
+
+	/* Erratum 2.2.4: Spurious deactivation of HSE when HSI is selected as
+	 * system clock source
+	 * Re-enable HSE clock if required after switch source to HSI
+	 */
+	if (IS_ENABLED(STM32_HSE_ENABLED)) {
+		if (IS_ENABLED(STM32_HSE_DIV2)) {
+			LL_RCC_HSE_EnablePrescaler();
+		}
+
+		/* Enable HSE */
+		LL_RCC_HSE_Enable();
+		while (LL_RCC_HSE_IsReady() != 1) {
+		/* Wait for HSE ready */
+		}
+	}
 }
 
 __unused
@@ -323,19 +389,6 @@ static int set_up_plls(void)
 #if defined(STM32_PLL_ENABLED)
 	int r;
 	uint32_t vco_input_range;
-
-	/*
-	 * Case of chain-loaded applications:
-	 * Switch to HSI and disable the PLL before configuration.
-	 * (Switching to HSI makes sure we have a SYSCLK source in
-	 * case we're currently running from the PLL we're about to
-	 * turn off and reconfigure.)
-	 *
-	 */
-	if (LL_RCC_GetSysClkSource() == LL_RCC_SYS_CLKSOURCE_STATUS_PLL1R) {
-		LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
-		stm32_clock_switch_to_hsi();
-	}
 
 	LL_RCC_PLL1_Disable();
 
@@ -420,29 +473,19 @@ static void set_up_fixed_clock_sources(void)
 	}
 
 	if (IS_ENABLED(STM32_LSI_ENABLED)) {
-		/* LSI belongs to the back-up domain, enable access.*/
-
-		/* Set the DBP bit in the Power control register 1 (PWR_CR1) */
-		LL_PWR_EnableBkUpAccess();
-		while (!LL_PWR_IsEnabledBkUpAccess()) {
-			/* Wait for Backup domain access */
-		}
+		/* LSI control belongs to the back-up domain */
+		stm32_backup_domain_enable_access();
 
 		LL_RCC_LSI1_Enable();
 		while (LL_RCC_LSI1_IsReady() != 1) {
 		}
 
-		LL_PWR_DisableBkUpAccess();
+		stm32_backup_domain_disable_access();
 	}
 
 	if (IS_ENABLED(STM32_LSE_ENABLED)) {
-		/* LSE belongs to the back-up domain, enable access.*/
-
-		/* Set the DBP bit in the Power control register 1 (PWR_CR1) */
-		LL_PWR_EnableBkUpAccess();
-		while (!LL_PWR_IsEnabledBkUpAccess()) {
-			/* Wait for Backup domain access */
-		}
+		/* LSE control belongs to the back-up domain */
+		stm32_backup_domain_enable_access();
 
 		/* Configure driving capability */
 		LL_RCC_LSE_SetDriveCapability(STM32_LSE_DRIVING << RCC_BDCR1_LSEDRV_Pos);
@@ -453,13 +496,13 @@ static void set_up_fixed_clock_sources(void)
 			/* Wait for LSE ready */
 		}
 
-		/* Enable LSESYS additionnally */
+		/* Enable LSESYS additionally */
 		LL_RCC_LSE_EnablePropagation();
 		/* Wait till LSESYS is ready */
 		while (!LL_RCC_LSE_IsPropagationReady()) {
 		}
 
-		LL_PWR_DisableBkUpAccess();
+		stm32_backup_domain_disable_access();
 	}
 }
 
@@ -478,14 +521,30 @@ static void set_up_fixed_clock_sources(void)
 int stm32_clock_control_init(const struct device *dev)
 {
 	uint32_t old_flash_freq;
-	int r = 0;
+	int r;
 
 	ARG_UNUSED(dev);
 
+	if (IS_ENABLED(STM32_SYSCLK_SRC_HSE)) {
+#if DT_NODE_HAS_PROP(DT_NODELABEL(clk_hse), hse_trimming)
+		/* Set the HSE Trimming value specified in the device tree */
+		LL_RCC_HSE_SetClockTrimming(DT_PROP(DT_NODELABEL(clk_hse), hse_trimming));
+#endif
+	}
+
+	if (IS_ENABLED(STM32_SYSCLK_SRC_PLL) &&
+			(LL_RCC_GetSysClkSource() == LL_RCC_SYS_CLKSOURCE_STATUS_PLL1R)) {
+		/* In case of chainloaded application, it may happen that PLL
+		 * was already configured as sysclk src by bootloader.
+		 * Don't test other cases as there are multiple options but
+		 * they will be handled smoothly by the function.
+		 */
+		SystemCoreClock = CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC;
+		return 0;
+	}
+
 	old_flash_freq = RCC_CALC_FLASH_FREQ(HAL_RCC_GetSysClockFreq(),
 					       GET_CURRENT_FLASH_PRESCALER());
-
-
 
 	/* Set up individual enabled clocks */
 	set_up_fixed_clock_sources();
@@ -507,6 +566,7 @@ int stm32_clock_control_init(const struct device *dev)
 	/* Set up PLLs */
 	r = set_up_plls();
 	if (r < 0) {
+		__ASSERT(0, "PLL setup failed");
 		return r;
 	}
 
@@ -551,6 +611,9 @@ int stm32_clock_control_init(const struct device *dev)
 		LL_SetFlashLatency(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
 	}
 
+	/* Set voltage regulator to comply with targeted system frequency */
+	set_regu_voltage(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
+
 	SystemCoreClock = CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC;
 
 	/* Set bus prescalers prescaler */
@@ -566,7 +629,7 @@ int stm32_clock_control_init(const struct device *dev)
  * that the device init runs just after SOC init
  */
 DEVICE_DT_DEFINE(DT_NODELABEL(rcc),
-		    &stm32_clock_control_init,
+		    stm32_clock_control_init,
 		    NULL,
 		    NULL, NULL,
 		    PRE_KERNEL_1,

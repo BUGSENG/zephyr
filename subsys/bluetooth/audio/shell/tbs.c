@@ -3,21 +3,32 @@
  */
 
 /*
- * Copyright (c) 2020-2021 Nordic Semiconductor ASA
+ * Copyright (c) 2020-2026 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdlib.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/assigned_numbers.h>
+#include <zephyr/bluetooth/audio/tbs.h>
+#include <zephyr/bluetooth/conn.h>
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
+#include <zephyr/shell/shell_string_conv.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/toolchain.h>
 
-#include <zephyr/bluetooth/audio/tbs.h>
-
-#include "shell/bt.h"
+#include "host/shell/bt.h"
 
 static struct bt_conn *tbs_authorized_conn;
-static bool cbs_registered;
 
 static bool tbs_authorize_cb(struct bt_conn *conn)
 {
@@ -27,6 +38,10 @@ static bool tbs_authorize_cb(struct bt_conn *conn)
 static bool tbs_originate_call_cb(struct bt_conn *conn, uint8_t call_index,
 				  const char *uri)
 {
+	ARG_UNUSED(conn);
+	ARG_UNUSED(call_index);
+	ARG_UNUSED(uri);
+
 	/* Always accept calls */
 	return true;
 }
@@ -38,30 +53,86 @@ static struct bt_tbs_cb tbs_cbs = {
 
 static int cmd_tbs_authorize(const struct shell *sh, size_t argc, char *argv[])
 {
-	char addr[BT_ADDR_LE_STR_LEN];
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
 	tbs_authorized_conn = default_conn;
 
-	(void)bt_addr_le_to_str(bt_conn_get_dst(tbs_authorized_conn),
-				addr, sizeof(addr));
-
-	shell_print(sh, "Connection with addr %s authorized", addr);
+	shell_print(sh, "Connection with addr %s authorized",
+		    bt_conn_dst_str(tbs_authorized_conn));
 
 	return 0;
 }
 
-static int cmd_tbs_init(void)
+static int cmd_tbs_init(const struct shell *sh, size_t argc, char *argv[])
 {
-	if (!cbs_registered) {
-		bt_tbs_register_cb(&tbs_cbs);
-		cbs_registered = true;
+	static bool registered;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	if (registered) {
+		shell_info(sh, "Already initialized");
+
+		return -ENOEXEC;
 	}
+
+	const struct bt_tbs_register_param gtbs_param = {
+		.provider_name = "Generic TBS",
+		.uci = "un000",
+		.uri_schemes_supported = "tel,skype",
+		.gtbs = true,
+		.authorization_required = false,
+		.technology = BT_BEARER_TECH_3G,
+		.optional_opcodes = BT_TBS_OPTIONAL_OPCODE_HOLD | BT_TBS_OPTIONAL_OPCODE_JOIN,
+	};
+	int err;
+
+	err = bt_tbs_register_bearer(&gtbs_param);
+	if (err < 0) {
+		shell_error(sh, "Failed to register GTBS: %d", err);
+
+		return -ENOEXEC;
+	}
+
+	shell_info(sh, "Registered GTBS");
+
+	for (int i = 0; i < CONFIG_BT_TBS_BEARER_COUNT; i++) {
+		char prov_name[22]; /* Enough to store "Telephone Bearer #255" */
+		const struct bt_tbs_register_param tbs_param = {
+			.provider_name = prov_name,
+			.uci = "un000",
+			.uri_schemes_supported = "tel,skype",
+			.gtbs = false,
+			.authorization_required = false,
+			/* Set different technologies per bearer */
+			.technology = (i % BT_BEARER_TECH_WCDMA) + 1,
+			.optional_opcodes =
+				BT_TBS_OPTIONAL_OPCODE_HOLD | BT_TBS_OPTIONAL_OPCODE_JOIN,
+		};
+
+		snprintf(prov_name, sizeof(prov_name), "Telephone Bearer #%d", i);
+
+		err = bt_tbs_register_bearer(&tbs_param);
+		if (err < 0) {
+			shell_error(sh, "Failed to register TBS[%d]: %d", i, err);
+
+			return -ENOEXEC;
+		}
+
+		shell_info(sh, "Registered TBS[%d] with index %u", i, (uint8_t)err);
+	}
+
+	bt_tbs_register_cb(&tbs_cbs);
+	registered = true;
 
 	return 0;
 }
 
 static int cmd_tbs_accept(const struct shell *sh, size_t argc, char *argv[])
 {
+	ARG_UNUSED(argc);
+
 	unsigned long call_index;
 	int result = 0;
 
@@ -92,6 +163,8 @@ static int cmd_tbs_accept(const struct shell *sh, size_t argc, char *argv[])
 static int cmd_tbs_terminate(const struct shell *sh, size_t argc,
 			     char *argv[])
 {
+	ARG_UNUSED(argc);
+
 	unsigned long call_index;
 	int result = 0;
 
@@ -121,6 +194,8 @@ static int cmd_tbs_terminate(const struct shell *sh, size_t argc,
 
 static int cmd_tbs_hold(const struct shell *sh, size_t argc, char *argv[])
 {
+	ARG_UNUSED(argc);
+
 	unsigned long call_index;
 	int result = 0;
 
@@ -151,6 +226,8 @@ static int cmd_tbs_hold(const struct shell *sh, size_t argc, char *argv[])
 static int cmd_tbs_retrieve(const struct shell *sh, size_t argc,
 			    char *argv[])
 {
+	ARG_UNUSED(argc);
+
 	unsigned long call_index;
 	int result = 0;
 
@@ -200,7 +277,7 @@ static int cmd_tbs_originate(const struct shell *sh, size_t argc, char *argv[])
 			return -ENOEXEC;
 		}
 	} else {
-		service_index = 0U;
+		service_index = BT_TBS_GTBS_INDEX;
 	}
 
 	result = bt_tbs_originate((uint8_t)service_index, argv[argc - 1],
@@ -220,7 +297,7 @@ static int cmd_tbs_join(const struct shell *sh, size_t argc, char *argv[])
 	unsigned long call_index;
 	int result = 0;
 
-	for (size_t i = 1; i < argc; i++) {
+	for (size_t i = 1U; i < argc; i++) {
 		call_index = shell_strtoul(argv[i], 0, &result);
 		if (result != 0) {
 			shell_error(sh, "Could not parse call_index: %d",
@@ -250,6 +327,8 @@ static int cmd_tbs_join(const struct shell *sh, size_t argc, char *argv[])
 
 static int cmd_tbs_answer(const struct shell *sh, size_t argc, char *argv[])
 {
+	ARG_UNUSED(argc);
+
 	unsigned long call_index;
 	int result = 0;
 
@@ -280,6 +359,8 @@ static int cmd_tbs_answer(const struct shell *sh, size_t argc, char *argv[])
 static int cmd_tbs_remote_hold(const struct shell *sh, size_t argc,
 			       char *argv[])
 {
+	ARG_UNUSED(argc);
+
 	unsigned long call_index;
 	int result = 0;
 
@@ -310,6 +391,8 @@ static int cmd_tbs_remote_hold(const struct shell *sh, size_t argc,
 static int cmd_tbs_remote_retrieve(const struct shell *sh, size_t argc,
 				   char *argv[])
 {
+	ARG_UNUSED(argc);
+
 	unsigned long call_index;
 	int result = 0;
 
@@ -340,6 +423,8 @@ static int cmd_tbs_remote_retrieve(const struct shell *sh, size_t argc,
 static int cmd_tbs_remote_terminate(const struct shell *sh, size_t argc,
 				    char *argv[])
 {
+	ARG_UNUSED(argc);
+
 	unsigned long call_index;
 	int result = 0;
 
@@ -393,7 +478,7 @@ static int cmd_tbs_incoming(const struct shell *sh, size_t argc, char *argv[])
 			}
 		}
 	} else {
-		service_index = 0U;
+		service_index = BT_TBS_GTBS_INDEX;
 	}
 
 	result = bt_tbs_remote_incoming((uint8_t)service_index,
@@ -436,7 +521,7 @@ static int cmd_tbs_set_bearer_provider_name(const struct shell *sh, size_t argc,
 			}
 		}
 	} else {
-		service_index = 0U;
+		service_index = BT_TBS_GTBS_INDEX;
 	}
 
 	result = bt_tbs_set_bearer_provider_name((uint8_t)service_index,
@@ -476,7 +561,7 @@ static int cmd_tbs_set_bearer_technology(const struct shell *sh, size_t argc,
 			}
 		}
 	} else {
-		service_index = 0U;
+		service_index = BT_TBS_GTBS_INDEX;
 	}
 
 	technology = shell_strtoul(argv[argc - 1], 0, &result);
@@ -529,7 +614,7 @@ static int cmd_tbs_set_bearer_signal_strength(const struct shell *sh,
 			}
 		}
 	} else {
-		service_index = 0U;
+		service_index = BT_TBS_GTBS_INDEX;
 	}
 
 	signal_strength = shell_strtoul(argv[argc - 1], 0, &result);
@@ -583,7 +668,7 @@ static int cmd_tbs_set_status_flags(const struct shell *sh, size_t argc,
 			}
 		}
 	} else {
-		service_index = 0U;
+		service_index = BT_TBS_GTBS_INDEX;
 	}
 
 	status_flags = shell_strtoul(argv[argc - 1], 0, &result);
@@ -635,12 +720,10 @@ static int cmd_tbs_set_uri_scheme_list(const struct shell *sh, size_t argc,
 			}
 		}
 	} else {
-		service_index = 0U;
+		service_index = BT_TBS_GTBS_INDEX;
 	}
 
-	result = bt_tbs_set_uri_scheme_list((uint8_t)service_index,
-					    (const char **)&argv[2],
-					    argc - 2);
+	result = bt_tbs_set_uri_scheme_list((uint8_t)service_index, argv[2]);
 
 	if (result != BT_TBS_RESULT_CODE_SUCCESS) {
 		shell_print(sh, "Could not set URI prefix list: %d", result);
@@ -652,6 +735,10 @@ static int cmd_tbs_set_uri_scheme_list(const struct shell *sh, size_t argc,
 static int cmd_tbs_print_calls(const struct shell *sh, size_t argc,
 			       char *argv[])
 {
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
 	if (IS_ENABLED(CONFIG_BT_TBS_LOG_LEVEL_DBG)) {
 		bt_tbs_dbg_print_calls();
 		return 0;
@@ -734,8 +821,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(tbs_cmds,
 		      cmd_tbs_set_status_flags, 2, 1),
 	SHELL_CMD_ARG(set_uri_scheme, NULL,
 		      "Set the URI prefix list <bearer_idx> "
-		      "<uri1 [uri2 [uri3 [...]]]>",
-		      cmd_tbs_set_uri_scheme_list, 3, 30),
+		      "<uri1[,uri2[,uri3[,...]]]>",
+		      cmd_tbs_set_uri_scheme_list, 3, 0),
 	SHELL_CMD_ARG(print_calls, NULL,
 		      "Output all calls in the debug log",
 		      cmd_tbs_print_calls, 1, 0),

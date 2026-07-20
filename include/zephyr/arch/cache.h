@@ -13,9 +13,8 @@
 #define ZEPHYR_INCLUDE_ARCH_CACHE_H_
 
 /**
- * @brief Cache Controller Interface
- * @defgroup cache_arch_interface Cache Controller Interface
- * @ingroup io_interfaces
+ * @defgroup arch-cache Architecture-specific cache controllers.
+ * @ingroup arch-interface
  * @{
  */
 
@@ -25,14 +24,17 @@
 #include <zephyr/arch/xtensa/cache.h>
 #endif
 
-#if defined(CONFIG_DCACHE)
+#include <stddef.h>
+#include <stdbool.h>
+
+#if defined(CONFIG_DCACHE) || defined(__DOXYGEN__)
 
 /**
  * @brief Enable the d-cache
  *
  * Enable the data cache.
  */
-extern void arch_dcache_enable(void);
+void arch_dcache_enable(void);
 
 #define cache_data_enable arch_dcache_enable
 
@@ -41,7 +43,7 @@ extern void arch_dcache_enable(void);
  *
  * Disable the data cache.
  */
-extern void arch_dcache_disable(void);
+void arch_dcache_disable(void);
 
 #define cache_data_disable arch_dcache_disable
 
@@ -54,7 +56,7 @@ extern void arch_dcache_disable(void);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_dcache_flush_all(void);
+int arch_dcache_flush_all(void);
 
 #define cache_data_flush_all arch_dcache_flush_all
 
@@ -67,7 +69,7 @@ extern int arch_dcache_flush_all(void);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_dcache_invd_all(void);
+int arch_dcache_invd_all(void);
 
 #define cache_data_invd_all arch_dcache_invd_all
 
@@ -80,7 +82,7 @@ extern int arch_dcache_invd_all(void);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_dcache_flush_and_invd_all(void);
+int arch_dcache_flush_and_invd_all(void);
 
 #define cache_data_flush_and_invd_all arch_dcache_flush_and_invd_all
 
@@ -103,7 +105,7 @@ extern int arch_dcache_flush_and_invd_all(void);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_dcache_flush_range(void *addr, size_t size);
+int arch_dcache_flush_range(void *addr, size_t size);
 
 #define cache_data_flush_range(addr, size) arch_dcache_flush_range(addr, size)
 
@@ -127,7 +129,7 @@ extern int arch_dcache_flush_range(void *addr, size_t size);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_dcache_invd_range(void *addr, size_t size);
+int arch_dcache_invd_range(void *addr, size_t size);
 
 #define cache_data_invd_range(addr, size) arch_dcache_invd_range(addr, size)
 
@@ -152,12 +154,12 @@ extern int arch_dcache_invd_range(void *addr, size_t size);
  * @retval -errno Negative errno for other failures.
  */
 
-extern int arch_dcache_flush_and_invd_range(void *addr, size_t size);
+int arch_dcache_flush_and_invd_range(void *addr, size_t size);
 
 #define cache_data_flush_and_invd_range(addr, size) \
 	arch_dcache_flush_and_invd_range(addr, size)
 
-#if defined(CONFIG_DCACHE_LINE_SIZE_DETECT)
+#if defined(CONFIG_DCACHE_LINE_SIZE_DETECT) || defined(__DOXYGEN__)
 
 /**
  *
@@ -172,22 +174,22 @@ extern int arch_dcache_flush_and_invd_range(void *addr, size_t size);
  * @retval size Size of the d-cache line.
  * @retval 0 If the d-cache is not enabled.
  */
-extern size_t arch_dcache_line_size_get(void);
+size_t arch_dcache_line_size_get(void);
 
 #define cache_data_line_size_get arch_dcache_line_size_get
 
-#endif /* CONFIG_DCACHE_LINE_SIZE_DETECT */
+#endif /* CONFIG_DCACHE_LINE_SIZE_DETECT || __DOXYGEN__ */
 
-#endif /* CONFIG_DCACHE */
+#endif /* CONFIG_DCACHE || __DOXYGEN__ */
 
-#if defined(CONFIG_ICACHE)
+#if defined(CONFIG_ICACHE) || defined(__DOXYGEN__)
 
 /**
  * @brief Enable the i-cache
  *
  * Enable the instruction cache.
  */
-extern void arch_icache_enable(void);
+void arch_icache_enable(void);
 
 #define cache_instr_enable arch_icache_enable
 
@@ -196,7 +198,7 @@ extern void arch_icache_enable(void);
  *
  * Disable the instruction cache.
  */
-extern void arch_icache_disable(void);
+void arch_icache_disable(void);
 
 #define cache_instr_disable arch_icache_disable
 
@@ -209,7 +211,7 @@ extern void arch_icache_disable(void);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_icache_flush_all(void);
+int arch_icache_flush_all(void);
 
 #define cache_instr_flush_all arch_icache_flush_all
 
@@ -222,7 +224,7 @@ extern int arch_icache_flush_all(void);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_icache_invd_all(void);
+int arch_icache_invd_all(void);
 
 #define cache_instr_invd_all arch_icache_invd_all
 
@@ -235,7 +237,7 @@ extern int arch_icache_invd_all(void);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_icache_flush_and_invd_all(void);
+int arch_icache_flush_and_invd_all(void);
 
 #define cache_instr_flush_and_invd_all arch_icache_flush_and_invd_all
 
@@ -258,7 +260,7 @@ extern int arch_icache_flush_and_invd_all(void);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_icache_flush_range(void *addr, size_t size);
+int arch_icache_flush_range(void *addr, size_t size);
 
 #define cache_instr_flush_range(addr, size) arch_icache_flush_range(addr, size)
 
@@ -282,7 +284,7 @@ extern int arch_icache_flush_range(void *addr, size_t size);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_icache_invd_range(void *addr, size_t size);
+int arch_icache_invd_range(void *addr, size_t size);
 
 #define cache_instr_invd_range(addr, size) arch_icache_invd_range(addr, size)
 
@@ -306,12 +308,12 @@ extern int arch_icache_invd_range(void *addr, size_t size);
  * @retval -ENOTSUP If not supported.
  * @retval -errno Negative errno for other failures.
  */
-extern int arch_icache_flush_and_invd_range(void *addr, size_t size);
+int arch_icache_flush_and_invd_range(void *addr, size_t size);
 
 #define cache_instr_flush_and_invd_range(addr, size) \
 	arch_icache_flush_and_invd_range(addr, size)
 
-#if defined(CONFIG_ICACHE_LINE_SIZE_DETECT)
+#if defined(CONFIG_ICACHE_LINE_SIZE_DETECT) || defined(__DOXYGEN__)
 
 /**
  *
@@ -327,13 +329,34 @@ extern int arch_icache_flush_and_invd_range(void *addr, size_t size);
  * @retval 0 If the d-cache is not enabled.
  */
 
-extern size_t arch_icache_line_size_get(void);
+size_t arch_icache_line_size_get(void);
 
 #define cache_instr_line_size_get arch_icache_line_size_get
 
-#endif /* CONFIG_ICACHE_LINE_SIZE_DETECT */
+#endif /* CONFIG_ICACHE_LINE_SIZE_DETECT || __DOXYGEN__ */
 
-#endif /* CONFIG_ICACHE */
+#endif /* CONFIG_ICACHE || __DOXYGEN__ */
+
+#if CONFIG_CACHE_HAS_MIRRORED_MEMORY_REGIONS  || __DOXYGEN__
+bool arch_cache_is_ptr_cached(void *ptr);
+#define cache_is_ptr_cached(ptr) arch_cache_is_ptr_cached(ptr)
+
+bool arch_cache_is_ptr_uncached(void *ptr);
+#define cache_is_ptr_uncached(ptr) arch_cache_is_ptr_uncached(ptr)
+
+void __sparse_cache *arch_cache_cached_ptr_get(void *ptr);
+#define cache_cached_ptr(ptr) arch_cache_cached_ptr_get(ptr)
+
+void *arch_cache_uncached_ptr_get(void __sparse_cache *ptr);
+#define cache_uncached_ptr(ptr) arch_cache_uncached_ptr_get(ptr)
+#endif /* CONFIG_CACHE_HAS_MIRRORED_MEMORY_REGIONS */
+
+
+void arch_cache_init(void);
+
+#if defined(CONFIG_CACHE_CAN_SAY_MEM_COHERENCE) || defined(__DOXYGEN__)
+#define cache_is_mem_coherent(ptr) arch_mem_coherent(ptr)
+#endif
 
 /**
  * @}

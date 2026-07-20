@@ -8,7 +8,7 @@
 #ifndef __SETTINGS_NVS_H_
 #define __SETTINGS_NVS_H_
 
-#include <zephyr/fs/nvs.h>
+#include <zephyr/kvss/nvs.h>
 #include <zephyr/settings/settings.h>
 
 #ifdef __cplusplus
@@ -45,6 +45,8 @@ struct settings_nvs {
 	} cache[CONFIG_SETTINGS_NVS_NAME_CACHE_SIZE];
 
 	uint16_t cache_next;
+	uint16_t cache_total;
+	bool loaded;
 #endif
 };
 

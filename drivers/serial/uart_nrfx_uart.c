@@ -287,7 +287,7 @@ static void uart_nrfx_poll_out(const struct device *dev, unsigned char c)
 	/* Wait until the transmitter is ready, i.e. the character is sent. */
 	bool res;
 
-	NRFX_WAIT_FOR(event_txdrdy_check(), 1000, 1, res);
+	NRFX_WAIT_FOR(event_txdrdy_check(), 10000, 1, res);
 
 	/* Deactivate the transmitter so that it does not needlessly
 	 * consume power.
@@ -477,7 +477,7 @@ static int uart_nrfx_rx_enable(const struct device *dev, uint8_t *buf,
 		return -EBUSY;
 	}
 
-	uart0_cb.rx_enabled = 1;
+	uart0_cb.rx_enabled = true;
 	uart0_cb.rx_buffer = buf;
 	uart0_cb.rx_buffer_length = len;
 	uart0_cb.rx_counter = 0;
@@ -522,7 +522,7 @@ static int uart_nrfx_rx_disable(const struct device *dev)
 		return -EFAULT;
 	}
 
-	uart0_cb.rx_enabled = 0;
+	uart0_cb.rx_enabled = false;
 	if (uart0_cb.rx_timeout != SYS_FOREVER_US) {
 		k_timer_stop(&uart0_cb.rx_timeout_timer);
 	}
@@ -570,7 +570,7 @@ static void rx_reset_state(void)
 			     NRF_UART_INT_MASK_ERROR |
 			     NRF_UART_INT_MASK_RXTO);
 	uart0_cb.rx_buffer_length = 0;
-	uart0_cb.rx_enabled = 0;
+	uart0_cb.rx_enabled = false;
 	uart0_cb.rx_counter = 0;
 	uart0_cb.rx_offset = 0;
 	uart0_cb.rx_secondary_buffer_length = 0;
@@ -612,7 +612,7 @@ static void rx_isr(const struct device *dev)
 		unsigned int key = irq_lock();
 
 		if (uart0_cb.rx_secondary_buffer_length == 0) {
-			uart0_cb.rx_enabled = 0;
+			uart0_cb.rx_enabled = false;
 		}
 		irq_unlock(key);
 
@@ -786,7 +786,7 @@ static int uart_nrfx_fifo_fill(const struct device *dev,
 			       const uint8_t *tx_data,
 			       int len)
 {
-	uint8_t num_tx = 0U;
+	int num_tx = 0U;
 
 	while ((len - num_tx > 0) &&
 	       event_txdrdy_check()) {
@@ -806,7 +806,7 @@ static int uart_nrfx_fifo_read(const struct device *dev,
 			       uint8_t *rx_data,
 			       const int size)
 {
-	uint8_t num_rx = 0U;
+	int num_rx = 0U;
 
 	while ((size - num_rx > 0) &&
 	       nrf_uart_event_check(uart0_addr, NRF_UART_EVENT_RXDRDY)) {
@@ -878,10 +878,11 @@ static int uart_nrfx_irq_tx_ready_complete(const struct device *dev)
 	 * called after the TX interrupt is requested to be disabled but before
 	 * the disabling is actually performed (in the IRQ handler).
 	 */
-	return nrf_uart_int_enable_check(uart0_addr,
-					 NRF_UART_INT_MASK_TXDRDY) &&
-	       !disable_tx_irq &&
-	       event_txdrdy_check();
+	bool ready = nrf_uart_int_enable_check(uart0_addr,
+					       NRF_UART_INT_MASK_TXDRDY) &&
+		     !disable_tx_irq &&
+		     event_txdrdy_check();
+	return ready ? 1 : 0;
 }
 
 /** Interrupt driven receiver ready function */
@@ -912,12 +913,6 @@ static int uart_nrfx_irq_is_pending(const struct device *dev)
 		(nrf_uart_int_enable_check(uart0_addr,
 					   NRF_UART_INT_MASK_RXDRDY) &&
 		 uart_nrfx_irq_rx_ready(dev)));
-}
-
-/** Interrupt driven interrupt update function */
-static int uart_nrfx_irq_update(const struct device *dev)
-{
-	return 1;
 }
 
 /** Set the callback function */
@@ -1043,7 +1038,7 @@ static int uart_nrfx_init(const struct device *dev)
 /* Common function: uart_nrfx_irq_tx_ready_complete is used for two API entries
  * because Nordic hardware does not distinguish between them.
  */
-static const struct uart_driver_api uart_nrfx_uart_driver_api = {
+static DEVICE_API(uart, uart_nrfx_uart_driver_api) = {
 #ifdef CONFIG_UART_0_ASYNC
 	.callback_set	  = uart_nrfx_callback_set,
 	.tx		  = uart_nrfx_tx,
@@ -1072,7 +1067,6 @@ static const struct uart_driver_api uart_nrfx_uart_driver_api = {
 	.irq_err_enable   = uart_nrfx_irq_err_enable,
 	.irq_err_disable  = uart_nrfx_irq_err_disable,
 	.irq_is_pending   = uart_nrfx_irq_is_pending,
-	.irq_update       = uart_nrfx_irq_update,
 	.irq_callback_set = uart_nrfx_irq_callback_set,
 #endif /* CONFIG_UART_0_INTERRUPT_DRIVEN */
 };
@@ -1086,12 +1080,9 @@ static int uart_nrfx_pm_action(const struct device *dev,
 
 	switch (action) {
 	case PM_DEVICE_ACTION_RESUME:
-		if (IS_ENABLED(CONFIG_UART_0_GPIO_MANAGEMENT)) {
-			ret = pinctrl_apply_state(config->pcfg,
-						  PINCTRL_STATE_DEFAULT);
-			if (ret < 0) {
-				return ret;
-			}
+		ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
+		if (ret < 0) {
+			return ret;
 		}
 
 		nrf_uart_enable(uart0_addr);
@@ -1102,13 +1093,9 @@ static int uart_nrfx_pm_action(const struct device *dev,
 		break;
 	case PM_DEVICE_ACTION_SUSPEND:
 		nrf_uart_disable(uart0_addr);
-
-		if (IS_ENABLED(CONFIG_UART_0_GPIO_MANAGEMENT)) {
-			ret = pinctrl_apply_state(config->pcfg,
-						  PINCTRL_STATE_SLEEP);
-			if (ret < 0) {
-				return ret;
-			}
+		ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_SLEEP);
+		if (ret < 0) {
+			return ret;
 		}
 		break;
 	default:

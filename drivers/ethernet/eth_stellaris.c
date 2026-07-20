@@ -146,7 +146,7 @@ static struct net_pkt *eth_stellaris_rx_pkt(const struct device *dev,
 	frame_len = reg_val & 0x0000ffff;
 
 	pkt = net_pkt_rx_alloc_with_buffer(iface, frame_len,
-					   AF_UNSPEC, 0, K_NO_WAIT);
+					   NET_AF_UNSPEC, 0, K_NO_WAIT);
 	if (!pkt) {
 		return NULL;
 	}
@@ -202,7 +202,7 @@ error:
 	return NULL;
 }
 
-static void eth_stellaris_rx(const struct device *dev)
+static int eth_stellaris_rx(const struct device *dev)
 {
 	struct eth_stellaris_runtime *dev_data = dev->data;
 	struct net_if *iface = dev_data->iface;
@@ -219,19 +219,21 @@ static void eth_stellaris_rx(const struct device *dev)
 		goto pkt_unref;
 	}
 
-	return;
+	return 0;
 
 pkt_unref:
 	net_pkt_unref(pkt);
 
 err_mem:
 	eth_stellaris_rx_error(iface);
+	return -EIO;
 }
 
 static void eth_stellaris_isr(const struct device *dev)
 {
 	struct eth_stellaris_runtime *dev_data = dev->data;
 	int isr_val = sys_read32(REG_MACRIS);
+	int num_packets;
 	uint32_t lock;
 
 	lock = irq_lock();
@@ -240,7 +242,18 @@ static void eth_stellaris_isr(const struct device *dev)
 	sys_write32(isr_val, REG_MACRIS);
 
 	if (isr_val & BIT_MACRIS_RXINT) {
-		eth_stellaris_rx(dev);
+		/*
+		 * When multiple packets are received by the Ethernet,
+		 * only one interrupt may be dispatched to the driver
+		 * Therefore, it is necessary to obtain the register NP value
+		 * to get how many packets are in the Ethernet.
+		 */
+		num_packets = sys_read32(REG_MACNP);
+		for (int i = 0; i < num_packets; i++) {
+			if (eth_stellaris_rx(dev) != 0) {
+				break;
+			}
+		}
 	}
 
 	if (isr_val & BIT_MACRIS_TXEMP) {
@@ -250,7 +263,6 @@ static void eth_stellaris_isr(const struct device *dev)
 
 	if (isr_val & BIT_MACRIS_TXER) {
 		LOG_ERR("Transmit Frame Error");
-		eth_stats_update_errors_tx(dev_data->iface);
 		dev_data->tx_err = true;
 		k_sem_give(&dev_data->tx_sem);
 	}
@@ -290,7 +302,8 @@ static void eth_stellaris_init(struct net_if *iface)
 }
 
 #if defined(CONFIG_NET_STATISTICS_ETHERNET)
-static struct net_stats_eth *eth_stellaris_stats(const struct device *dev)
+static struct net_stats_eth *eth_stellaris_stats(const struct device *dev,
+						struct net_if *iface __unused)
 {
 	struct eth_stellaris_runtime *dev_data = dev->data;
 

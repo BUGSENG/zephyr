@@ -3,15 +3,23 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
-#ifdef CONFIG_BT_MICP_MIC_CTLR
-
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/audio/aics.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/audio/micp.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/toolchain.h>
 
+#include "bstests.h"
 #include "common.h"
 
-#define AICS_DESC_SIZE 64
+#ifdef CONFIG_BT_MICP_MIC_CTLR
+#define AICS_DESC_SIZE 64U
 
 extern enum bst_result_t bst_result;
 
@@ -37,6 +45,8 @@ static volatile bool g_cb;
 static void aics_state_cb(struct bt_aics *inst, int err, int8_t gain,
 			  uint8_t mute, uint8_t mode)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS state cb err (%d)", err);
 		return;
@@ -52,6 +62,8 @@ static void aics_state_cb(struct bt_aics *inst, int err, int8_t gain,
 static void aics_gain_setting_cb(struct bt_aics *inst, int err, uint8_t units,
 				 int8_t minimum, int8_t maximum)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS gain setting cb err (%d)", err);
 		return;
@@ -67,6 +79,8 @@ static void aics_gain_setting_cb(struct bt_aics *inst, int err, uint8_t units,
 static void aics_input_type_cb(struct bt_aics *inst, int err,
 			       uint8_t input_type)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS input type cb err (%d)", err);
 		return;
@@ -79,6 +93,8 @@ static void aics_input_type_cb(struct bt_aics *inst, int err,
 
 static void aics_status_cb(struct bt_aics *inst, int err, bool active)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS status cb err (%d)", err);
 		return;
@@ -92,6 +108,8 @@ static void aics_status_cb(struct bt_aics *inst, int err, bool active)
 static void aics_description_cb(struct bt_aics *inst, int err,
 				char *description)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS description cb err (%d)", err);
 		return;
@@ -110,6 +128,8 @@ static void aics_description_cb(struct bt_aics *inst, int err,
 
 static void aics_write_cb(struct bt_aics *inst, int err)
 {
+	ARG_UNUSED(inst);
+
 	if (err != 0) {
 		FAIL("AICS write failed (%d)\n", err);
 		return;
@@ -122,6 +142,8 @@ static void micp_mic_ctlr_discover_cb(struct bt_micp_mic_ctlr *mic_ctlr,
 				      int err,
 				      uint8_t aics_count)
 {
+	ARG_UNUSED(mic_ctlr);
+
 	if (err != 0) {
 		FAIL("MICS could not be discovered (%d)\n", err);
 		return;
@@ -134,6 +156,8 @@ static void micp_mic_ctlr_discover_cb(struct bt_micp_mic_ctlr *mic_ctlr,
 static void micp_mic_ctlr_mute_written_cb(struct bt_micp_mic_ctlr *mic_ctlr,
 					  int err)
 {
+	ARG_UNUSED(mic_ctlr);
+
 	if (err != 0) {
 		FAIL("mic_ctlr mute write failed (%d)\n", err);
 		return;
@@ -145,6 +169,8 @@ static void micp_mic_ctlr_mute_written_cb(struct bt_micp_mic_ctlr *mic_ctlr,
 static void micp_mic_ctlr_unmute_written_cb(struct bt_micp_mic_ctlr *mic_ctlr,
 					    int err)
 {
+	ARG_UNUSED(mic_ctlr);
+
 	if (err != 0) {
 		FAIL("mic_ctlr unmute write failed (%d)\n", err);
 		return;
@@ -156,6 +182,8 @@ static void micp_mic_ctlr_unmute_written_cb(struct bt_micp_mic_ctlr *mic_ctlr,
 static void micp_mic_ctlr_mute_cb(struct bt_micp_mic_ctlr *mic_ctlr, int err,
 				  uint8_t mute)
 {
+	ARG_UNUSED(mic_ctlr);
+
 	if (err != 0) {
 		FAIL("mic_ctlr mute read failed (%d)\n", err);
 		return;
@@ -344,6 +372,21 @@ static int test_aics(void)
 	return 0;
 }
 
+static void discover_mics(struct bt_micp_mic_ctlr **mic_ctlr)
+{
+	int err;
+
+	g_discovery_complete = false;
+
+	err = bt_micp_mic_ctlr_discover(default_conn, mic_ctlr);
+	if (err != 0) {
+		FAIL("Failed to discover MICS %d", err);
+		return;
+	}
+
+	WAIT_FOR_COND(g_discovery_complete);
+}
+
 static void test_main(void)
 {
 	int err;
@@ -359,7 +402,11 @@ static void test_main(void)
 
 	bt_le_scan_cb_register(&common_scan_cb);
 
-	bt_micp_mic_ctlr_cb_register(&micp_mic_ctlr_cbs);
+	err = bt_micp_mic_ctlr_cb_register(&micp_mic_ctlr_cbs);
+	if (err != 0) {
+		FAIL("Failed to register MICP callbacks (err %d)\n", err);
+		return;
+	}
 
 	WAIT_FOR_COND(g_bt_init);
 
@@ -371,11 +418,8 @@ static void test_main(void)
 	printk("Scanning successfully started\n");
 	WAIT_FOR_FLAG(flag_connected);
 
-	err = bt_micp_mic_ctlr_discover(default_conn, &mic_ctlr);
-	if (err != 0) {
-		FAIL("Failed to discover MICS %d", err);
-	}
-	WAIT_FOR_COND(g_discovery_complete);
+	discover_mics(&mic_ctlr);
+	discover_mics(&mic_ctlr); /* test that we can discover twice */
 
 	err = bt_micp_mic_ctlr_included_get(mic_ctlr, &micp_included);
 	if (err != 0) {
@@ -405,7 +449,7 @@ static void test_main(void)
 	printk("mic_ctlr mute state received\n");
 
 	printk("Muting mic_ctlr\n");
-	expected_mute = 1;
+	expected_mute = 1U;
 	g_write_complete = g_cb = false;
 	err = bt_micp_mic_ctlr_mute(mic_ctlr);
 	if (err != 0) {
@@ -416,7 +460,7 @@ static void test_main(void)
 	printk("mic_ctlr muted\n");
 
 	printk("Unmuting mic_ctlr\n");
-	expected_mute = 0;
+	expected_mute = 0U;
 	g_write_complete = g_cb = false;
 	err = bt_micp_mic_ctlr_unmute(mic_ctlr);
 	if (err != 0) {
@@ -426,7 +470,7 @@ static void test_main(void)
 	WAIT_FOR_COND(g_mute == expected_mute && g_cb && g_write_complete);
 	printk("mic_ctlr unmuted\n");
 
-	if (CONFIG_BT_MICP_MIC_CTLR_MAX_AICS_INST > 0 && g_aics_count > 0) {
+	if (CONFIG_BT_MICP_MIC_CTLR_MAX_AICS_INST > 0 && g_aics_count > 0U) {
 		if (test_aics()) {
 			return;
 		}
@@ -438,7 +482,7 @@ static void test_main(void)
 static const struct bst_test_instance test_micp[] = {
 	{
 		.test_id = "micp_mic_ctlr",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main
 	},

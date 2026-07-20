@@ -19,6 +19,16 @@ like this:
 
 .. code-block:: yaml
 
+   # When the description text is too long, this field can
+   # be used to improve readability, e.g.:
+   #
+   # title: Binding the device's hardware model.
+   #
+   # description |
+   #   A piece of content with 20 lines.
+   #   ...
+   title: Concise title for the long description [optional]
+
    # A high level description of the device the binding applies to:
    description: |
       This is the Vendomatic company's foo-device.
@@ -52,11 +62,36 @@ like this:
    # bindings.
    on-bus: spi
 
+   examples:
+     # You can put a sample node here showing how to use the binding.
+     # - |
+     #  ...
+     # or
+     # - ...
+
    foo-cells:
      # "Specifier" cell names for the 'foo' domain go here; example 'foo'
      # values are 'gpio', 'pwm', and 'dma'. See below for more information.
 
 These keys are explained in the following sections.
+
+.. _dt-bindings-title:
+
+Title
+*****
+
+An *optional*, short description of the bound device, typically the hardware model.
+It should typically be of the format "Vendor Family Model". If acronyms are used,
+they should be spelled out in parentheses. The naming should stay as close to the
+vendor datasheet as possible.
+
+Titles should not exceed 100 characters. The description field should be used
+for longer descriptions. The words "binding", "schema" or "driver" should not
+be used in the title, everything is a binding.
+
+.. code-block:: YAML
+
+   title: Acme Foo UART (Universal Asynchronous Receiver/Transmitter)
 
 .. _dt-bindings-description:
 
@@ -96,11 +131,49 @@ match this node:
         compatible = "manufacturer,device-v2", "manufacturer,device";
     };
 
-Each node's ``compatible`` property is tried in order. The first matching
-binding is used. The :ref:`on-bus: <dt-bindings-on-bus>` key can be used to
-refine the search.
+Each node's ``compatible`` property is tried in order. The
+:ref:`bindings <dt-binding-compat>` are uniquely identified by a pair of
+(:ref:`compatible <dt-bindings-compatible>`,
+:ref:`on-bus <dt-bindings-on-bus>`), where the
+:ref:`on-bus <dt-bindings-on-bus>` may be unspecified. A specified
+:ref:`on-bus <dt-bindings-on-bus>` takes precedence over unspecified. The
+first matching binding is used.
 
-If more than one binding for a compatible is found, an error is raised.
+For the following device:
+
+.. code-block:: devicetree
+
+   spi-bus {
+           device-3 {
+                   compatible = "manufacturer,device";
+           };
+   };
+
+The following two bindings can coexist and would match in the following order:
+
+``manufacturer,device-spi.yaml``
+
+.. code-block:: YAML
+
+   compatible: "manufacturer,device"
+   on-bus: spi
+
+``manufacturer,device.yaml``
+
+.. code-block:: YAML
+
+   compatible: "manufacturer,device"
+
+The following binding can coexist but would not match.
+
+``manufacturer,device-i2c.yaml``
+
+.. code-block:: YAML
+
+   compatible: "manufacturer,device"
+   on-bus: i2c
+
+If more than one matching binding for a compatible is found, an error is raised.
 
 The ``manufacturer`` prefix identifies the device vendor. See
 :zephyr_file:`dts/bindings/vendor-prefixes.txt` for a list of accepted vendor
@@ -135,8 +208,8 @@ this:
        required: true
 
 In this example, a node with compatible ``"manufacturer,serial"`` must contain
-a node named ``current-speed``. The property's value must be a single integer.
-Similarly, the node must contain a ``reg`` property.
+a property named ``current-speed``. The property's value must be a single
+integer. Similarly, the node must contain a ``reg`` property.
 
 The build system uses bindings to generate C macros for devicetree properties
 that appear in DTS files. You can read more about how to get property values in
@@ -170,7 +243,12 @@ Property entries in ``properties:`` are written in this syntax:
        ...
        - <itemN>
      const: <string | int | array | uint8-array | string-array>
+     min: <int>
+     max: <int>
+     min-len: <int>
+     max-len: <int>
      specifier-space: <space-name>
+     dependency-mode: <normal | reverse | ignore | child-ignore>
 
 .. _dt-bindings-example-properties:
 
@@ -364,6 +442,69 @@ The ``enum:`` line is followed by a list of values the property may contain. If
 a property value in DTS is not in the ``enum:`` list in the binding, an error
 is raised. See :ref:`dt-bindings-example-properties` for examples.
 
+.. _dt-bindings-min-max:
+
+min and max
+===========
+
+The ``min:`` and ``max:`` keys constrain the range of valid values for
+properties with ``type: int`` or ``type: array``. If a property value in DTS
+is outside the ``[min, max]`` range, an error is raised.
+
+Both keys are optional and independent; you may specify just ``min:``, just
+``max:``, or both. They cannot be combined with ``enum:`` on the same property.
+
+For ``type: array``, each element of the array is checked against the range.
+
+Example:
+
+.. code-block:: YAML
+
+   properties:
+     # A brightness percentage between 0 and 100
+     brightness:
+       type: int
+       min: 0
+       max: 100
+       description: LED brightness as a percentage
+
+     # A timeout in milliseconds, with a minimum of 1 ms (no upper bound)
+     timeout-ms:
+       type: int
+       min: 1
+       description: Timeout in milliseconds
+
+.. _dt-bindings-min-len-max-len:
+
+min-len and max-len
+===================
+
+The ``min-len:`` and ``max-len:`` keys constrain the number of elements (length)
+for array-type properties (``array``, ``uint8-array``, ``string-array``,
+``phandles``, and ``phandle-array``). If the length of a property value in DTS
+is outside the ``[min-len, max-len]`` range, an error is raised.
+
+Both keys are optional and independent; you may specify just ``min-len:``, just
+``max-len:``, or both.
+
+Example:
+
+.. code-block:: YAML
+
+   properties:
+     # An array of exactly 3 integers
+     coordinates:
+       type: array
+       min-len: 3
+       max-len: 3
+       description: 3D coordinates
+
+     # A list of up to 4 GPIO phandles
+     gpios:
+       type: phandle-array
+       max-len: 4
+       description: Up to 4 GPIOs
+
 const
 =====
 
@@ -437,6 +578,107 @@ can write this property as follows:
      mboxes:
        type: phandle-array
        specifier-space: mbox
+
+.. _dt-bindings-dependency-mode:
+
+dependency-mode
+===============
+
+The ``dependency-mode`` setting controls how phandle properties are treated when
+calculating the dependency graph in Zephyr.
+
+By default, any :ref:`phandle property <phandle-properties>` creates a dependency between
+the node containing the property and the node it references. The ``dependency-mode``
+setting allows you to override this behavior.
+
+Possible values
+---------------
+
+The ``dependency-mode`` setting accepts the following values:
+
+``normal`` or unspecified
+  The default behavior. The referencing node depends on the referenced node
+  (the node pointed to by the phandle).
+
+``reverse``
+  Reverses the dependency direction. Instead of the referencing node depending
+  on the referenced node, the referenced node depends on the referencing node.
+
+``ignore``
+  The phandle property does not create a dependency.
+
+``child-ignore``
+  Similar to ``ignore``, but the dependency is only ignored if the referenced
+  node is a child of the referencing node. If the referenced node is not a child,
+  a normal dependency is created.
+
+  Use this when a phandle may reference either a child node (no dependency needed)
+  or an external node (dependency required).
+
+Using dependency-mode
+---------------------
+
+The ``dependency-mode`` setting is specified within a property definition in a
+binding file. Here's an example:
+
+.. code-block:: YAML
+
+   compatible: "vendor,ethernet-controller"
+
+   properties:
+     phy-handle:
+       type: phandle
+       description: |
+         Specifies a reference to a node representing a PHY device.
+       dependency-mode: ignore
+
+Another example using ``child-ignore``:
+
+.. code-block:: YAML
+
+   compatible: "vendor,node-with-optional-phandle"
+
+   properties:
+     optional-ref:
+       type: phandle
+       description: |
+         References either a child node or an external device.
+         Child node references create no dependency, but external
+         device references do.
+       dependency-mode: child-ignore
+
+Example DTS using that binding:
+
+.. code-block:: DTS
+
+   root {
+           external_dev: external-device@2000 {
+                   compatible = "vendor,external-device";
+                   reg = <0x2000 0x100>;
+           };
+
+           parent_dev: parent-device@1000 {
+                   compatible = "vendor,node-with-optional-phandle";
+                   reg = <0x1000 0x100>;
+                   optional-ref = <&internal_child>; /* child: ignored dependency */
+
+                   internal_child: internal-device {
+                           compatible = "vendor,internal-device";
+                   };
+           };
+
+           peer_dev: peer-device@3000 {
+                   compatible = "vendor,node-with-optional-phandle";
+                   reg = <0x3000 0x100>;
+                   optional-ref = <&external_dev>; /* external: normal dependency */
+           };
+   };
+
+Default behavior
+----------------
+
+If ``dependency-mode`` is not specified, the default value is ``normal``, which
+means the referencing node depends on the referenced node.
 
 .. _dt-bindings-child:
 
@@ -612,6 +854,31 @@ Only ``sensor@79`` can have a ``use-clock-stretching`` property. The
 bus-sensitive logic ignores :file:`manufacturer,sensor-i2c.yaml` when searching
 for a binding for ``sensor@0``.
 
+.. _dt-bindings-examples:
+
+Examples
+********
+
+If you feel you want to provide a minimal example for your binding, you can use
+it like this:
+
+.. code-block:: yaml
+
+   description: ...
+
+   properties:
+    ...
+
+   examples:
+     - |
+       leds {
+         compatible = "gpio-leds";
+
+         uled: led {
+         gpios = <&gpioe 12 GPIO_ACTIVE_HIGH>;
+         };
+       };
+
 .. _dt-bindings-cells:
 
 Specifier cell names (\*-cells)
@@ -632,7 +899,7 @@ property, like the PWM controllers ``pwm1`` and ``pwm2`` in this example:
    };
 
    pwm2: pwm@deadbeef {
-       compatible = "foo,pwm";
+       compatible = "bar,pwm";
        #pwm-cells = <1>;
    };
 

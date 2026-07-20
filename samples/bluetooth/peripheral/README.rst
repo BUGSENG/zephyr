@@ -1,12 +1,13 @@
-.. _ble_peripheral:
+.. zephyr:code-sample:: ble_peripheral
+   :name: Peripheral
+   :relevant-api: bt_gatt bluetooth
 
-Bluetooth: Peripheral
-#####################
+   Implement basic Bluetooth LE Peripheral role functionality (advertising and exposing GATT services).
 
 Overview
 ********
 
-Application demonstrating the BLE Peripheral role. It has several well-known and
+Application demonstrating the Bluetooth LE Peripheral role. It has several well-known and
 vendor-specific GATT services that it exposes.
 
 
@@ -14,12 +15,21 @@ Requirements
 ************
 
 * BlueZ running on the host, or
-* A board with BLE support
+* A board with Bluetooth LE support
 
 Building and Running
 ********************
 
-This sample can be found under :zephyr_file:`samples/bluetooth/peripheral` in the
-Zephyr tree.
+Build and flash the sample as follows, replacing ``<board>`` with your target board:
 
-See :ref:`bluetooth samples section <bluetooth-samples>` for details.
+.. zephyr-app-commands::
+   :zephyr-app: samples/bluetooth/peripheral
+   :board: <board>
+   :goals: build flash
+   :compact:
+
+After flashing, use a Bluetooth scanner app (e.g. nRF Connect)
+or the :zephyr:code-sample:`ble_central` sample on a second board,
+or any Bluetooth LE device to connect to the device.
+The sample exposes the following GATT services: Battery (BAS), Current Time (CTS),
+Heart Rate (HRS), Immediate Alert (IAS), and a vendor-specific service.

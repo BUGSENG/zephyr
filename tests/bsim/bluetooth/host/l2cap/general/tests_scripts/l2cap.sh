@@ -5,16 +5,16 @@
 source ${ZEPHYR_BASE}/tests/bsim/sh_common.source
 
 # EATT test
-simulation_id="l2cap_ecred"
+simulation_id="${BOARD_TS}_l2cap_ecred"
 verbosity_level=2
 EXECUTE_TIMEOUT=120
 
 cd ${BSIM_OUT_PATH}/bin
 
-Execute ./bs_${BOARD}_tests_bsim_bluetooth_host_l2cap_general_prj_conf \
+Execute ./bs_${BOARD_TS}_tests_bsim_bluetooth_host_l2cap_general_prj_conf \
   -v=${verbosity_level} -s=${simulation_id} -d=0 -testid=central -rs=43
 
-Execute ./bs_${BOARD}_tests_bsim_bluetooth_host_l2cap_general_prj_conf \
+Execute ./bs_${BOARD_TS}_tests_bsim_bluetooth_host_l2cap_general_prj_conf \
   -v=${verbosity_level} -s=${simulation_id} -d=1 -testid=peripheral -rs=42
 
 Execute ./bs_2G4_phy_v1 -v=${verbosity_level} -s=${simulation_id} \

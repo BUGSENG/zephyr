@@ -25,19 +25,26 @@ LOG_MODULE_REGISTER(MAX17048);
 #warning "MAX17048 driver enabled without any devices"
 #endif
 
+#define RESET_COMMAND   0x5400
+#define QUICKSTART_MODE 0x4000
+
+struct max17048_config {
+	struct i2c_dt_spec i2c;
+};
+
 /**
  * Storage for the fuel gauge basic information
  */
 struct max17048_data {
 	/* Charge as percentage */
 	uint8_t charge;
-	/* Voltage as mV */
-	uint16_t voltage;
+	/* Voltage as uV */
+	uint32_t voltage;
 
 	/* Time in minutes */
 	uint16_t time_to_full;
 	uint16_t time_to_empty;
-	/* True if battery chargin, false if discharging */
+	/* True if battery charging, false if discharging */
 	bool charging;
 };
 
@@ -52,7 +59,7 @@ int max17048_read_register(const struct device *dev, uint8_t registerId, uint16_
 	const struct max17048_config *cfg = dev->config;
 	int rc = i2c_write_read_dt(&cfg->i2c, &registerId, sizeof(registerId), max17048_buffer,
 				   sizeof(max17048_buffer));
-	if (rc != 0) {
+	if (rc) {
 		LOG_ERR("Unable to read register, error %d", rc);
 		return rc;
 	}
@@ -72,11 +79,12 @@ int max17048_adc(const struct device *i2c_dev, uint16_t *response)
 /**
  * Battery voltage
  */
-int max17048_voltage(const struct device *i2c_dev, uint16_t *response)
+int max17048_voltage(const struct device *i2c_dev, uint32_t *response)
 {
-	int rc = max17048_adc(i2c_dev, response);
+	uint16_t raw_voltage;
+	int rc = max17048_adc(i2c_dev, &raw_voltage);
 
-	if (rc < 0) {
+	if (rc) {
 		return rc;
 	}
 	/**
@@ -85,12 +93,10 @@ int max17048_voltage(const struct device *i2c_dev, uint16_t *response)
 	 * MAX17048-MAX17049.pdf
 	 * Page 10, Table 2. Register Summary: 78.125µV/cell
 	 * Max17048 only supports one cell so we just have to multiply the value by 78.125 to
-	 * obtain µV and then divide the value to obtain V.
-	 * But to avoid floats, instead of using 78.125 we will use 78125 and use this value as
-	 * milli volts instead of volts.
+	 * obtain µV
 	 */
 
-	*response = (uint16_t)((uint32_t)*response * 78125L / 1000000L);
+	*response = ((uint32_t)raw_voltage * 78125) / 1000;
 	return 0;
 }
 
@@ -102,7 +108,7 @@ int max17048_percent(const struct device *i2c_dev, uint8_t *response)
 	uint16_t data;
 	int rc = max17048_read_register(i2c_dev, REGISTER_SOC, &data);
 
-	if (rc < 0) {
+	if (rc) {
 		return rc;
 	}
 	/**
@@ -110,7 +116,7 @@ int max17048_percent(const struct device *i2c_dev, uint8_t *response)
 	 * https://www.analog.com/media/en/technical-documentation/data-she4ets/
 	 * MAX17048-MAX17049.pdf
 	 * Page 10, Table 2. Register Summary: 1%/256
-	 * So to obtain the total percentaje we just divide the read value by 256
+	 * So to obtain the total percentage we just divide the read value by 256
 	 */
 	*response = data / 256;
 	return 0;
@@ -124,7 +130,7 @@ int max17048_crate(const struct device *i2c_dev, int16_t *response)
 {
 	int rc = max17048_read_register(i2c_dev, REGISTER_CRATE, response);
 
-	if (rc < 0) {
+	if (rc) {
 		return rc;
 	}
 
@@ -136,7 +142,7 @@ int max17048_crate(const struct device *i2c_dev, int16_t *response)
 	 * To avoid floats, the value will be multiplied by 208 instead of 0.208, taking into
 	 * account that the value will be 1000 times higher
 	 */
-	*response = *response * 208;
+	*response *= 208;
 	return 0;
 }
 
@@ -148,14 +154,15 @@ static int max17048_init(const struct device *dev)
 {
 	const struct max17048_config *cfg = dev->config;
 	uint16_t version;
-	int rc = max17048_read_register(dev, REGISTER_VERSION, &version);
 
 	if (!device_is_ready(cfg->i2c.bus)) {
 		LOG_ERR("Bus device is not ready");
 		return -ENODEV;
 	}
 
-	if (rc < 0) {
+	int rc = max17048_read_register(dev, REGISTER_VERSION, &version);
+
+	if (rc) {
 		LOG_ERR("Cannot read from I2C");
 		return rc;
 	}
@@ -182,17 +189,17 @@ static int max17048_get_single_prop_impl(const struct device *dev, fuel_gauge_pr
 	int rc = 0;
 
 	switch (prop) {
-	case FUEL_GAUGE_RUNTIME_TO_EMPTY:
-		val->runtime_to_empty = data->time_to_empty;
+	case FUEL_GAUGE_RUNTIME_TO_EMPTY_MINS:
+		val->runtime_to_empty_mins = data->time_to_empty;
 		break;
-	case FUEL_GAUGE_RUNTIME_TO_FULL:
-		val->runtime_to_full = data->time_to_full;
+	case FUEL_GAUGE_RUNTIME_TO_FULL_MINS:
+		val->runtime_to_full_mins = data->time_to_full;
 		break;
-	case FUEL_GAUGE_RELATIVE_STATE_OF_CHARGE:
-		val->relative_state_of_charge = data->charge;
+	case FUEL_GAUGE_RELATIVE_STATE_OF_CHARGE_PCT:
+		val->relative_state_of_charge_pct = data->charge;
 		break;
-	case FUEL_GAUGE_VOLTAGE:
-		val->voltage = data->voltage;
+	case FUEL_GAUGE_VOLTAGE_UV:
+		val->voltage_uv = data->voltage;
 		break;
 	default:
 		rc = -ENOTSUP;
@@ -212,13 +219,13 @@ static int max17048_get_prop(const struct device *dev, fuel_gauge_prop_t prop,
 	int16_t crate;
 	int ret;
 
-	if (rc < 0) {
+	if (rc) {
 		LOG_ERR("Error while reading battery percentage");
 		return rc;
 	}
 
 	rc = max17048_voltage(dev, &data->voltage);
-	if (rc < 0) {
+	if (rc) {
 		LOG_ERR("Error while reading battery voltage");
 		return rc;
 	}
@@ -228,7 +235,7 @@ static int max17048_get_prop(const struct device *dev, fuel_gauge_prop_t prop,
 	 * per hour
 	 */
 	rc = max17048_crate(dev, &crate);
-	if (rc < 0) {
+	if (rc) {
 		LOG_ERR("Error while reading battery current rate");
 		return rc;
 	}
@@ -280,7 +287,7 @@ static int max17048_get_prop(const struct device *dev, fuel_gauge_prop_t prop,
 	return ret;
 }
 
-static const struct fuel_gauge_driver_api max17048_driver_api = {
+static DEVICE_API(fuel_gauge, max17048_driver_api) = {
 	.get_property = &max17048_get_prop,
 };
 
@@ -291,7 +298,7 @@ static const struct fuel_gauge_driver_api max17048_driver_api = {
 		.i2c = I2C_DT_SPEC_INST_GET(inst)};                                                \
                                                                                                    \
 	DEVICE_DT_INST_DEFINE(inst, &max17048_init, NULL, &max17048_data_##inst,                   \
-			&max17048_config_##inst, POST_KERNEL,                                \
-			CONFIG_FUEL_GAUGE_INIT_PRIORITY, &max17048_driver_api);
+			      &max17048_config_##inst, POST_KERNEL,                                \
+			      CONFIG_FUEL_GAUGE_INIT_PRIORITY, &max17048_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(MAX17048_DEFINE)

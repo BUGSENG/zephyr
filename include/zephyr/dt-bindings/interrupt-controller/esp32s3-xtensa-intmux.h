@@ -4,8 +4,34 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief Espressif ESP32-S3 interrupt source definitions for devicetree
+ * @ingroup dt_esp32s3_intmux
+ */
+
 #ifndef ZEPHYR_INCLUDE_DT_BINDINGS_INTERRUPT_CONTROLLER_ESP32S3_XTENSA_INTMUX_H_
 #define ZEPHYR_INCLUDE_DT_BINDINGS_INTERRUPT_CONTROLLER_ESP32S3_XTENSA_INTMUX_H_
+
+/**
+ * @defgroup dt_esp32s3_intmux Espressif ESP32-S3 interrupt allocator
+ * @brief Devicetree interrupt source numbers for the Espressif ESP32-S3.
+ * @ingroup devicetree-interrupt_controller
+ *
+ * Interrupt source numbers for the Espressif ESP32-S3 interrupt allocator, used with the
+ * <tt>espressif,esp32-intc</tt> compatible interrupt controller. An interrupt is described by three
+ * cells: the interrupt source, the priority and a flags cell. Source numbers follow the pattern
+ * @c \<SIGNAL\>_INTR_SOURCE; @ref IRQ_DEFAULT_PRIORITY selects the default priority.
+ *
+ * @code{.dts}
+ * &uart0 {
+ *         interrupts = <UART0_INTR_SOURCE IRQ_DEFAULT_PRIORITY 0>;
+ * };
+ * @endcode
+ * @{
+ */
+
+/** @cond INTERNAL_HIDDEN */
 
 #define WIFI_MAC_INTR_SOURCE                  0 /* interrupt of WiFi MAC, level*/
 #define WIFI_MAC_NMI_SOURCE                   1 /* interrupt of WiFi MAC, NMI */
@@ -45,7 +71,7 @@
 #define USB_INTR_SOURCE                       38 /* interrupt of USB, level*/
 #define RTC_CORE_INTR_SOURCE                  39 /* interrupt of rtc core and watchdog, level*/
 #define RMT_INTR_SOURCE                       40 /* interrupt of remote controller, level*/
-#define PCNT_INTR_SOURCE                      41 /* interrupt of pluse count, level*/
+#define PCNT_INTR_SOURCE                      41 /* interrupt of pulse count, level*/
 #define I2C_EXT0_INTR_SOURCE                  42 /* interrupt of I2C controller1, level*/
 #define I2C_EXT1_INTR_SOURCE                  43 /* interrupt of I2C controller0, level*/
 #define SPI2_DMA_INTR_SOURCE                  44 /* interrupt of SPI2 DMA, level*/
@@ -59,7 +85,7 @@
 #define TG1_T0_LEVEL_INTR_SOURCE              53 /* interrupt of TIMER_GROUP1, TIMER0, EDGE*/
 #define TG1_T1_LEVEL_INTR_SOURCE              54 /* interrupt of TIMER_GROUP1, TIMER1, EDGE*/
 #define TG1_WDT_LEVEL_INTR_SOURCE             55 /* interrupt of TIMER_GROUP1, WATCHDOG, EDGE*/
-#define CACHE_IA_INTR_SOURCE                  56 /* interrupt of Cache Invalied Access, LEVEL*/
+#define CACHE_IA_INTR_SOURCE                  56 /* interrupt of Cache Invalid Access, LEVEL*/
 #define SYSTIMER_TARGET0_EDGE_INTR_SOURCE     57 /* interrupt of system timer 0, EDGE*/
 #define SYSTIMER_TARGET1_EDGE_INTR_SOURCE     58 /* interrupt of system timer 1, EDGE*/
 #define SYSTIMER_TARGET2_EDGE_INTR_SOURCE     59 /* interrupt of system timer 2, EDGE*/
@@ -104,4 +130,13 @@
 #define DMA_EXTMEM_REJECT_SOURCE              98
 #define MAX_INTR_SOURCE                       99 /* number of interrupt sources */
 
-#endif
+/* Zero will allocate low/medium levels of priority (ESP_INTR_FLAG_LOWMED) */
+#define IRQ_DEFAULT_PRIORITY	0
+
+#define ESP_INTR_FLAG_SHARED	(1<<8)	/* Interrupt can be shared between ISRs */
+
+/** @endcond */
+
+/** @} */
+
+#endif /* ZEPHYR_INCLUDE_DT_BINDINGS_INTERRUPT_CONTROLLER_ESP32S3_XTENSA_INTMUX_H_ */

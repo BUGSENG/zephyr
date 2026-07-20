@@ -10,9 +10,11 @@
 #include <zephyr/pm/device.h>
 
 struct test_driver_data {
+	size_t count;
 	bool ongoing;
 	bool async;
 	struct k_sem sync;
+	int ret;
 };
 
 static int test_driver_action(const struct device *dev,
@@ -20,16 +22,20 @@ static int test_driver_action(const struct device *dev,
 {
 	struct test_driver_data *data = dev->data;
 
-	data->ongoing = true;
+	if (!IS_ENABLED(CONFIG_TEST_PM_DEVICE_ISR_SAFE)) {
+		data->ongoing = true;
 
-	if (data->async) {
-		k_sem_take(&data->sync, K_FOREVER);
-		data->async = false;
+		if (data->async) {
+			k_sem_take(&data->sync, K_FOREVER);
+			data->async = false;
+		}
+
+		data->ongoing = false;
 	}
 
-	data->ongoing = false;
+	data->count++;
 
-	return 0;
+	return data->ret;
 }
 
 void test_driver_pm_async(const struct device *dev)
@@ -53,6 +59,20 @@ bool test_driver_pm_ongoing(const struct device *dev)
 	return data->ongoing;
 }
 
+size_t test_driver_pm_count(const struct device *dev)
+{
+	struct test_driver_data *data = dev->data;
+
+	return data->count;
+}
+
+void test_driver_pm_retval(const struct device *dev, int ret)
+{
+	struct test_driver_data *data = dev->data;
+
+	data->ret = ret;
+}
+
 int test_driver_init(const struct device *dev)
 {
 	struct test_driver_data *data = dev->data;
@@ -62,7 +82,9 @@ int test_driver_init(const struct device *dev)
 	return 0;
 }
 
-PM_DEVICE_DEFINE(test_driver, test_driver_action);
+#define PM_DEVICE_TYPE COND_CODE_1(CONFIG_TEST_PM_DEVICE_ISR_SAFE, (PM_DEVICE_ISR_SAFE), (0))
+
+PM_DEVICE_DEFINE(test_driver, test_driver_action, PM_DEVICE_TYPE);
 
 static struct test_driver_data data;
 

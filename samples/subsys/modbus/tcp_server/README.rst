@@ -26,9 +26,6 @@ The user can of course try out other client implementations with this sample.
 Building and Running
 ********************
 
-This sample can be found under
-:zephyr_file:`samples/subsys/modbus/tcp_server` in the Zephyr tree.
-
 The following commands build and flash TCP server sample.
 
 .. zephyr-app-commands::
@@ -50,7 +47,7 @@ For example, to set LED0 on use FC01 command (write_coil).
 .. code-block:: console
 
    > client.connect
-   > client.write_coil address=0 value=1 unit=1
+   > client.write_coil address=0 value=1 slave=1
 
 Client should confirm successful communication and LED0 should light.
 
@@ -65,13 +62,13 @@ To set LED0 off but LED1 and LED2 on use FC15 command (write_coils).
 
 .. code-block:: console
 
-   > client.write_coils address=0 values=0,1,1 unit=1
+   > client.write_coils address=0 values=0,1,1 slave=1
 
 To read LED0, LED1, LED2 state FC05 command (read_coils) can be used.
 
 .. code-block:: console
 
-   > client.read_coils address=0 count=3 unit=1
+   > client.read_coils address=0 count=3 slave=1
    {
        "bits": [
            false,
@@ -93,19 +90,19 @@ To write single holding registers use FC06 command (write_register),
 
 .. code-block:: console
 
-   > client.write_register address=0 value=42 unit=1
+   > client.write_register address=0 value=42 slave=1
 
 or FC16 command (write_registers).
 
 .. code-block:: console
 
-   > client.write_registers address=0 values=42,42,42 unit=1
+   > client.write_registers address=0 values=42,42,42 slave=1
 
 To read holding registers use FC03 command (read_holding_registers).
 
 .. code-block:: console
 
-   > client.read_holding_registers address=0 count=3 unit=1
+   > client.read_holding_registers address=0 count=3 slave=1
    {
        "registers": [
            42,
@@ -114,4 +111,4 @@ To read holding registers use FC03 command (read_holding_registers).
        ]
    }
 
-.. _`PyModbus`: https://github.com/riptideio/pymodbus
+.. _`PyModbus`: https://github.com/pymodbus-dev/pymodbus

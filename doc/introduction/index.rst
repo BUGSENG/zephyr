@@ -16,12 +16,21 @@ The Zephyr kernel supports multiple architectures, including:
  - ARMv7-R, ARMv8-R (Cortex-R, 32- and 64-bit)
  - Intel x86 (32- and 64-bit)
  - MIPS (MIPS32 Release 1 specification)
- - NIOS II Gen 2
+ - OpenRISC (32-bit)
+ - Renesas RX
  - RISC-V (32- and 64-bit)
  - SPARC V8
  - Tensilica Xtensa
 
 The full list of supported boards based on these architectures can be found :ref:`here <boards>`.
+
+In the context of the Zephyr OS, a :term:`subsystem` refers to a logically distinct
+part of the operating system that handles specific functionality or provides
+certain services. Subsystems can include components such as networking,
+file systems, device driver classes, power management, and communication protocols,
+among others. Each subsystem is designed to be modular and can be configured,
+customized, and extended to meet the requirements of different embedded
+applications.
 
 Licensing
 *********
@@ -80,6 +89,8 @@ Zephyr offers a large and ever growing number of features including:
      * Red/black tree ready queue
      * Traditional multi-queue ready queue
 
+.. _zephyr_intro_configurability:
+
 **Highly configurable / Modular for flexibility**
    Allows an application to incorporate *only* the capabilities it needs as it
    needs them, and to specify their quantity and size.
@@ -123,7 +134,7 @@ Zephyr offers a large and ever growing number of features including:
 
 **Bluetooth Low Energy 5.0 support**
    Bluetooth 5.0 compliant (ESR10) and Bluetooth Low Energy Controller support
-   (LE Link Layer). Includes Bluetooth mesh and a Bluetooth qualification-ready
+   (LE Link Layer). Includes Bluetooth Mesh and a Bluetooth qualification-ready
    Bluetooth controller.
 
    * Generic Access Profile (GAP) with all possible LE roles
@@ -144,8 +155,8 @@ Zephyr offers a large and ever growing number of features including:
 
 **Native Linux, macOS, and Windows Development**
    A command-line CMake build environment runs on popular developer OS
-   systems. A native POSIX port lets you build and run Zephyr as a native
-   application on Linux and other OSes, aiding development and testing.
+   systems. A native port (:zephyr:board:`native_sim <native_sim>`) lets you build and run Zephyr as a native
+   application on Linux, aiding development and testing.
 
 **Virtual File System Interface with ext2, FatFs, and LittleFS Support**
    ext2, LittleFS and FatFS support; FCB (Flash Circular Buffer) for memory constrained
@@ -170,9 +181,9 @@ Zephyr offers a large and ever growing number of features including:
   NVS allows storage of binary blobs, strings, integers, longs, and any
   combination of these.
 
-**Native POSIX port**
-  Supports running Zephyr as a Linux application with support for various
-  subsystems and networking.
+**Native port**
+  :zephyr:board:`Native sim <native_sim>` allows running Zephyr as a Linux application with support
+  for various subsystems and networking.
 
 
 .. include:: ../../README.rst

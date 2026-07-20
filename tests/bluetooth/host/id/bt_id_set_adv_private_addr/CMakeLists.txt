@@ -2,15 +2,10 @@
 
 cmake_minimum_required(VERSION 3.20.0)
 
-set(SOURCES
-  src/main.c
-  src/test_suite_invalid_cases.c
-)
-
 project(bt_id_set_adv_private_addr)
 
 # Suppress the format-zero-length error if GNUC is used
-if (CMAKE_C_COMPILER_ID MATCHES "GNU")
+if(CMAKE_C_COMPILER_ID MATCHES "GNU")
 add_compile_options(-Wno-error=format-zero-length -Wno-format-zero-length)
 endif()
 
@@ -35,4 +30,6 @@ target_sources(testbinary
     ${ZEPHYR_BASE}/subsys/logging/log_minimal.c
     ${ZEPHYR_BASE}/subsys/bluetooth/common/bt_str.c
     ${ZEPHYR_BASE}/subsys/bluetooth/host/uuid.c
+    ${ZEPHYR_BASE}/lib/utils/hex.c
+    ${ZEPHYR_BASE}/lib/uuid/uuid.c
 )

@@ -6,6 +6,7 @@
 
 #define DT_DRV_COMPAT ite_it8xxx2_pinctrl_func
 
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/logging/log.h>
 
@@ -13,13 +14,16 @@
 
 LOG_MODULE_REGISTER(pinctrl_ite_it8xxx2, LOG_LEVEL_ERR);
 
-#define GPIO_IT8XXX2_REG_BASE \
-	((struct gpio_it8xxx2_regs *)DT_REG_ADDR(DT_NODELABEL(gpiogcr)))
+#define PINCTRL_ALT_FUNC5_IS_DEFINED                                                             \
+	DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(DT_DRV_COMPAT, func5_gcr) &&                            \
+		DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(DT_DRV_COMPAT, func5_en_mask)
 #define GPIO_GROUP_MEMBERS  8
 
 struct pinctrl_it8xxx2_gpio {
 	/* gpio port control register (byte mapping to pin) */
 	uint8_t *reg_gpcr;
+	/* port driving select control */
+	uint8_t *reg_pdsc;
 	/* function 3 general control register */
 	uintptr_t func3_gcr[GPIO_GROUP_MEMBERS];
 	/* function 3 enable mask */
@@ -32,6 +36,14 @@ struct pinctrl_it8xxx2_gpio {
 	uintptr_t func4_gcr[GPIO_GROUP_MEMBERS];
 	/* function 4 enable mask */
 	uint8_t func4_en_mask[GPIO_GROUP_MEMBERS];
+
+#if PINCTRL_ALT_FUNC5_IS_DEFINED
+	struct {
+		uintptr_t gcr[GPIO_GROUP_MEMBERS];
+		uint8_t en_mask[GPIO_GROUP_MEMBERS];
+	} func5;
+#endif /* PINCTRL_ALT_FUNC5_IS_DEFINED */
+
 	/* Input voltage selection */
 	uintptr_t volt_sel[GPIO_GROUP_MEMBERS];
 	/* Input voltage selection mask */
@@ -74,6 +86,7 @@ static int pinctrl_it8xxx2_set(const pinctrl_soc_pin_t *pins)
 	uint8_t pin = pins->pin;
 	volatile uint8_t *reg_gpcr = (uint8_t *)gpio->reg_gpcr + pin;
 	volatile uint8_t *reg_volt_sel = (uint8_t *)(gpio->volt_sel[pin]);
+	volatile uint8_t *reg_pdsc = (uint8_t *)gpio->reg_pdsc;
 
 	/* Setting pull-up or pull-down. */
 	switch (IT8XXX2_DT_PINCFG_PUPDR(pincfg)) {
@@ -125,6 +138,18 @@ static int pinctrl_it8xxx2_set(const pinctrl_soc_pin_t *pins)
 			      GPCR_PORT_PIN_MODE_PULLDOWN);
 	}
 
+	/* Driving current selection. */
+	if (reg_pdsc != NULL &&
+		IT8XXX2_DT_PINCFG_DRIVE_CURRENT(pincfg) != IT8XXX2_DRIVE_DEFAULT) {
+		if (IT8XXX2_DT_PINCFG_DRIVE_CURRENT(pincfg) & IT8XXX2_PDSCX_MASK) {
+			/* Driving current selects low. */
+			*reg_pdsc |= BIT(pin);
+		} else {
+			/* Driving current selects high. */
+			*reg_pdsc &= ~BIT(pin);
+		}
+	}
+
 	return 0;
 }
 
@@ -136,6 +161,9 @@ static int pinctrl_gpio_it8xxx2_configure_pins(const pinctrl_soc_pin_t *pins)
 	volatile uint8_t *reg_gpcr = (uint8_t *)gpio->reg_gpcr + pin;
 	volatile uint8_t *reg_func3_gcr = (uint8_t *)(gpio->func3_gcr[pin]);
 	volatile uint8_t *reg_func4_gcr = (uint8_t *)(gpio->func4_gcr[pin]);
+#if PINCTRL_ALT_FUNC5_IS_DEFINED
+	volatile uint8_t *reg_func5_gcr = (uint8_t *)(gpio->func5.gcr[pin]);
+#endif /* PINCTRL_ALT_FUNC5_IS_DEFINED */
 	volatile uint8_t *reg_func3_ext = (uint8_t *)(gpio->func3_ext[pin]);
 
 	/* Handle PIN configuration. */
@@ -145,41 +173,48 @@ static int pinctrl_gpio_it8xxx2_configure_pins(const pinctrl_soc_pin_t *pins)
 	}
 
 	/*
+	 * Default input mode prevents leakage during changes to extended
+	 * setting (e.g. enabling i2c functionality on GPIO E1/E2 on IT82002)
+	 */
+	*reg_gpcr = (*reg_gpcr | GPCR_PORT_PIN_MODE_INPUT) &
+		     ~GPCR_PORT_PIN_MODE_OUTPUT;
+
+	/*
 	 * If pincfg is input, we don't need to handle
 	 * alternate function.
 	 */
 	if (IT8XXX2_DT_PINCFG_INPUT(pins->pincfg)) {
-		*reg_gpcr = (*reg_gpcr | GPCR_PORT_PIN_MODE_INPUT) &
-			     ~GPCR_PORT_PIN_MODE_OUTPUT;
 		return 0;
 	}
 
 	/*
 	 * Handle alternate function.
 	 */
-	/* Common settings for alternate function. */
-	*reg_gpcr &= ~(GPCR_PORT_PIN_MODE_INPUT |
-		       GPCR_PORT_PIN_MODE_OUTPUT);
-	/* Ensure that func3-ext setting is in default state. */
-	if (reg_func3_ext != NULL) {
-		*reg_func3_ext &= ~gpio->func3_ext_mask[pin];
+	if (pins->alt_func == IT8XXX2_ALT_FUNC_3) {
+		if (reg_func3_gcr != NULL) {
+			*reg_func3_gcr &= ~gpio->func3_en_mask[pin];
+		}
+		/* Ensure that func3-ext setting is in default state. */
+		if (reg_func3_ext != NULL) {
+			*reg_func3_ext &= ~gpio->func3_ext_mask[pin];
+		}
 	}
 
 	switch (pins->alt_func) {
 	case IT8XXX2_ALT_FUNC_1:
-		/* Func1: Alternate function has been set above. */
+		/* Func1: Alternate function will be set below. */
 		break;
 	case IT8XXX2_ALT_FUNC_2:
-		/* Func2: WUI function: turn the pin into an input */
-		*reg_gpcr |= GPCR_PORT_PIN_MODE_INPUT;
-		break;
+		/* Func2: WUI function: pin has been set as input above.*/
+		return 0;
 	case IT8XXX2_ALT_FUNC_3:
 		/*
 		 * Func3: In addition to the alternate setting above,
 		 *        Func3 also need to set the general control.
 		 */
-		*reg_func3_gcr |= gpio->func3_en_mask[pin];
-
+		if (reg_func3_gcr != NULL) {
+			*reg_func3_gcr |= gpio->func3_en_mask[pin];
+		}
 		/* Func3-external: Some pins require external setting. */
 		if (reg_func3_ext != NULL) {
 			*reg_func3_ext |= gpio->func3_ext_mask[pin];
@@ -192,16 +227,28 @@ static int pinctrl_gpio_it8xxx2_configure_pins(const pinctrl_soc_pin_t *pins)
 		 */
 		*reg_func4_gcr |= gpio->func4_en_mask[pin];
 		break;
+	case IT8XXX2_ALT_FUNC_5:
+#if PINCTRL_ALT_FUNC5_IS_DEFINED
+		if (reg_func5_gcr) {
+			*reg_func5_gcr |= gpio->func5.en_mask[pin];
+		}
+#endif /* PINCTRL_ALT_FUNC5_IS_DEFINED */
+		break;
 	case IT8XXX2_ALT_DEFAULT:
-		*reg_gpcr = (*reg_gpcr | GPCR_PORT_PIN_MODE_INPUT) &
-			     ~GPCR_PORT_PIN_MODE_OUTPUT;
 		*reg_func3_gcr &= ~gpio->func3_en_mask[pin];
 		*reg_func4_gcr &= ~gpio->func4_en_mask[pin];
-		break;
+#if PINCTRL_ALT_FUNC5_IS_DEFINED
+		*reg_func5_gcr &= ~gpio->func5.en_mask[pin];
+#endif /* PINCTRL_ALT_FUNC5_IS_DEFINED */
+		return 0;
 	default:
 		LOG_ERR("This function is not supported.");
 		return -EINVAL;
 	}
+
+	/* Common settings for alternate function. */
+	*reg_gpcr &= ~(GPCR_PORT_PIN_MODE_INPUT |
+		       GPCR_PORT_PIN_MODE_OUTPUT);
 
 	return 0;
 }
@@ -268,7 +315,7 @@ static int pinctrl_kscan_it8xxx2_configure_pins(const pinctrl_soc_pin_t *pins)
 		return -EINVAL;
 	}
 
-#ifdef CONFIG_SOC_IT8XXX2_REG_SET_V1
+#if defined(CONFIG_SOC_IT8XXX2_REG_SET_V1) || defined(CONFIG_SOC_SERIES_IT51XXX)
 	uint8_t pin_mask = BIT(pins->pin);
 	volatile uint8_t *reg_gctrl = ksi_kso->reg_gctrl;
 
@@ -333,16 +380,30 @@ int pinctrl_configure_pins(const pinctrl_soc_pin_t *pins, uint8_t pin_cnt,
 
 static int pinctrl_it8xxx2_init(const struct device *dev)
 {
-	struct gpio_it8xxx2_regs *const gpio_base = GPIO_IT8XXX2_REG_BASE;
+	struct gpio_ite_ec_regs *const gpio_base = GPIO_ITE_EC_REGS_BASE;
 
 	/*
 	 * The default value of LPCRSTEN is bit2:1 = 10b(GPD2) in GCR.
 	 * If LPC reset is enabled on GPB7, we have to clear bit2:1
 	 * to 00b.
 	 */
-	gpio_base->GPIO_GCR &= ~IT8XXX2_GPIO_LPCRSTEN;
+	gpio_base->GPIO_GCR &= ~ITE_EC_GPIO_LPCRSTEN;
 
 #ifdef CONFIG_SOC_IT8XXX2_REG_SET_V2
+#if defined(CONFIG_I2C_ITE_ENHANCE) && DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(i2c5))
+	const struct gpio_dt_spec scl_gpios = GPIO_DT_SPEC_GET(DT_NODELABEL(i2c5), scl_gpios);
+	const struct gpio_dt_spec sda_gpios = GPIO_DT_SPEC_GET(DT_NODELABEL(i2c5), sda_gpios);
+
+	/*
+	 * When setting these pins as I2C alternate mode and then setting
+	 * GCR7 or func3-ext of GPIO extended, it will cause leakage.
+	 * In order to prevent leakage, it must be set to GPIO INPUT mode.
+	 */
+	/* Set I2C5 SCL as GPIO input to prevent leakage */
+	gpio_pin_configure_dt(&scl_gpios, GPIO_INPUT);
+	/* Set I2C5 SDA as GPIO input to prevent leakage */
+	gpio_pin_configure_dt(&sda_gpios, GPIO_INPUT);
+#endif
 	/*
 	 * Swap the default I2C2 SMCLK2/SMDAT2 pins from GPC7/GPD0 to GPF6/GPF7,
 	 * and I2C3 SMCLK3/SMDAT3 pins from GPB2/GPB5 to GPH1/GPH2,
@@ -355,10 +416,21 @@ static int pinctrl_it8xxx2_init(const struct device *dev)
 	return 0;
 }
 
-#define INIT_UNION_CONFIG(inst)                                                        \
+#if PINCTRL_ALT_FUNC5_IS_DEFINED
+#define DECLARE_GPIO_ALT_FUNC5(inst)                                                               \
+	.func5 = {                                                                                 \
+		.gcr = DT_INST_PROP_OR(inst, func5_gcr, {0}),                                      \
+		.en_mask = DT_INST_PROP_OR(inst, func5_en_mask, {0}),                              \
+	},
+#else
+#define DECLARE_GPIO_ALT_FUNC5(inst)
+#endif /* PINCTRL_ALT_FUNC5_IS_DEFINED */
+
+#define INIT_UNION_CONFIG(inst)                                                                    \
 	COND_CODE_1(DT_INST_PROP(inst, gpio_group),                                    \
 		(.gpio = {                                                             \
 			 .reg_gpcr = (uint8_t *)DT_INST_REG_ADDR_BY_IDX(inst, 0),      \
+			 .reg_pdsc = (uint8_t *)DT_INST_REG_ADDR_BY_IDX(inst, 1),      \
 			 .func3_gcr = DT_INST_PROP(inst, func3_gcr),                   \
 			 .func3_en_mask = DT_INST_PROP(inst, func3_en_mask),           \
 			 .func3_ext = DT_INST_PROP_OR(inst, func3_ext, {0}),           \
@@ -367,6 +439,7 @@ static int pinctrl_it8xxx2_init(const struct device *dev)
 			 .func4_en_mask = DT_INST_PROP(inst, func4_en_mask),           \
 			 .volt_sel = DT_INST_PROP(inst, volt_sel),                     \
 			 .volt_sel_mask = DT_INST_PROP(inst, volt_sel_mask),           \
+			 DECLARE_GPIO_ALT_FUNC5(inst) \
 		}),                                                                    \
 		(.ksi_kso = {                                                          \
 			 .reg_gctrl = (uint8_t *)DT_INST_REG_ADDR_BY_IDX(inst, 0),     \

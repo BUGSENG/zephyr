@@ -10,7 +10,9 @@
 
 static ALWAYS_INLINE void mips_idle(unsigned int key)
 {
+#if defined(CONFIG_SYS_IDLE_HOOKS)
 	sys_trace_idle();
+#endif
 
 	/* unlock interrupts */
 	irq_unlock(key);
@@ -19,12 +21,16 @@ static ALWAYS_INLINE void mips_idle(unsigned int key)
 	__asm__ volatile("wait");
 }
 
+#ifndef CONFIG_ARCH_HAS_CUSTOM_CPU_IDLE
 void arch_cpu_idle(void)
 {
 	mips_idle(1);
 }
+#endif
 
+#ifndef CONFIG_ARCH_HAS_CUSTOM_CPU_ATOMIC_IDLE
 void arch_cpu_atomic_idle(unsigned int key)
 {
 	mips_idle(key);
 }
+#endif

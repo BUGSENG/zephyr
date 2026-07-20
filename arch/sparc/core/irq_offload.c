@@ -5,7 +5,6 @@
  */
 
 #include <zephyr/kernel.h>
-#include <zephyr/kernel_structs.h>
 #include <zephyr/irq.h>
 #include <zephyr/irq_offload.h>
 
@@ -38,4 +37,8 @@ void arch_irq_offload(irq_offload_routine_t routine, const void *parameter)
 	__asm__ volatile ("ta 13");
 
 	irq_unlock(key);
+}
+
+void arch_irq_offload_init(void)
+{
 }

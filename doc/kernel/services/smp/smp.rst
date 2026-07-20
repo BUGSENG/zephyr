@@ -72,6 +72,13 @@ recursive semantics above, spinlocks in single-CPU contexts produce
 identical code to legacy IRQ locks.  In fact the entirety of the
 Zephyr core kernel has now been ported to use spinlocks exclusively.
 
+The default spinlock implementation is built on a single atomic variable and
+does not guarantee fairness between contending CPUs: it is possible for one CPU
+to repeatedly win the contention, in pathological cases starving the others.
+Where this matters, enabling :kconfig:option:`CONFIG_TICKET_SPINLOCKS` switches
+to a ticket-based implementation that grants a contended lock to requesting CPUs
+in first-come, first-served order, at the cost of a slightly larger lock object.
+
 Legacy irq_lock() emulation
 ===========================
 
@@ -93,6 +100,25 @@ instruction) interrupt masking operation.  That, and the fact that the
 IRQ lock is global, means that code expecting to be run in an SMP
 context should be using the spinlock API wherever possible.
 
+Memory Coherence
+================
+
+Some multiprocessor architectures are *cache-incoherent*: the per-CPU caches are
+not automatically kept consistent with each other, so data written by one CPU may
+not be visible to another until it is flushed from the cache. On such systems,
+shared kernel data structures must reside in memory that all CPUs observe
+consistently.
+
+When :kconfig:option:`CONFIG_KERNEL_COHERENCE` is enabled, the kernel places all
+shared data into multiprocessor-coherent (generally uncached) memory. Thread
+stacks remain cached, as does application memory explicitly declared with
+``__incoherent``. This mode is intended only for SMP kernels running on
+cache-incoherent architectures, and it carries an implicit API contract: any
+memory passed to the kernel is assumed to be cache-coherent, so kernel data
+structures must not be created in uncached regions.
+
+.. _smp_cpu_mask:
+
 CPU Mask
 ********
 
@@ -112,14 +138,29 @@ available for convenience.  For obvious reasons, these APIs are
 illegal if called on a runnable thread.  The thread must be blocked or
 suspended, otherwise an ``-EINVAL`` will be returned.
 
-Note that when this feature is enabled, the scheduler algorithm
-involved in doing the per-CPU mask test requires that the list be
-traversed in full.  The kernel does not keep a per-CPU run queue.
-That means that the performance benefits from the
-:kconfig:option:`CONFIG_SCHED_SCALABLE` and :kconfig:option:`CONFIG_SCHED_MULTIQ`
-scheduler backends cannot be realized.  CPU mask processing is
-available only when :kconfig:option:`CONFIG_SCHED_DUMB` is the selected
-backend.  This requirement is enforced in the configuration layer.
+CPU mask filtering is supported with all three scheduler backends.
+The performance impact differs by backend:
+
+- :kconfig:option:`CONFIG_SCHED_SIMPLE` — O(N) linear scan of the run
+  queue; every context switch walks the full list looking for the
+  first eligible thread.
+- :kconfig:option:`CONFIG_SCHED_SCALABLE` — O(N) in-order walk of the
+  red/black tree; priority ordering is preserved but the full tree
+  may be traversed when many threads are masked off.
+- :kconfig:option:`CONFIG_SCHED_MULTIQ` — scans priority buckets
+  from highest to lowest and walks the per-bucket list; worst case
+  is O(P·N) where P is the number of occupied priority levels.
+
+For workloads that use :kconfig:option:`CONFIG_SCHED_CPU_MASK_PIN_ONLY`,
+each CPU maintains its own independent run queue, so the scheduler
+needs only examine that queue with no mask filtering overhead.
+
+Note that :c:func:`k_thread_cpu_mask_clear`,
+:c:func:`k_thread_cpu_mask_enable_all`, and
+:c:func:`k_thread_cpu_mask_disable` are not permitted in
+:kconfig:option:`CONFIG_SCHED_CPU_MASK_PIN_ONLY` mode because they can
+produce a mask that is not exactly one bit, which violates the
+invariant that every thread is pinned to precisely one CPU.
 
 SMP Boot Process
 ****************
@@ -132,7 +173,7 @@ happens on a single CPU before other CPUs are brought online.
 Just before entering the application :c:func:`main` function, the kernel
 calls :c:func:`z_smp_init` to launch the SMP initialization process.  This
 enumerates over the configured CPUs, calling into the architecture
-layer using :c:func:`arch_start_cpu` for each one.  This function is
+layer using :c:func:`arch_cpu_start` for each one.  This function is
 passed a memory region to use as a stack on the foreign CPU (in
 practice it uses the area that will become that CPU's interrupt
 stack), the address of a local :c:func:`smp_init_top` callback function to
@@ -159,6 +200,15 @@ API.
    Example SMP initialization process, showing a configuration with
    two CPUs and two app threads which begin operating simultaneously.
 
+By default the kernel brings up every available CPU during this start-up
+sequence. When :kconfig:option:`CONFIG_SMP_BOOT_DELAY` is enabled the kernel
+skips bringing up the secondary CPUs at initialization, leaving them disabled so
+that architecture, SoC, board, or application code can start them later at run
+time. A deferred CPU is started with :c:func:`k_smp_cpu_start`, which performs
+full per-CPU initialization; :c:func:`k_smp_cpu_resume` is the counterpart used
+to bring a previously stopped CPU back online without repeating one-time
+initialization.
+
 Interprocessor Interrupts
 *************************
 
@@ -180,13 +230,22 @@ handle the newly-runnable load.
 
 So where possible, Zephyr SMP architectures should implement an
 interprocessor interrupt.  The current framework is very simple: the
-architecture provides a :c:func:`arch_sched_ipi` call, which when invoked
-will flag an interrupt on all CPUs (except the current one, though
-that is allowed behavior) which will then invoke the :c:func:`z_sched_ipi`
-function implemented in the scheduler.  The expectation is that these
-APIs will evolve over time to encompass more functionality
-(e.g. cross-CPU calls), and that the scheduler-specific calls here
-will be implemented in terms of a more general framework.
+architecture provides at least a :c:func:`arch_sched_broadcast_ipi` call,
+which when invoked will flag an interrupt on all CPUs (except the current one,
+though that is allowed behavior). If the architecture supports directed IPIs
+(see :kconfig:option:`CONFIG_ARCH_HAS_DIRECTED_IPIS`), then the
+architecture also provides a :c:func:`arch_sched_directed_ipi` call, which
+when invoked will flag an interrupt on the specified CPUs. When an interrupt is
+flagged on the CPUs, the :c:func:`z_sched_ipi` function implemented in the
+scheduler will get invoked on those CPUs. The expectation is that these
+APIs will evolve over time to encompass more functionality (e.g. cross-CPU
+calls), and that the scheduler-specific calls here will be implemented in
+terms of a more general framework.
+
+When directed IPIs are available, the scheduler signals only those CPUs that
+actually need to reschedule when a thread becomes ready, rather than broadcasting
+to every other CPU. This avoids disturbing CPUs whose currently running thread
+does not need to be preempted, reducing the overall interrupt load.
 
 Note that not all SMP architectures will have a usable IPI mechanism
 (either missing, or just undocumented/unimplemented).  In those cases
@@ -220,6 +279,96 @@ involve severe lock contention) for new threads.  The expectation is
 that power constrained SMP applications are always going to provide an
 IPI, and this code will only be used for testing purposes or on
 systems without power consumption requirements.
+
+IPI Cascades
+============
+
+The kernel can not control the order in which IPIs are processed by the CPUs
+in the system. In general, this is not an issue and a single set of IPIs is
+sufficient to trigger a reschedule on the N CPUs that results with them
+scheduling the highest N priority ready threads to execute. When CPU masking
+is used, there may be more than one valid set of threads (not to be confused
+with an optimal set of threads) that can be scheduled on the N CPUs and a
+single set of IPIs may be insufficient to result in any of these valid sets.
+
+.. note::
+    When CPU masking is not in play, the optimal set of threads is the same
+    as the valid set of threads. However when CPU masking is in play, there
+    may be more than one valid set--one of which may be optimal.
+
+    To better illustrate the distinction, consider a 2-CPU system with ready
+    threads T1 and T2 at priorities 1 and 2 respectively. Let T2 be pinned to
+    CPU0 and T1 not be pinned. If CPU0 is executing T2 and CPU1 executing T1,
+    then this set is is both valid and optimal. However, if CPU0 is executing
+    T1 and CPU1 is idling, then this too would be valid though not optimal.
+
+In those cases where a single set of IPIs is not sufficient to generate a valid
+set, the resulting set of executing threads are expected to be close to a valid
+set, and subsequent IPIs can generally be expected to correct the situation
+soon. However, for cases where neither the approximation nor the delay are
+acceptable, enabling :kconfig:option:`CONFIG_SCHED_IPI_CASCADE` will allow the
+kernel to generate cascading IPIs until the kernel has selected a valid set of
+ready threads for the CPUs.
+
+There are three types of costs/penalties associated with the IPI cascades--and
+for these reasons they are disabled by default. The first is a cost incurred
+by the CPU producing the IPI when a new thread preempts the old thread as checks
+must be done to compare the old thread against the threads executing on the
+other CPUs. The second is a cost incurred by the CPUs receiving the IPIs as
+they must be processed. The third is the apparent sputtering of a thread as it
+"winks in" and then "winks out" due to cascades stemming from the
+aforementioned first cost.
+
+IPI Work Items
+==============
+
+The kernel allows developers to execute functions on other CPUs at ISR level
+using one or more IPI work items. After IPI work items have been added to the
+specified CPUs' work queues using :c:func:`k_ipi_work_add`, the targeted CPUs
+will process them after receiving an IPI. Signaling an IPI is done by calling
+:c:func:`k_ipi_work_signal`. Waiting for an IPI work item to be completed by
+the targeted CPUs is done by calling :c:func:`k_ipi_work_wait`. Only a single
+waiter is permitted at a time.
+
+.. note::
+    IPI work items will only be added to the IPI work queues of other CPUs. If
+    adding IPI work items at thread level, the developer must ensure that the
+    current thread does not change CPUs until after signaling the IPIs.
+
+Sample Use
+----------
+
+The following code outlines how to use IPI work items to update status
+information across a set of CPUs as a result of one CPU handling an ISR.
+
+.. code-block:: c
+
+    struct k_ipi_work my_work;
+
+    void remote_cpu_action(struct k_ipi_work *arg)
+    {
+        ...
+    }
+
+    void my_isr(void)
+    {
+        /*
+         * Wait for previous use of <my_work> to complete.
+         * It assumes that <my_work> was initialized elsewhere.
+         */
+
+        uint32_t cpu_mask = <bitmask identifying CPUs to update>;
+
+        while (k_ipi_work_wait(&my_work, K_NO_WAIT) == -EAGAIN) {
+        }
+
+        /* Add and signal the new work */
+
+        k_ipi_work_add(&my_work, cpu_mask, remote_cpu_action);
+
+        k_ipi_signal();
+    }
+
 
 SMP Kernel Internals
 ********************
@@ -302,7 +451,7 @@ registers only when :c:func:`arch_switch` is called to minimize context
 switching latency. Such architectures must use NULL as the argument to
 :c:func:`z_get_next_switch_handle` to determine if there is a new thread
 to schedule, and follow through with their own :c:func:`arch_switch` or
-derrivative if so, or directly leave interrupt mode otherwise.
+derivative if so, or directly leave interrupt mode otherwise.
 In the former case it is up to that switch code to store the handle
 resulting from the thread that is being switched out in that thread's
 "switch_handle" field after its context has fully been saved.
@@ -315,6 +464,15 @@ Note that while SMP requires :kconfig:option:`CONFIG_USE_SWITCH`, the reverse is
 true.  A uniprocessor architecture built with :kconfig:option:`CONFIG_SMP` set to No might
 still decide to implement its context switching using
 :c:func:`arch_switch`.
+
+Thread Queue Ordering
+=====================
+
+When a thread is preempted by another thread of higher priority in an SMP
+system, it is moved to the back of the queue for its priority level. In
+contrast, on UP systems, a preempted thread does not move to the back of its
+priority queue; it simply waits to regain the CPU, preserving its original
+ordering relative to other threads of the same priority.
 
 API Reference
 **************

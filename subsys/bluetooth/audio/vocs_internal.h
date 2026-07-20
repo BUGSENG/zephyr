@@ -8,16 +8,24 @@
 
 #ifndef ZEPHYR_INCLUDE_BLUETOOTH_AUDIO_VOCS_INTERNAL_
 #define ZEPHYR_INCLUDE_BLUETOOTH_AUDIO_VOCS_INTERNAL_
-#include <zephyr/types.h>
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 
 #if defined(CONFIG_BT_VOCS)
 #define BT_VOCS_MAX_DESC_SIZE CONFIG_BT_VOCS_MAX_OUTPUT_DESCRIPTION_SIZE
 #else
-#define BT_VOCS_MAX_DESC_SIZE 1
+#define BT_VOCS_MAX_DESC_SIZE 1U
 #endif /* CONFIG_BT_VOCS */
 
 /* VOCS opcodes */
-#define BT_VOCS_OPCODE_SET_OFFSET                  0x01
+#define BT_VOCS_OPCODE_SET_OFFSET                  0x01U
 
 struct bt_vocs_control {
 	uint8_t opcode;
@@ -34,13 +42,20 @@ struct bt_vocs {
 	bool client_instance;
 };
 
+enum bt_vocs_client_flag {
+	BT_VOCS_CLIENT_FLAG_BUSY,
+	BT_VOCS_CLIENT_FLAG_CP_RETRIED,
+	BT_VOCS_CLIENT_FLAG_DESC_WRITABLE,
+	BT_VOCS_CLIENT_FLAG_LOC_WRITABLE,
+	BT_VOCS_CLIENT_FLAG_ACTIVE,
+
+	BT_VOCS_CLIENT_FLAG_NUM_FLAGS, /* keep as last */
+};
+
 struct bt_vocs_client {
 	struct bt_vocs vocs;
 	struct bt_vocs_state state;
-	bool location_writable;
 	uint32_t location;
-	bool desc_writable;
-	bool active;
 
 	uint16_t start_handle;
 	uint16_t end_handle;
@@ -51,15 +66,20 @@ struct bt_vocs_client {
 	struct bt_gatt_subscribe_params state_sub_params;
 	struct bt_gatt_subscribe_params location_sub_params;
 	struct bt_gatt_subscribe_params desc_sub_params;
-	bool cp_retried;
 
-	bool busy;
+	/* Dedicated discovery params for concurrent CCC auto-discovery */
+	struct bt_gatt_discover_params state_ccc_disc_params;
+	struct bt_gatt_discover_params location_ccc_disc_params;
+	struct bt_gatt_discover_params desc_ccc_disc_params;
+
 	struct bt_vocs_control cp;
 	struct bt_gatt_write_params write_params;
 	struct bt_gatt_read_params read_params;
 	struct bt_vocs_cb *cb;
 	struct bt_gatt_discover_params discover_params;
 	struct bt_conn *conn;
+
+	ATOMIC_DEFINE(flags, BT_VOCS_CLIENT_FLAG_NUM_FLAGS);
 };
 
 enum bt_vocs_notify {

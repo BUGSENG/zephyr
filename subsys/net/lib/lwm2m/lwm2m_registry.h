@@ -5,7 +5,7 @@
  */
 #ifndef LWM2M_REGISTRY_H
 #define LWM2M_REGISTRY_H
-#include <zephyr/sys/ring_buffer.h>
+#include <zephyr/sys/ringq.h>
 #include "lwm2m_object.h"
 
 /**
@@ -68,17 +68,6 @@ void lwm2m_unregister_obj(struct lwm2m_engine_obj *obj);
 int lwm2m_engine_get_create_res_inst(const struct lwm2m_obj_path *path,
 				     struct lwm2m_engine_res **res,
 				     struct lwm2m_engine_res_inst **res_inst);
-
-/**
- * @brief Gets the resource specified by @p pathstr.
- *
- * @deprecated Use lwm2m_get_resource() instead.
- *
- * @param[in] pathstr Path to resource (i.e 100/100/100/x, the fourth component is optional)
- * @param[out] res Engine resource buffer pointer.
- * @return 0 for success or negative in case of error.
- */
-int lwm2m_engine_get_resource(const char *pathstr, struct lwm2m_engine_res **res);
 
 /**
  * @brief Gets the resource specified by @p path.
@@ -161,7 +150,7 @@ int path_to_objs(const struct lwm2m_obj_path *path, struct lwm2m_engine_obj_inst
 
 /**
  * @brief Returns the object instance in the registry with object id = @p obj_id that has the
- * smalles object instance id strictly larger than @p obj_inst_id.
+ * smallest object instance id strictly larger than @p obj_inst_id.
  *
  * @param[in] obj_id Object id of the object instance.
  * @param[in] obj_inst_id Lower bound of the object instance id.
@@ -220,8 +209,10 @@ struct lwm2m_time_series_resource {
 	sys_snode_t node;
 	/* Resource Path url */
 	struct lwm2m_obj_path path;
+	/* Optional filter for cached samples */
+	lwm2m_cache_filter_cb_t filter_cb;
 	/* Ring buffer */
-	struct ring_buf rb;
+	struct sys_ringq fifo;
 };
 
 #if defined(CONFIG_LWM2M_RESOURCE_DATA_CACHE_SUPPORT)
@@ -230,9 +221,7 @@ struct lwm2m_time_series_resource {
 
 struct lwm2m_cache_read_entry {
 	struct lwm2m_time_series_resource *cache_data;
-	int32_t original_get_head;
-	int32_t original_get_tail;
-	int32_t original_get_base;
+	struct ring_buf_index original_rb_get;
 };
 
 struct lwm2m_cache_read_info {
@@ -242,7 +231,6 @@ struct lwm2m_cache_read_info {
 };
 #endif
 
-int lwm2m_engine_data_cache_init(void);
 struct lwm2m_time_series_resource *
 lwm2m_cache_entry_get_by_object(const struct lwm2m_obj_path *obj_path);
 bool lwm2m_cache_write(struct lwm2m_time_series_resource *cache_entry,

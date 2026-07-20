@@ -3,7 +3,7 @@
 
 source ${ZEPHYR_BASE}/tests/bsim/sh_common.source
 
-EXECUTE_TIMEOUT=300
+EXECUTE_TIMEOUT=800
 
 function Skip(){
   for i in "${SKIP[@]}" ; do
@@ -23,7 +23,7 @@ function RunTest(){
 
   idx=0
 
-  s_id=$1
+  s_id="${BOARD_TS}_$1"
   shift 1
 
   declare -A testids
@@ -60,9 +60,9 @@ function RunTest(){
     conf=${conf:-prj_conf}
 
     if [ ${overlay} ]; then
-        exe_name=./bs_${BOARD}_tests_bsim_bluetooth_mesh_${conf}_${overlay}
+        exe_name=./bs_${BOARD_TS}_tests_bsim_bluetooth_mesh_${conf}_${overlay}
     else
-        exe_name=./bs_${BOARD}_tests_bsim_bluetooth_mesh_${conf}
+        exe_name=./bs_${BOARD_TS}_tests_bsim_bluetooth_mesh_${conf}
     fi
 
     Execute \
@@ -96,7 +96,7 @@ function RunTestFlash(){
     ext_arg+="$arg "
 
     if [[ "$arg" != "-"* ]]; then
-      ext_arg+="-flash=../results/${s_id}/${s_id}_${idx}.bin "
+      ext_arg+="-flash=../results/${BOARD_TS}_${s_id}/${s_id}_${idx}.bin "
       let idx=idx+1
     fi
 

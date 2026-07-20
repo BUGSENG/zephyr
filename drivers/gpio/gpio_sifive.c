@@ -17,7 +17,8 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/irq.h>
-
+#include <zephyr/irq_multilevel.h>
+#include <zephyr/drivers/interrupt_controller/riscv_plic.h>
 #include <zephyr/drivers/gpio/gpio_utils.h>
 
 typedef void (*sifive_cfg_func_t)(void);
@@ -143,10 +144,6 @@ static int gpio_sifive_config(const struct device *dev,
 			      gpio_flags_t flags)
 {
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
-
-	if (pin >= SIFIVE_PINMUX_PINS) {
-		return -EINVAL;
-	}
 
 	/* We cannot support open-source open-drain configuration */
 	if ((flags & GPIO_SINGLE_ENDED) != 0) {
@@ -309,7 +306,7 @@ static int gpio_sifive_port_get_dir(const struct device *dev, gpio_port_pins_t m
 }
 #endif /* CONFIG_GPIO_GET_DIRECTION */
 
-static const struct gpio_driver_api gpio_sifive_driver = {
+static DEVICE_API(gpio, gpio_sifive_driver) = {
 	.pin_configure           = gpio_sifive_config,
 	.port_get_raw            = gpio_sifive_port_get_raw,
 	.port_set_masked_raw     = gpio_sifive_port_set_masked_raw,
@@ -358,9 +355,7 @@ static int gpio_sifive_init(const struct device *dev)
 static void gpio_sifive_cfg_0(void);
 
 static const struct gpio_sifive_config gpio_sifive_config0 = {
-	.common = {
-		.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(0),
-	},
+	.common = GPIO_COMMON_CONFIG_FROM_DT_INST(0),
 	.gpio_base_addr = DT_INST_REG_ADDR(0),
 	.gpio_irq_base  = DT_INST_IRQN(0),
 	.gpio_cfg_func  = gpio_sifive_cfg_0,
@@ -376,7 +371,7 @@ DEVICE_DT_INST_DEFINE(0,
 		    &gpio_sifive_driver);
 
 #define		IRQ_INIT(n)					\
-IRQ_CONNECT(DT_INST_IRQ_BY_IDX(0, n, irq),			\
+IRQ_CONNECT(DT_INST_IRQN_BY_IDX(0, n),				\
 		DT_INST_IRQ_BY_IDX(0, n, priority),		\
 		gpio_sifive_irq_handler,			\
 		DEVICE_DT_INST_GET(0),				\

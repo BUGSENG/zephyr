@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_IPC_SERVICE_IPC_STATIC_VRINGS_H_
-#define ZEPHYR_INCLUDE_IPC_SERVICE_IPC_STATIC_VRINGS_H_
+#ifndef ZEPHYR_INCLUDE_IPC_IPC_STATIC_VRINGS_H_
+#define ZEPHYR_INCLUDE_IPC_IPC_STATIC_VRINGS_H_
 
 #include <zephyr/ipc/ipc_service.h>
 #include <openamp/open_amp.h>
-#include <metal/device.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,9 +54,6 @@ struct ipc_static_vrings {
 	/** SHM physmap. */
 	metal_phys_addr_t shm_physmap[1];
 
-	/** SHM device. */
-	struct metal_device shm_device;
-
 	/** SHM and addresses. */
 	uintptr_t status_reg_addr;
 
@@ -77,7 +73,7 @@ struct ipc_static_vrings {
 	size_t shm_size;
 
 	/** SHM IO region. */
-	struct metal_io_region *shm_io;
+	struct metal_io_region shm_io;
 
 	/** VRINGs */
 	struct virtio_vring_info rvrings[VRING_COUNT];
@@ -126,4 +122,4 @@ int ipc_static_vrings_deinit(struct ipc_static_vrings *vr, unsigned int role);
 }
 #endif
 
-#endif /* ZEPHYR_INCLUDE_IPC_SERVICE_IPC_STATIC_VRINGS_H_ */
+#endif /* ZEPHYR_INCLUDE_IPC_IPC_STATIC_VRINGS_H_ */

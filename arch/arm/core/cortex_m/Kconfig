@@ -1,6 +1,7 @@
 # ARM Cortex-M platform configuration options
 
 # Copyright (c) 2014-2015 Wind River Systems, Inc.
+# Copyright 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
 # SPDX-License-Identifier: Apache-2.0
 
 # NOTE: We have the specific core implementations first and outside of the
@@ -62,6 +63,17 @@ config CPU_CORTEX_M33
 	help
 	  This option signifies the use of a Cortex-M33 CPU
 
+config CPU_CORTEX_M52
+	bool
+	select CPU_CORTEX_M
+	select ARMV8_1_M_MAINLINE
+	select ARMV8_M_SE if CPU_HAS_TEE
+	select ARMV7_M_ARMV8_M_FP if CPU_HAS_FPU
+	select CPU_HAS_DCACHE
+	select CPU_HAS_ICACHE
+	help
+	  This option signifies the use of a Cortex-M52 CPU
+
 config CPU_CORTEX_M55
 	bool
 	select CPU_CORTEX_M
@@ -73,13 +85,22 @@ config CPU_CORTEX_M55
 	help
 	  This option signifies the use of a Cortex-M55 CPU
 
+config CPU_CORTEX_M85
+	bool
+	select CPU_CORTEX_M
+	select ARMV8_1_M_MAINLINE
+	select ARMV8_M_SE if CPU_HAS_TEE
+	select ARMV7_M_ARMV8_M_FP if CPU_HAS_FPU
+	select CPU_HAS_DCACHE
+	select CPU_HAS_ICACHE
+	help
+	  This option signifies the use of a Cortex-M85 CPU
+
 config CPU_CORTEX_M7
 	bool
 	select CPU_CORTEX_M
 	select ARMV7_M_ARMV8_M_MAINLINE
 	select ARMV7_M_ARMV8_M_FP if CPU_HAS_FPU
-	select CPU_HAS_DCACHE
-	select CPU_HAS_ICACHE
 	help
 	  This option signifies the use of a Cortex-M7 CPU
 
@@ -90,11 +111,11 @@ config CPU_CORTEX_M_HAS_SYSTICK
 	help
 	  This option is enabled when the CPU implements the SysTick timer.
 
-config DCACHE_LINE_SIZE
-	default 32
+configdefault DCACHE_LINE_SIZE
+	default 32 if !$(dt_node_has_prop,/cpus/cpu@0,d-cache-line-size)
 
-config ICACHE_LINE_SIZE
-	default 32
+configdefault ICACHE_LINE_SIZE
+	default 32 if !$(dt_node_has_prop,/cpus/cpu@0,i-cache-line-size)
 
 config CPU_CORTEX_M_HAS_DWT
 	bool
@@ -171,8 +192,10 @@ config CPU_CORTEX_M_HAS_CMSE
 
 config ARMV6_M_ARMV8_M_BASELINE
 	bool
+	select ATOMIC_OPERATIONS_BUILTIN if ARMV8_M_BASELINE
 	select ATOMIC_OPERATIONS_C if !ARMV8_M_BASELINE
 	select ISA_THUMB2
+	select ARCH_HAS_LLEXT_VENEERS
 	help
 	  This option signifies the use of an ARMv6-M processor
 	  implementation, or the use of an ARMv8-M processor
@@ -205,6 +228,8 @@ config ARMV7_M_ARMV8_M_MAINLINE
 	select CPU_CORTEX_M_HAS_VTOR
 	select CPU_CORTEX_M_HAS_PROGRAMMABLE_FAULT_PRIOS
 	select CPU_CORTEX_M_HAS_SYSTICK
+	select USE_SWITCH_SUPPORTED
+	select ARCH_HAS_LLEXT_VENEERS
 	help
 	  This option signifies the use of an ARMv7-M processor
 	  implementation, or the use of a backwards-compatible
@@ -283,7 +308,20 @@ config ARMV8_1_M_MVEF
 	  supporting the M-Profile Vector Extension (MVE) floating-point
 	  instruction set.
 
-menu "ARM Cortex-M0/M0+/M1/M3/M4/M7/M23/M33 options"
+config ARMV8_1_M_PMU
+	bool
+	help
+	  This option is enabled when the CPU implements ARMv8-M Performance
+	  Monitoring Unit (PMU).
+
+config ARMV8_M_PMU_EVENTCNT
+	int "Number of event counters in the Performance Monitoring Unit"
+	depends on ARMV8_1_M_PMU
+	range 2 8
+	help
+	  The number of event counters implemented.
+
+menu "ARM Cortex-M0/M0+/M1/M3/M4/M7/M23/M33/M55 options"
     depends on ARMV6_M_ARMV8_M_BASELINE || ARMV7_M_ARMV8_M_MAINLINE
 
 config GEN_ISR_TABLES
@@ -308,7 +346,7 @@ config ZERO_LATENCY_IRQS
 config ZERO_LATENCY_LEVELS
 	int "Number of interrupt priority levels reserved for zero latency"
 	depends on ZERO_LATENCY_IRQS
-	range 1 255
+	range 1 $(UINT8_MAX)
 	help
 	  The amount of interrupt priority levels reserved for zero latency
 	  interrupts. Increase this value to reserve more than one priority
@@ -345,7 +383,7 @@ config SW_VECTOR_RELAY_CLIENT
 	  initialization.
 
 config CORTEX_M_DWT
-	bool "Data Watchpoint and Trace (DWT)"
+	bool "Data Watchpoint and Trace (DWT)" if !TIMING_FUNCTIONS
 	depends on CPU_CORTEX_M_HAS_DWT
 	default y if TIMING_FUNCTIONS
 	help
@@ -466,6 +504,15 @@ config CORTEX_M_NULL_POINTER_EXCEPTION_PAGE_SIZE
 	  wasting a large flash area that code may not use.
 
 endif # CORTEX_M_NULL_POINTER_EXCEPTION
+
+config ARM_GCC_FP_WORKAROUND
+	bool "GCC/gas frame pointer workaround"
+	help
+	  Enables a two-instruction workaround for a GNU toolchain
+	  buglet in arch_switch() when the kernel must unavoidably be
+	  compiled with -fno-omit-frame-pointer.  Most code doesn't
+	  want this, but in at least one case it's necessary.  See
+	  comment in arm-m-switch.h
 
 rsource "tz/Kconfig"
 

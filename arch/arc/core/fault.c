@@ -17,9 +17,9 @@
 
 #include <zephyr/kernel.h>
 #include <kernel_internal.h>
-#include <zephyr/kernel_structs.h>
 #include <zephyr/arch/common/exc_handle.h>
 #include <zephyr/logging/log.h>
+
 LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
 #ifdef CONFIG_USERSPACE
@@ -51,9 +51,8 @@ static const struct z_exc_handle exceptions[] = {
  */
 static bool z_check_thread_stack_fail(const uint32_t fault_addr, uint32_t sp)
 {
-	uint32_t guard_end, guard_start;
-
 #if defined(CONFIG_MULTITHREADING)
+	uint32_t guard_end, guard_start;
 	const struct k_thread *thread = _current;
 
 	if (!thread) {
@@ -69,7 +68,7 @@ static bool z_check_thread_stack_fail(const uint32_t fault_addr, uint32_t sp)
 			 * "guard" installed in this case, instead what's
 			 * happening is that the stack pointer is crashing
 			 * into the privilege mode stack buffer which
-			 * immediately precededs it.
+			 * immediately precedes it.
 			 */
 			guard_end = thread->stack_info.start;
 			guard_start = (uint32_t)thread->stack_obj;
@@ -88,7 +87,6 @@ static bool z_check_thread_stack_fail(const uint32_t fault_addr, uint32_t sp)
 		guard_end = thread->stack_info.start;
 		guard_start = guard_end - Z_ARC_STACK_GUARD_SIZE;
 	}
-#endif /* CONFIG_MULTITHREADING */
 
 	 /* treat any MPU exceptions within the guard region as a stack
 	  * overflow.As some instrustions
@@ -99,12 +97,13 @@ static bool z_check_thread_stack_fail(const uint32_t fault_addr, uint32_t sp)
 	if (fault_addr < guard_end && fault_addr >= guard_start) {
 		return true;
 	}
+#endif /* CONFIG_MULTITHREADING */
 
 	return false;
 }
 #endif
 
-#ifdef CONFIG_ARC_EXCEPTION_DEBUG
+#ifdef CONFIG_EXCEPTION_DEBUG
 /* For EV_ProtV, the numbering/semantics of the parameter are consistent across
  * several codes, although not all combination will be reported.
  *
@@ -137,32 +136,32 @@ static void dump_protv_exception(uint32_t cause, uint32_t parameter)
 {
 	switch (cause) {
 	case 0x0:
-		LOG_ERR("Instruction fetch violation (%s)",
+		EXCEPTION_DUMP("Instruction fetch violation (%s)",
 			get_protv_access_err(parameter));
 		break;
 	case 0x1:
-		LOG_ERR("Memory read protection violation (%s)",
+		EXCEPTION_DUMP("Memory read protection violation (%s)",
 			get_protv_access_err(parameter));
 		break;
 	case 0x2:
-		LOG_ERR("Memory write protection violation (%s)",
+		EXCEPTION_DUMP("Memory write protection violation (%s)",
 			get_protv_access_err(parameter));
 		break;
 	case 0x3:
-		LOG_ERR("Memory read-modify-write violation (%s)",
+		EXCEPTION_DUMP("Memory read-modify-write violation (%s)",
 			get_protv_access_err(parameter));
 		break;
 	case 0x10:
-		LOG_ERR("Normal vector table in secure memory");
+		EXCEPTION_DUMP("Normal vector table in secure memory");
 		break;
 	case 0x11:
-		LOG_ERR("NS handler code located in S memory");
+		EXCEPTION_DUMP("NS handler code located in S memory");
 		break;
 	case 0x12:
-		LOG_ERR("NSC Table Range Violation");
+		EXCEPTION_DUMP("NSC Table Range Violation");
 		break;
 	default:
-		LOG_ERR("unknown");
+		EXCEPTION_DUMP("unknown");
 		break;
 	}
 }
@@ -171,46 +170,46 @@ static void dump_machine_check_exception(uint32_t cause, uint32_t parameter)
 {
 	switch (cause) {
 	case 0x0:
-		LOG_ERR("double fault");
+		EXCEPTION_DUMP("double fault");
 		break;
 	case 0x1:
-		LOG_ERR("overlapping TLB entries");
+		EXCEPTION_DUMP("overlapping TLB entries");
 		break;
 	case 0x2:
-		LOG_ERR("fatal TLB error");
+		EXCEPTION_DUMP("fatal TLB error");
 		break;
 	case 0x3:
-		LOG_ERR("fatal cache error");
+		EXCEPTION_DUMP("fatal cache error");
 		break;
 	case 0x4:
-		LOG_ERR("internal memory error on instruction fetch");
+		EXCEPTION_DUMP("internal memory error on instruction fetch");
 		break;
 	case 0x5:
-		LOG_ERR("internal memory error on data fetch");
+		EXCEPTION_DUMP("internal memory error on data fetch");
 		break;
 	case 0x6:
-		LOG_ERR("illegal overlapping MPU entries");
+		EXCEPTION_DUMP("illegal overlapping MPU entries");
 		if (parameter == 0x1) {
-			LOG_ERR(" - jump and branch target");
+			EXCEPTION_DUMP(" - jump and branch target");
 		}
 		break;
 	case 0x10:
-		LOG_ERR("secure vector table not located in secure memory");
+		EXCEPTION_DUMP("secure vector table not located in secure memory");
 		break;
 	case 0x11:
-		LOG_ERR("NSC jump table not located in secure memory");
+		EXCEPTION_DUMP("NSC jump table not located in secure memory");
 		break;
 	case 0x12:
-		LOG_ERR("secure handler code not located in secure memory");
+		EXCEPTION_DUMP("secure handler code not located in secure memory");
 		break;
 	case 0x13:
-		LOG_ERR("NSC target address not located in secure memory");
+		EXCEPTION_DUMP("NSC target address not located in secure memory");
 		break;
 	case 0x80:
-		LOG_ERR("uncorrectable ECC or parity error in vector memory");
+		EXCEPTION_DUMP("uncorrectable ECC or parity error in vector memory");
 		break;
 	default:
-		LOG_ERR("unknown");
+		EXCEPTION_DUMP("unknown");
 		break;
 	}
 }
@@ -219,54 +218,54 @@ static void dump_privilege_exception(uint32_t cause, uint32_t parameter)
 {
 	switch (cause) {
 	case 0x0:
-		LOG_ERR("Privilege violation");
+		EXCEPTION_DUMP("Privilege violation");
 		break;
 	case 0x1:
-		LOG_ERR("disabled extension");
+		EXCEPTION_DUMP("disabled extension");
 		break;
 	case 0x2:
-		LOG_ERR("action point hit");
+		EXCEPTION_DUMP("action point hit");
 		break;
 	case 0x10:
 		switch (parameter) {
 		case 0x1:
-			LOG_ERR("N to S return using incorrect return mechanism");
+			EXCEPTION_DUMP("N to S return using incorrect return mechanism");
 			break;
 		case 0x2:
-			LOG_ERR("N to S return with incorrect operating mode");
+			EXCEPTION_DUMP("N to S return with incorrect operating mode");
 			break;
 		case 0x3:
-			LOG_ERR("IRQ/exception return fetch from wrong mode");
+			EXCEPTION_DUMP("IRQ/exception return fetch from wrong mode");
 			break;
 		case 0x4:
-			LOG_ERR("attempt to halt secure processor in NS mode");
+			EXCEPTION_DUMP("attempt to halt secure processor in NS mode");
 			break;
 		case 0x20:
-			LOG_ERR("attempt to access secure resource from normal mode");
+			EXCEPTION_DUMP("attempt to access secure resource from normal mode");
 			break;
 		case 0x40:
-			LOG_ERR("SID violation on resource access (APEX/UAUX/key NVM)");
+			EXCEPTION_DUMP("SID violation on resource access (APEX/UAUX/key NVM)");
 			break;
 		default:
-			LOG_ERR("unknown");
+			EXCEPTION_DUMP("unknown");
 			break;
 		}
 		break;
 	case 0x13:
 		switch (parameter) {
 		case 0x20:
-			LOG_ERR("attempt to access secure APEX feature from NS mode");
+			EXCEPTION_DUMP("attempt to access secure APEX feature from NS mode");
 			break;
 		case 0x40:
-			LOG_ERR("SID violation on access to APEX feature");
+			EXCEPTION_DUMP("SID violation on access to APEX feature");
 			break;
 		default:
-			LOG_ERR("unknown");
+			EXCEPTION_DUMP("unknown");
 			break;
 		}
 		break;
 	default:
-		LOG_ERR("unknown");
+		EXCEPTION_DUMP("unknown");
 		break;
 	}
 }
@@ -274,7 +273,7 @@ static void dump_privilege_exception(uint32_t cause, uint32_t parameter)
 static void dump_exception_info(uint32_t vector, uint32_t cause, uint32_t parameter)
 {
 	if (vector >= 0x10 && vector <= 0xFF) {
-		LOG_ERR("interrupt %u", vector);
+		EXCEPTION_DUMP("interrupt %u", vector);
 		return;
 	}
 
@@ -283,59 +282,59 @@ static void dump_exception_info(uint32_t vector, uint32_t cause, uint32_t parame
 	 */
 	switch (vector) {
 	case ARC_EV_RESET:
-		LOG_ERR("Reset");
+		EXCEPTION_DUMP("Reset");
 		break;
 	case ARC_EV_MEM_ERROR:
-		LOG_ERR("Memory Error");
+		EXCEPTION_DUMP("Memory Error");
 		break;
 	case ARC_EV_INS_ERROR:
-		LOG_ERR("Instruction Error");
+		EXCEPTION_DUMP("Instruction Error");
 		break;
 	case ARC_EV_MACHINE_CHECK:
-		LOG_ERR("EV_MachineCheck");
+		EXCEPTION_DUMP("EV_MachineCheck");
 		dump_machine_check_exception(cause, parameter);
 		break;
 	case ARC_EV_TLB_MISS_I:
-		LOG_ERR("EV_TLBMissI");
+		EXCEPTION_DUMP("EV_TLBMissI");
 		break;
 	case ARC_EV_TLB_MISS_D:
-		LOG_ERR("EV_TLBMissD");
+		EXCEPTION_DUMP("EV_TLBMissD");
 		break;
 	case ARC_EV_PROT_V:
-		LOG_ERR("EV_ProtV");
+		EXCEPTION_DUMP("EV_ProtV");
 		dump_protv_exception(cause, parameter);
 		break;
 	case ARC_EV_PRIVILEGE_V:
-		LOG_ERR("EV_PrivilegeV");
+		EXCEPTION_DUMP("EV_PrivilegeV");
 		dump_privilege_exception(cause, parameter);
 		break;
 	case ARC_EV_SWI:
-		LOG_ERR("EV_SWI");
+		EXCEPTION_DUMP("EV_SWI");
 		break;
 	case ARC_EV_TRAP:
-		LOG_ERR("EV_Trap");
+		EXCEPTION_DUMP("EV_Trap");
 		break;
 	case ARC_EV_EXTENSION:
-		LOG_ERR("EV_Extension");
+		EXCEPTION_DUMP("EV_Extension");
 		break;
 	case ARC_EV_DIV_ZERO:
-		LOG_ERR("EV_DivZero");
+		EXCEPTION_DUMP("EV_DivZero");
 		break;
 	case ARC_EV_DC_ERROR:
-		LOG_ERR("EV_DCError");
+		EXCEPTION_DUMP("EV_DCError");
 		break;
 	case ARC_EV_MISALIGNED:
-		LOG_ERR("EV_Misaligned");
+		EXCEPTION_DUMP("EV_Misaligned");
 		break;
 	case ARC_EV_VEC_UNIT:
-		LOG_ERR("EV_VecUnit");
+		EXCEPTION_DUMP("EV_VecUnit");
 		break;
 	default:
-		LOG_ERR("unknown");
+		EXCEPTION_DUMP("unknown");
 		break;
 	}
 }
-#endif /* CONFIG_ARC_EXCEPTION_DEBUG */
+#endif /* CONFIG_EXCEPTION_DEBUG */
 
 /*
  * @brief Fault handler
@@ -345,7 +344,7 @@ static void dump_exception_info(uint32_t vector, uint32_t cause, uint32_t parame
  * invokes the user provided routine k_sys_fatal_error_handler() which is
  * responsible for implementing the error handling policy.
  */
-void _Fault(z_arch_esf_t *esf, uint32_t old_sp)
+void z_arc_fault(struct arch_esf *esf, uint32_t old_sp)
 {
 	uint32_t vector, cause, parameter;
 	uint32_t exc_addr = z_arc_v2_aux_reg_read(_ARC_V2_EFA);
@@ -384,10 +383,11 @@ void _Fault(z_arch_esf_t *esf, uint32_t old_sp)
 		return;
 	}
 
-	LOG_ERR("***** Exception vector: 0x%x, cause code: 0x%x, parameter 0x%x",
+#ifdef CONFIG_EXCEPTION_DEBUG
+	EXCEPTION_DUMP("***** Exception vector: 0x%x, cause code: 0x%x, parameter 0x%x",
 		vector, cause, parameter);
-	LOG_ERR("Address 0x%x", exc_addr);
-#ifdef CONFIG_ARC_EXCEPTION_DEBUG
+	EXCEPTION_DUMP("Address 0x%x", exc_addr);
+
 	dump_exception_info(vector, cause, parameter);
 #endif
 

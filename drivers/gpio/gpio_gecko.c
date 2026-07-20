@@ -9,11 +9,9 @@
 #include <errno.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/irq.h>
+#include <zephyr/sys/util.h>
 #include <soc.h>
 #include <em_gpio.h>
-#ifdef CONFIG_SOC_GECKO_DEV_INIT
-#include <em_cmu.h>
-#endif
 
 #include <zephyr/drivers/gpio/gpio_utils.h>
 
@@ -25,14 +23,7 @@
 #if DT_NODE_HAS_PROP(id, peripheral_id)
 #define GET_GECKO_GPIO_INDEX(id) DT_INST_PROP(id, peripheral_id)
 #else
-#if defined(CONFIG_SOC_SERIES_EFR32BG22) || \
-	defined(CONFIG_SOC_SERIES_EFR32BG27) || \
-	defined(CONFIG_SOC_SERIES_EFR32MG21) || \
-	defined(CONFIG_SOC_SERIES_EFR32MG24)
-#define GECKO_GPIO_PORT_ADDR_SPACE_SIZE sizeof(GPIO_PORT_TypeDef)
-#else
 #define GECKO_GPIO_PORT_ADDR_SPACE_SIZE sizeof(GPIO_P_TypeDef)
-#endif
 /* Assumption for calculating gpio index:
  * 1. Address space of the first GPIO port is the address space for GPIO port A
  */
@@ -63,9 +54,8 @@
 #define GECKO_GPIO_MODEH(pin, mode) (mode << ((pin - 8) * 4))
 
 
-#define member_size(type, member) sizeof(((type *)0)->member)
-#define NUMBER_OF_PORTS (member_size(GPIO_TypeDef, P) / \
-			 member_size(GPIO_TypeDef, P[0]))
+#define NUMBER_OF_PORTS (SIZEOF_FIELD(GPIO_TypeDef, P) / \
+			 SIZEOF_FIELD(GPIO_TypeDef, P[0]))
 
 struct gpio_gecko_common_config {
 };
@@ -110,7 +100,9 @@ static int gpio_gecko_configure(const struct device *dev,
 	if (flags & GPIO_OUTPUT) {
 		/* Following modes enable both output and input */
 		if (flags & GPIO_SINGLE_ENDED) {
-			if (flags & GPIO_LINE_OPEN_DRAIN) {
+			if ((flags & GPIO_LINE_OPEN_DRAIN) && (flags & GPIO_PULL_UP)) {
+				mode = gpioModeWiredAndPullUp;
+			} else if (flags & GPIO_LINE_OPEN_DRAIN) {
 				mode = gpioModeWiredAnd;
 			} else {
 				mode = gpioModeWiredOr;
@@ -295,10 +287,10 @@ static int gpio_gecko_pin_interrupt_configure(const struct device *dev,
 	} else {
 		/* Interrupt line is already in use */
 		if ((GPIO->IEN & BIT(pin)) != 0) {
-			/* TODO: Return an error only if request is done for
-			 * a pin from a different port.
-			 */
-			return -EBUSY;
+			/* Check if the interrupt is already configured for this port */
+			if (!(data->int_enabled_mask & BIT(pin))) {
+				return -EBUSY;
+			}
 		}
 
 		bool rising_edge = true;
@@ -347,18 +339,14 @@ static void gpio_gecko_common_isr(const struct device *dev)
 		enabled_int = int_status & port_data->int_enabled_mask;
 		if (enabled_int != 0) {
 			int_status &= ~enabled_int;
-#if defined(_SILICON_LABS_32B_SERIES_2)
-			GPIO->IF_CLR = enabled_int;
-#else
 			GPIO->IFC = enabled_int;
-#endif
 			gpio_fire_callbacks(&port_data->callbacks, port_dev,
 					    enabled_int);
 		}
 	}
 }
 
-static const struct gpio_driver_api gpio_gecko_driver_api = {
+static DEVICE_API(gpio, gpio_gecko_driver_api) = {
 	.pin_configure = gpio_gecko_configure,
 #ifdef CONFIG_GPIO_GET_CONFIG
 	.pin_get_config = gpio_gecko_get_config,
@@ -372,7 +360,7 @@ static const struct gpio_driver_api gpio_gecko_driver_api = {
 	.manage_callback = gpio_gecko_manage_callback,
 };
 
-static const struct gpio_driver_api gpio_gecko_common_driver_api = {
+static DEVICE_API(gpio, gpio_gecko_common_driver_api) = {
 	.manage_callback = gpio_gecko_manage_callback,
 };
 
@@ -392,9 +380,6 @@ DEVICE_DT_DEFINE(DT_INST(0, silabs_gecko_gpio),
 
 static int gpio_gecko_common_init(const struct device *dev)
 {
-#ifdef CONFIG_SOC_GECKO_DEV_INIT
-	CMU_ClockEnable(cmuClock_GPIO, true);
-#endif
 	gpio_gecko_common_data.count = 0;
 	IRQ_CONNECT(GPIO_EVEN_IRQn,
 		    DT_IRQ_BY_NAME(DT_INST(0, silabs_gecko_gpio), gpio_even, priority),

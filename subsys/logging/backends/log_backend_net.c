@@ -7,21 +7,20 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(log_backend_net, CONFIG_LOG_DEFAULT_LEVEL);
 
+#include <zephyr/sys/util_macro.h>
 #include <zephyr/logging/log_backend.h>
 #include <zephyr/logging/log_core.h>
 #include <zephyr/logging/log_output.h>
 #include <zephyr/logging/log_backend_net.h>
-#include <zephyr/net/net_pkt.h>
-#include <zephyr/net/net_context.h>
+#include <zephyr/net/hostname.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/socket.h>
 
 /* Set this to 1 if you want to see what is being sent to server */
 #define DEBUG_PRINTING 0
 
-#if DEBUG_PRINTING
-#define DBG(fmt, ...) printk(fmt, ##__VA_ARGS__)
-#else
-#define DBG(fmt, ...)
-#endif
+#define DBG(fmt, ...) IF_ENABLED(DEBUG_PRINTING, (printk(fmt, ##__VA_ARGS__)))
 
 #if defined(CONFIG_NET_IPV6) || CONFIG_NET_HOSTNAME_ENABLE
 #define MAX_HOSTNAME_LEN NET_IPV6_ADDR_LEN
@@ -33,38 +32,53 @@ static char dev_hostname[MAX_HOSTNAME_LEN + 1];
 
 static uint8_t output_buf[CONFIG_LOG_BACKEND_NET_MAX_BUF_SIZE];
 static bool net_init_done;
-struct sockaddr server_addr;
+static struct net_sockaddr_storage server_addr;
 static bool panic_mode;
 static uint32_t log_format_current = CONFIG_LOG_BACKEND_NET_OUTPUT_DEFAULT;
 
-const struct log_backend *log_backend_net_get(void);
-
-NET_PKT_SLAB_DEFINE(syslog_tx_pkts, CONFIG_LOG_BACKEND_NET_MAX_BUF);
-NET_PKT_DATA_POOL_DEFINE(syslog_tx_bufs,
-			 ROUND_UP(CONFIG_LOG_BACKEND_NET_MAX_BUF_SIZE /
-				  CONFIG_NET_BUF_DATA_SIZE, 1) *
-			 CONFIG_LOG_BACKEND_NET_MAX_BUF);
-
-static struct k_mem_slab *get_tx_slab(void)
-{
-	return &syslog_tx_pkts;
-}
-
-struct net_buf_pool *get_data_pool(void)
-{
-	return &syslog_tx_bufs;
-}
+static struct log_backend_net_ctx {
+	int sock;
+#if defined(CONFIG_NET_TCP)
+	bool is_tcp;
+#endif
+} ctx = {
+	.sock = -1,
+};
 
 static int line_out(uint8_t *data, size_t length, void *output_ctx)
 {
-	struct net_context *ctx = (struct net_context *)output_ctx;
-	int ret = -ENOMEM;
+	struct log_backend_net_ctx *ctx = (struct log_backend_net_ctx *)output_ctx;
+	struct net_msghdr msg = { 0 };
+	struct net_iovec io_vector[2];
+	int pos = 0;
+	int sock_flags = ZSOCK_MSG_DONTWAIT;
+	int ret;
 
 	if (ctx == NULL) {
 		return length;
 	}
 
-	ret = net_context_send(ctx, data, length, NULL, K_NO_WAIT, NULL);
+#if defined(CONFIG_NET_TCP)
+	char len[sizeof("123456789")];
+
+	if (ctx->is_tcp) {
+		(void)snprintk(len, sizeof(len), "%zu ", length);
+		io_vector[pos].iov_base = (void *)len;
+		io_vector[pos].iov_len = strlen(len);
+		pos++;
+
+		sock_flags = 0;
+	}
+#endif
+
+	io_vector[pos].iov_base = (void *)data;
+	io_vector[pos].iov_len = length;
+	pos++;
+
+	msg.msg_iov = io_vector;
+	msg.msg_iovlen = pos;
+
+	ret = zsock_sendmsg(ctx->sock, &msg, sock_flags);
 	if (ret < 0) {
 		goto fail;
 	}
@@ -76,113 +90,85 @@ fail:
 
 LOG_OUTPUT_DEFINE(log_output_net, line_out, output_buf, sizeof(output_buf));
 
-static int do_net_init(void)
+static int do_net_init(struct log_backend_net_ctx *ctx)
 {
-	struct sockaddr *local_addr = NULL;
-	struct sockaddr_in6 local_addr6 = {0};
-	struct sockaddr_in local_addr4 = {0};
-	socklen_t server_addr_len;
-	struct net_context *ctx;
-	int ret;
+	net_socklen_t server_addr_len = 0;
+	int ret, proto = NET_IPPROTO_UDP, type = NET_SOCK_DGRAM;
 
-	if (IS_ENABLED(CONFIG_NET_IPV4) && server_addr.sa_family == AF_INET) {
-		local_addr = (struct sockaddr *)&local_addr4;
-		server_addr_len = sizeof(struct sockaddr_in);
-		local_addr4.sin_port = 0U;
+	if (IS_ENABLED(CONFIG_NET_IPV4) && server_addr.ss_family == NET_AF_INET) {
+		server_addr_len = sizeof(struct net_sockaddr_in);
 	}
 
-	if (IS_ENABLED(CONFIG_NET_IPV6) && server_addr.sa_family == AF_INET6) {
-		local_addr = (struct sockaddr *)&local_addr6;
-		server_addr_len = sizeof(struct sockaddr_in6);
-		local_addr6.sin6_port = 0U;
+	if (IS_ENABLED(CONFIG_NET_IPV6) && server_addr.ss_family == NET_AF_INET6) {
+		server_addr_len = sizeof(struct net_sockaddr_in6);
 	}
 
-	if (local_addr == NULL) {
+	if (server_addr_len == 0) {
 		DBG("Server address unknown\n");
 		return -EINVAL;
 	}
 
-	local_addr->sa_family = server_addr.sa_family;
+#if defined(CONFIG_NET_TCP)
+	if (ctx->is_tcp) {
+		proto = NET_IPPROTO_TCP;
+		type = NET_SOCK_STREAM;
+	}
+#endif
 
-	ret = net_context_get(server_addr.sa_family, SOCK_DGRAM, IPPROTO_UDP,
-			      &ctx);
+	ret = zsock_socket(server_addr.ss_family, type, proto);
 	if (ret < 0) {
-		DBG("Cannot get context (%d)\n", ret);
+		ret = -errno;
+		DBG("Cannot get socket (%d)\n", ret);
 		return ret;
 	}
+
+	ctx->sock = ret;
 
 	if (IS_ENABLED(CONFIG_NET_HOSTNAME_ENABLE)) {
 		(void)strncpy(dev_hostname, net_hostname_get(), MAX_HOSTNAME_LEN);
-
-	} else if (IS_ENABLED(CONFIG_NET_IPV6) &&
-		   server_addr.sa_family == AF_INET6) {
-		const struct in6_addr *src;
-
-		src = net_if_ipv6_select_src_addr(
-			NULL, &net_sin6(&server_addr)->sin6_addr);
-		if (src) {
-			net_addr_ntop(AF_INET6, src, dev_hostname,
-				      MAX_HOSTNAME_LEN);
-
-			net_ipaddr_copy(&local_addr6.sin6_addr, src);
-		} else {
-			goto unknown;
-		}
-
-	} else if (IS_ENABLED(CONFIG_NET_IPV4) &&
-		   server_addr.sa_family == AF_INET) {
-		const struct in_addr *src;
-
-		src = net_if_ipv4_select_src_addr(
-				  NULL, &net_sin(&server_addr)->sin_addr);
-
-		if (src) {
-			net_addr_ntop(AF_INET, src, dev_hostname,
-				      MAX_HOSTNAME_LEN);
-
-			net_ipaddr_copy(&local_addr4.sin_addr, src);
-		} else {
-			goto unknown;
-		}
-
-	} else {
-	unknown:
-		DBG("Cannot setup local context\n");
-		return -EINVAL;
 	}
 
-	ret = net_context_bind(ctx, local_addr, server_addr_len);
+	ret = zsock_connect(ctx->sock, net_sad(&server_addr), server_addr_len);
 	if (ret < 0) {
-		DBG("Cannot bind context (%d)\n", ret);
-		return ret;
+		ret = -errno;
+		DBG("Cannot connect socket (%d)\n", ret);
+		goto err;
 	}
 
-	(void)net_context_connect(ctx, &server_addr, server_addr_len,
-				  NULL, K_NO_WAIT, NULL);
-
-	/* We do not care about return value for this UDP connect call that
-	 * basically does nothing. Calling the connect is only useful so that
-	 * we can see the syslog connection in net-shell.
+	/* Close the reading side of the TCP or UDP socket just in case so that we will
+	 * not run out of RX buffers because we do not read anything.
 	 */
-
-	net_context_setup_pools(ctx, get_tx_slab, get_data_pool);
+	ret = zsock_shutdown(ctx->sock, ZSOCK_SHUT_RD);
+	if (ret < 0) {
+		ret = -errno;
+		DBG("Cannot shutdown reading side of the socket (%d)\n", ret);
+		goto err;
+	}
 
 	log_output_ctx_set(&log_output_net, ctx);
 	log_output_hostname_set(&log_output_net, dev_hostname);
 
 	return 0;
+
+err:
+	(void)zsock_close(ctx->sock);
+	ctx->sock = -1;
+
+	return ret;
 }
 
 static void process(const struct log_backend *const backend,
 		    union log_msg_generic *msg)
 {
-	uint32_t flags = LOG_OUTPUT_FLAG_FORMAT_SYSLOG | LOG_OUTPUT_FLAG_TIMESTAMP;
+	uint32_t flags = LOG_OUTPUT_FLAG_FORMAT_SYSLOG |
+			 LOG_OUTPUT_FLAG_TIMESTAMP |
+			 LOG_OUTPUT_FLAG_THREAD;
 
 	if (panic_mode) {
 		return;
 	}
 
-	if (!net_init_done && do_net_init() == 0) {
+	if (!net_init_done && do_net_init(&ctx) == 0) {
 		net_init_done = true;
 	}
 
@@ -197,7 +183,7 @@ static int format_set(const struct log_backend *const backend, uint32_t log_type
 	return 0;
 }
 
-bool log_backend_net_set_addr(const char *addr)
+static bool check_net_init_done(void)
 {
 	bool ret = false;
 
@@ -205,28 +191,40 @@ bool log_backend_net_set_addr(const char *addr)
 		/* Release context so it can be recreated with the specified ip address
 		 * next time process() is called
 		 */
-		int released = net_context_put(log_output_net.control_block->ctx);
+		struct log_backend_net_ctx *ctx = log_output_net.control_block->ctx;
+		int released;
 
+		released = zsock_close(ctx->sock);
 		if (released < 0) {
-			LOG_ERR("Cannot release context (%d)", ret);
+			LOG_ERR("Cannot release socket (%d)", ret);
 			ret = false;
 		} else {
-			/* The context is successfully released so we flag it
+			/* The socket is successfully closed so we flag it
 			 * to be recreated with the new ip address
 			 */
 			net_init_done = false;
 			ret = true;
 		}
 
-		if (!ret) {
-			return ret;
-		}
+		ctx->sock = -1;
+
+		return ret;
 	}
 
-	net_sin(&server_addr)->sin_port = htons(514);
+	return true;
+}
 
-	ret = net_ipaddr_parse(addr, strlen(addr), &server_addr);
+bool log_backend_net_set_addr(const char *addr)
+{
+	bool ret = check_net_init_done();
 
+	if (!ret) {
+		return ret;
+	}
+
+	net_sin(net_sad(&server_addr))->sin_port = net_htons(514);
+
+	ret = net_ipaddr_parse(addr, strlen(addr), net_sad(&server_addr));
 	if (!ret) {
 		LOG_ERR("Cannot parse syslog server address");
 		return ret;
@@ -235,13 +233,63 @@ bool log_backend_net_set_addr(const char *addr)
 	return ret;
 }
 
+bool log_backend_net_set_ip(const struct net_sockaddr *addr)
+{
+	bool ret = check_net_init_done();
+
+	if (!ret) {
+		return ret;
+	}
+
+	if ((IS_ENABLED(CONFIG_NET_IPV4) && addr->sa_family == NET_AF_INET) ||
+	    (IS_ENABLED(CONFIG_NET_IPV6) && addr->sa_family == NET_AF_INET6)) {
+		memcpy(&server_addr, addr, net_family2size(addr->sa_family));
+
+		net_port_set_default(net_sad(&server_addr), 514);
+	} else {
+		LOG_ERR("Unknown address family");
+		return false;
+	}
+
+	return ret;
+}
+
+#if defined(CONFIG_NET_HOSTNAME_ENABLE)
+void log_backend_net_hostname_set(const char *hostname, size_t len)
+{
+	(void)strncpy(dev_hostname, hostname, MIN(len, MAX_HOSTNAME_LEN));
+	log_output_hostname_set(&log_output_net, dev_hostname);
+}
+#endif
+
+void log_backend_net_start(void)
+{
+	const struct log_backend *backend = log_backend_net_get();
+
+	if (!log_backend_is_active(backend)) {
+		log_backend_activate(backend, backend->cb->ctx);
+	}
+}
+
 static void init_net(struct log_backend const *const backend)
 {
 	ARG_UNUSED(backend);
 
-	if (strlen(CONFIG_LOG_BACKEND_NET_SERVER) != 0) {
-		bool ret = log_backend_net_set_addr(CONFIG_LOG_BACKEND_NET_SERVER);
+	if (sizeof(CONFIG_LOG_BACKEND_NET_SERVER) != 1) {
+		/* Non empty address, set server via Kconfig defaults */
+		const char *server = CONFIG_LOG_BACKEND_NET_SERVER;
+		bool ret;
 
+		if (memcmp(server, "tcp://", sizeof("tcp://") - 1) == 0) {
+			server += sizeof("tcp://") - 1;
+#if defined(CONFIG_NET_TCP)
+			ctx.is_tcp = true;
+#else
+			LOG_ERR("tcp:// server requires CONFIG_NET_TCP. Using UDP");
+#endif
+		}
+
+		ret = log_backend_net_set_addr(server);
 		if (!ret) {
 			return;
 		}
@@ -255,9 +303,18 @@ static void panic(struct log_backend const *const backend)
 	panic_mode = true;
 }
 
+/* After initialization of the logger, this function avoids
+ * the logger subsys to enable it.
+ */
+static int backend_ready(const struct log_backend *const backend)
+{
+	return log_backend_is_active(backend) ? 0 : -EAGAIN;
+}
+
 const struct log_backend_api log_backend_net_api = {
 	.panic = panic,
 	.init = init_net,
+	.is_ready = backend_ready,
 	.process = process,
 	.format_set = format_set,
 };
@@ -272,3 +329,24 @@ const struct log_backend *log_backend_net_get(void)
 {
 	return &log_backend_net;
 }
+
+#if defined(CONFIG_LOG_BACKEND_NET_USE_CONNECTION_MANAGER)
+static void l4_event_handler(uint64_t mgmt_event, struct net_if *iface, void *info,
+			     size_t info_length, void *user_data)
+{
+	ARG_UNUSED(iface);
+	ARG_UNUSED(info);
+	ARG_UNUSED(info_length);
+	ARG_UNUSED(user_data);
+
+	if (mgmt_event == NET_EVENT_L4_CONNECTED) {
+		log_backend_net_start();
+	} else if (mgmt_event == NET_EVENT_L4_DISCONNECTED) {
+		log_backend_deactivate(log_backend_net_get());
+	}
+}
+
+NET_MGMT_REGISTER_EVENT_HANDLER(log_backend_net_event_handler,
+				NET_EVENT_L4_CONNECTED | NET_EVENT_L4_DISCONNECTED,
+				&l4_event_handler, NULL);
+#endif /* CONFIG_LOG_BACKEND_NET_USE_CONNECTION_MANAGER */

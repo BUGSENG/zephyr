@@ -252,7 +252,7 @@ static int littlefs_flash_erase(unsigned int id)
 
 	/* Optional wipe flash contents */
 	if (IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
-		rc = flash_area_erase(pfa, 0, pfa->fa_size);
+		rc = flash_area_flatten(pfa, 0, pfa->fa_size);
 		LOG_ERR("Erasing flash area ... %d", rc);
 	}
 
@@ -268,7 +268,7 @@ FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
 static struct fs_mount_t lfs_storage_mnt = {
 	.type = FS_LITTLEFS,
 	.fs_data = &storage,
-	.storage_dev = (void *)FIXED_PARTITION_ID(storage_partition),
+	.storage_dev = (void *)PARTITION_ID(storage_partition),
 	.mnt_point = "/lfs",
 };
 #endif /* PARTITION_NODE */
@@ -309,14 +309,21 @@ static int littlefs_mount(struct fs_mount_t *mp)
 #endif /* CONFIG_APP_LITTLEFS_STORAGE_FLASH */
 
 #ifdef CONFIG_APP_LITTLEFS_STORAGE_BLK_SDMMC
-
 #if defined(CONFIG_DISK_DRIVER_SDMMC)
-#define DISK_NAME CONFIG_SDMMC_VOLUME_NAME
-#elif IS_ENABLED(CONFIG_DISK_DRIVER_MMC)
-#define DISK_NAME CONFIG_MMC_VOLUME_NAME
+#define DISK_NAME "SD"
+#elif defined(CONFIG_DISK_DRIVER_MMC)
+#define DISK_NAME "SD2"
 #else
 #error "No disk device defined, is your board supported?"
 #endif
+#endif /* CONFIG_APP_LITTLEFS_STORAGE_BLK_SDMMC */
+
+#ifdef CONFIG_APP_LITTLEFS_STORAGE_BLK_FTL
+#define DISK_NAME "NAND"
+#endif /* CONFIG_APP_LITTLEFS_STORAGE_BLK_FTL */
+
+#if defined(CONFIG_APP_LITTLEFS_STORAGE_BLK_SDMMC) || \
+	defined(CONFIG_APP_LITTLEFS_STORAGE_BLK_FTL)
 
 struct fs_littlefs lfsfs;
 static struct fs_mount_t __mp = {
@@ -336,7 +343,7 @@ static int littlefs_mount(struct fs_mount_t *mp)
 
 	return fs_mount(mp);
 }
-#endif /* CONFIG_APP_LITTLEFS_STORAGE_BLK_SDMMC */
+#endif /* CONFIG_APP_LITTLEFS_STORAGE_BLK_SDMMC || CONFIG_APP_LITTLEFS_STORAGE_BLK_FTL */
 
 int main(void)
 {

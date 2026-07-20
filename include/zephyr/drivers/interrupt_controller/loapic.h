@@ -6,8 +6,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_DRIVERS_LOAPIC_H_
-#define ZEPHYR_INCLUDE_DRIVERS_LOAPIC_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_LOAPIC_H_
+#define ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_LOAPIC_H_
 
 #include <zephyr/arch/cpu.h>
 #include <zephyr/arch/x86/msr.h>
@@ -41,13 +41,14 @@
 #define LOAPIC_TIMER_CONFIG 0x3e0 /* Timer Divide Config Reg */
 #define LOAPIC_SELF_IPI 0x3f0	/* Self IPI Reg, only support in X2APIC mode */
 
-#define LOAPIC_ICR_BUSY		0x00001000	/* delivery status: 1 = busy */
+#define LOAPIC_ICR_BUSY		0x00001000U	/* delivery status: 1 = busy */
 
+#define LOAPIC_ICR_IPI_SPECIFIC 0x00004000U     /* target IPI to specific CPU */
 #define LOAPIC_ICR_IPI_OTHERS	0x000C4000U	/* normal IPI to other CPUs */
 #define LOAPIC_ICR_IPI_INIT	0x00004500U
 #define LOAPIC_ICR_IPI_STARTUP	0x00004600U
 
-#define LOAPIC_LVT_MASKED 0x00010000   /* mask */
+#define LOAPIC_LVT_MASKED 0x00010000U  /* mask */
 
 /* Defined in intc_loapic.c */
 #define LOAPIC_REGS_STR				loapic_regs	/* mmio device name */
@@ -60,11 +61,11 @@ extern "C" {
 
 DEVICE_MMIO_TOPLEVEL_DECLARE(LOAPIC_REGS_STR);
 
-extern uint32_t z_loapic_irq_base(void);
-extern void z_loapic_enable(unsigned char cpu_number);
-extern void z_loapic_int_vec_set(unsigned int irq, unsigned int vector);
-extern void z_loapic_irq_enable(unsigned int irq);
-extern void z_loapic_irq_disable(unsigned int irq);
+uint32_t z_loapic_irq_base(void);
+void z_loapic_enable(unsigned char cpu_number);
+void z_loapic_int_vec_set(unsigned int irq, unsigned int vector);
+void z_loapic_irq_enable(unsigned int irq);
+void z_loapic_irq_disable(unsigned int irq);
 
 /**
  * @brief Read 64-bit value from the local APIC in x2APIC mode.
@@ -162,9 +163,12 @@ static inline void x86_write_loapic(unsigned int reg, uint32_t val)
  */
 static inline void z_loapic_ipi(uint8_t apic_id, uint32_t ipi, uint8_t vector)
 {
-	ipi |= vector;
+	ipi |= (uint32_t)vector;
 
 #ifndef CONFIG_X2APIC
+
+	uint32_t icrhi = ((uint32_t)apic_id) << 24U;
+
 	/*
 	 * Legacy xAPIC mode: first wait for any previous IPI to be delivered.
 	 */
@@ -172,7 +176,7 @@ static inline void z_loapic_ipi(uint8_t apic_id, uint32_t ipi, uint8_t vector)
 	while (x86_read_xapic(LOAPIC_ICRLO) & LOAPIC_ICR_BUSY) {
 	}
 
-	x86_write_xapic(LOAPIC_ICRHI, apic_id << 24);
+	x86_write_xapic(LOAPIC_ICRHI, icrhi);
 	x86_write_xapic(LOAPIC_ICRLO, ipi);
 #else
 	/*
@@ -189,4 +193,4 @@ static inline void z_loapic_ipi(uint8_t apic_id, uint32_t ipi, uint8_t vector)
 
 #endif /* _ASMLANGUAGE */
 
-#endif /* ZEPHYR_INCLUDE_DRIVERS_LOAPIC_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_LOAPIC_H_ */

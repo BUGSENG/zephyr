@@ -10,8 +10,8 @@
  * support it.
  */
 
-#ifndef ZEPHYR_INCLUDE_CONN_MGR_CONNECTIVITY_H_
-#define ZEPHYR_INCLUDE_CONN_MGR_CONNECTIVITY_H_
+#ifndef ZEPHYR_INCLUDE_NET_CONN_MGR_CONNECTIVITY_H_
+#define ZEPHYR_INCLUDE_NET_CONN_MGR_CONNECTIVITY_H_
 
 #include <zephyr/device.h>
 #include <zephyr/net/net_if.h>
@@ -25,6 +25,8 @@ extern "C" {
 /**
  * @brief Connection Manager Connectivity API
  * @defgroup conn_mgr_connectivity Connection Manager Connectivity API
+ * @since 3.4
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
@@ -33,31 +35,56 @@ extern "C" {
 /** @cond INTERNAL_HIDDEN */
 
 /* Connectivity Events */
-#define _NET_MGMT_CONN_LAYER			NET_MGMT_LAYER(NET_MGMT_LAYER_L2)
-#define _NET_MGMT_CONN_CODE			NET_MGMT_LAYER_CODE(0x207)
-#define _NET_MGMT_CONN_BASE			(_NET_MGMT_CONN_LAYER | _NET_MGMT_CONN_CODE | \
+#define NET_MGMT_CONN_LAYER			NET_MGMT_LAYER(NET_MGMT_LAYER_L2)
+#define NET_MGMT_CONN_CODE			NET_MGMT_LAYER_CODE(NET_MGMT_LAYER_CODE_CONN)
+#define NET_MGMT_CONN_BASE			(NET_MGMT_CONN_LAYER | NET_MGMT_CONN_CODE | \
 						 NET_MGMT_EVENT_BIT)
-#define _NET_MGMT_CONN_IF_EVENT			(NET_MGMT_IFACE_BIT | _NET_MGMT_CONN_BASE)
+#define NET_MGMT_CONN_IF_EVENT			(NET_MGMT_IFACE_BIT | NET_MGMT_CONN_BASE)
 
-/** @endcond */
+enum {
+	NET_EVENT_CONN_CMD_IF_TIMEOUT_VAL,
+	NET_EVENT_CONN_CMD_IF_FATAL_ERROR_VAL,
+	NET_EVENT_CONN_CMD_IF_IDLE_TIMEOUT_VAL,
+	NET_EVENT_CONN_CMD_IF_NO_CONFIGURATION_VAL,
+
+	NET_EVENT_CONN_CMD_MAX
+};
+
+BUILD_ASSERT(NET_EVENT_CONN_CMD_MAX <= NET_MGMT_MAX_COMMANDS,
+	     "Number of events in net_event_conn_cmd exceeds the limit");
 
 enum net_event_conn_cmd {
-	NET_EVENT_CONN_CMD_IF_TIMEOUT = 1,
-	NET_EVENT_CONN_CMD_IF_FATAL_ERROR,
+	NET_MGMT_CMD(NET_EVENT_CONN_CMD_IF_TIMEOUT),
+	NET_MGMT_CMD(NET_EVENT_CONN_CMD_IF_FATAL_ERROR),
+	NET_MGMT_CMD(NET_EVENT_CONN_CMD_IF_IDLE_TIMEOUT),
+	NET_MGMT_CMD(NET_EVENT_CONN_CMD_IF_NO_CONFIGURATION),
 };
+
+/** @endcond */
 
 /**
  * @brief net_mgmt event raised when a connection attempt times out
  */
 #define NET_EVENT_CONN_IF_TIMEOUT					\
-	(_NET_MGMT_CONN_IF_EVENT | NET_EVENT_CONN_CMD_IF_TIMEOUT)
+	(NET_MGMT_CONN_IF_EVENT | NET_EVENT_CONN_CMD_IF_TIMEOUT)
 
 /**
  * @brief net_mgmt event raised when a non-recoverable connectivity error occurs on an iface
  */
 #define NET_EVENT_CONN_IF_FATAL_ERROR					\
-	(_NET_MGMT_CONN_IF_EVENT | NET_EVENT_CONN_CMD_IF_FATAL_ERROR)
+	(NET_MGMT_CONN_IF_EVENT | NET_EVENT_CONN_CMD_IF_FATAL_ERROR)
 
+/**
+ * @brief net_mgmt event raised when an interface times out due to inactivity
+ */
+#define NET_EVENT_CONN_IF_IDLE_TIMEOUT					\
+	(NET_MGMT_CONN_IF_EVENT | NET_EVENT_CONN_CMD_IF_IDLE_TIMEOUT)
+
+/**
+ * @brief net_mgmt event raised when an interface cannot connect due to a lack of configuration
+ */
+#define NET_EVENT_CONN_IF_NO_CONFIGURATION					\
+	(NET_MGMT_CONN_IF_EVENT | NET_EVENT_CONN_CMD_IF_NO_CONFIGURATION)
 
 /**
  * @brief Per-iface connectivity flags
@@ -88,6 +115,12 @@ enum conn_mgr_if_flag {
 	CONN_MGR_IF_NO_AUTO_DOWN,
 
 /** @cond INTERNAL_HIDDEN */
+	/**
+	 * Internal flag indicating that the interface is in active (application initiated)
+	 * disconnect.
+	 */
+	CONN_MGR_IF_DISCONNECTING,
+
 	/* Total number of flags - must be at the end of the enum */
 	CONN_MGR_NUM_IF_FLAGS,
 /** @endcond */
@@ -112,14 +145,15 @@ enum conn_mgr_if_flag {
  * @retval 0 on success.
  * @retval -ESHUTDOWN if the iface is not admin-up.
  * @retval -ENOTSUP if the iface does not have a connectivity implementation.
- * @retval implementation-specific status code otherwise.
+ * @retval -EAGAIN if the iface does not have configuration information to connect
+ * @return implementation-specific status code otherwise.
  */
 int conn_mgr_if_connect(struct net_if *iface);
 
 /**
  * @brief Disconnect interface
  *
- * If the provided iface has been bound to a connectivity implementation, disconnect/dissassociate
+ * If the provided iface has been bound to a connectivity implementation, disconnect/disassociate
  * it from the network, and cancel any pending attempts to connect/associate.
  *
  * Does nothing if the iface is currently admin-down.
@@ -128,7 +162,7 @@ int conn_mgr_if_connect(struct net_if *iface);
  *
  * @retval 0 on success.
  * @retval -ENOTSUP if the iface does not have a connectivity implementation.
- * @retval implementation-specific status code otherwise.
+ * @return implementation-specific status code otherwise.
  */
 int conn_mgr_if_disconnect(struct net_if *iface);
 
@@ -159,7 +193,7 @@ bool conn_mgr_if_is_bound(struct net_if *iface);
  * @retval -ENOBUFS if optlen is too long.
  * @retval -EINVAL if NULL optval pointer provided.
  * @retval -ENOPROTOOPT if the optname is not recognized.
- * @retval implementation-specific error code otherwise.
+ * @return implementation-specific error code otherwise.
  */
 int conn_mgr_if_set_opt(struct net_if *iface, int optname, const void *optval, size_t optlen);
 
@@ -187,7 +221,7 @@ int conn_mgr_if_set_opt(struct net_if *iface, int optname, const void *optval, s
  * @retval -EINVAL if invalid retrieval buffer length is provided, or if NULL optval or
  *		   optlen pointer provided.
  * @retval -ENOPROTOOPT if the optname is not recognized.
- * @retval implementation-specific error code otherwise.
+ * @return implementation-specific error code otherwise.
  */
 int conn_mgr_if_get_opt(struct net_if *iface, int optname, void *optval, size_t *optlen);
 
@@ -247,13 +281,54 @@ int conn_mgr_if_get_timeout(struct net_if *iface);
 int conn_mgr_if_set_timeout(struct net_if *iface, int timeout);
 
 /**
+ * @brief Get the idle timeout for an iface
+ *
+ * If the provided iface is bound to a connectivity implementation, retrieves the idle timeout
+ * setting in seconds for it.
+ *
+ * @param iface - Pointer to the iface to check.
+ * @return int - The connectivity timeout value (in seconds) if it could be retrieved, otherwise
+ *		 CONN_MGR_IF_NO_TIMEOUT.
+ */
+int conn_mgr_if_get_idle_timeout(struct net_if *iface);
+
+/**
+ * @brief Set the idle timeout for an iface.
+ *
+ * If the provided iface is bound to a connectivity implementation, sets the idle timeout setting
+ * in seconds for it.
+ *
+ * @param iface - Pointer to the network interface to modify.
+ * @param timeout - The timeout value to set (in seconds).
+ *		    Pass @ref CONN_MGR_IF_NO_TIMEOUT to disable the timeout.
+ * @retval 0 on success.
+ * @retval -ENOTSUP if the provided iface is not bound to a connectivity implementation.
+ */
+int conn_mgr_if_set_idle_timeout(struct net_if *iface, int timeout);
+
+#if defined(CONFIG_NET_CONNECTION_MANAGER) || defined(__DOXYGEN__)
+/**
+ * @brief Notify connection manager that interface was just used
+ *
+ * @note Typically called from network drivers, not application software.
+ *
+ * @param iface iface that was just used
+ */
+void conn_mgr_if_used(struct net_if *iface);
+#else
+#define conn_mgr_if_used(iface) (void)(iface)
+#endif /* defined(CONFIG_NET_CONNECTION_MANAGER) || defined(__DOXYGEN__) */
+
+/**
  * @}
  */
 
 /**
  * @brief Connection Manager Bulk API
  * @defgroup conn_mgr_connectivity_bulk Connection Manager Connectivity Bulk API
- * @ingroup networking
+ * @since 3.4
+ * @version 0.1.0
+ * @ingroup conn_mgr_connectivity
  * @{
  */
 
@@ -316,4 +391,4 @@ int conn_mgr_all_if_disconnect(bool skip_ignored);
 }
 #endif
 
-#endif /* ZEPHYR_INCLUDE_CONN_MGR_CONNECTIVITY_H_ */
+#endif /* ZEPHYR_INCLUDE_NET_CONN_MGR_CONNECTIVITY_H_ */

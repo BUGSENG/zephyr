@@ -194,10 +194,6 @@ static int i2c_imx_transfer(const struct device *dev, struct i2c_msg *msgs,
 	uint16_t timeout = UINT16_MAX;
 	int result = -EIO;
 
-	if (!num_msgs) {
-		return 0;
-	}
-
 	/* Wait until bus not busy */
 	while ((I2C_I2SR_REG(base) & i2cStatusBusBusy) && (--timeout)) {
 	}
@@ -360,9 +356,12 @@ static int i2c_imx_init(const struct device *dev)
 	return 0;
 }
 
-static const struct i2c_driver_api i2c_imx_driver_api = {
+static DEVICE_API(i2c, i2c_imx_driver_api) = {
 	.configure = i2c_imx_configure,
 	.transfer = i2c_imx_transfer,
+#ifdef CONFIG_I2C_RTIO
+	.iodev_submit = i2c_iodev_submit_fallback,
+#endif
 };
 
 #define I2C_IMX_INIT(n)							\

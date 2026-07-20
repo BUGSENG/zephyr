@@ -10,12 +10,11 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/dac.h>
 #include <zephyr/drivers/clock_control.h>
+#include <hal/dac_ll.h>
+#include <hal/dac_types.h>
 #include <hal/rtc_io_types.h>
 #include <hal/rtc_io_hal.h>
 #include <hal/rtc_io_ll.h>
-#include <hal/dac_hal.h>
-#include <hal/dac_types.h>
-#include "driver/dac_common.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(esp32_dac, CONFIG_DAC_LOG_LEVEL);
@@ -31,7 +30,7 @@ static int dac_esp32_write_value(const struct device *dev,
 {
 	ARG_UNUSED(dev);
 
-	dac_output_voltage(channel, value);
+	dac_ll_update_output_value(channel, (uint8_t)value);
 
 	return 0;
 }
@@ -41,12 +40,17 @@ static int dac_esp32_channel_setup(const struct device *dev,
 {
 	ARG_UNUSED(dev);
 
-	if (channel_cfg->channel_id > DAC_CHANNEL_MAX) {
+	if (channel_cfg->channel_id >= SOC_DAC_CHAN_NUM) {
 		LOG_ERR("Channel %d is not valid", channel_cfg->channel_id);
 		return -EINVAL;
 	}
 
-	dac_output_enable(channel_cfg->channel_id);
+	if (channel_cfg->internal) {
+		LOG_ERR("Internal channels not supported");
+		return -ENOTSUP;
+	}
+
+	dac_ll_power_on(channel_cfg->channel_id);
 
 	return 0;
 }
@@ -65,8 +69,7 @@ static int dac_esp32_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	if (clock_control_on(cfg->clock_dev,
-		(clock_control_subsys_t) &cfg->clock_subsys) != 0) {
+	if (clock_control_on(cfg->clock_dev, (clock_control_subsys_t)cfg->clock_subsys) != 0) {
 		LOG_ERR("DAC clock setup failed (%d)", -EIO);
 		return -EIO;
 	}
@@ -74,7 +77,7 @@ static int dac_esp32_init(const struct device *dev)
 	return 0;
 }
 
-static const struct dac_driver_api dac_esp32_driver_api = {
+static DEVICE_API(dac, dac_esp32_driver_api) = {
 	.channel_setup = dac_esp32_channel_setup,
 	.write_value = dac_esp32_write_value
 };

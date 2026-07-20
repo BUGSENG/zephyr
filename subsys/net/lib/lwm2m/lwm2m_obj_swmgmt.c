@@ -187,9 +187,10 @@ static int callback_execute_not_defined(uint16_t obj_inst_id, uint8_t *args, uin
 	return -EINVAL;
 }
 
-static int callback_write_not_defined(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
-				      uint8_t *data, uint16_t data_len, bool last_block,
-				      size_t total_size)
+static int callback_write_not_defined(uint16_t obj_inst_id, uint16_t res_id,
+				      uint16_t res_inst_id, uint8_t *data,
+				      uint16_t data_len, bool last_block,
+				      size_t total_size, size_t offset)
 {
 	LOG_ERR("Callback not defined for inst %u", obj_inst_id);
 	return -EINVAL;
@@ -209,7 +210,7 @@ static void set_sw_update_state(struct lwm2m_swmgmt_data *instance, uint8_t stat
 						   instance->obj_inst_id,
 						   SWMGMT_UPDATE_STATE_ID);
 
-	ret = lwm2m_set_u8(obj_path, state);
+	ret = lwm2m_set_u8(&obj_path, state);
 	if (ret != 0) {
 		LOG_ERR("Could not set state");
 	}
@@ -410,7 +411,8 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 			/* Inform the instance of DOWNLOAD_FAILED by calling
 			 * write_package_cb with a bunch of NULL parameters
 			 */
-			instance->write_package_cb(instance->obj_inst_id, 0, 0, NULL, 0, false, 0);
+			instance->write_package_cb(instance->obj_inst_id, 0, 0, NULL, 0,
+					 false, 0, 0);
 			break;
 		default:
 			ret = -EINVAL;
@@ -558,10 +560,12 @@ static int deactivate_cb(uint16_t obj_inst_id, uint8_t *args, uint16_t args_len)
 	return handle_event(instance, EVENT_DEACTIVATE);
 }
 
-static int package_write_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
-			    uint8_t *data, uint16_t data_len, bool last_block, size_t total_size)
+static int package_write_cb(uint16_t obj_inst_id, uint16_t res_id,
+			    uint16_t res_inst_id, uint8_t *data,
+			    uint16_t data_len, bool last_block,
+			    size_t total_size, size_t offset)
 {
-	int ret = -EINVAL;
+	int ret;
 	struct lwm2m_swmgmt_data *instance = NULL;
 
 	instance = find_index(obj_inst_id);
@@ -573,7 +577,7 @@ static int package_write_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_
 	}
 
 	ret = instance->write_package_cb(obj_inst_id, res_id, res_inst_id, data, data_len,
-					 last_block, total_size);
+					 last_block, total_size, offset);
 
 	if (ret < 0) {
 		handle_event(instance, EVENT_DOWNLOAD_FAILED);
@@ -643,9 +647,10 @@ static void set_update_result(uint16_t obj_inst_id, int error_code)
 	}
 }
 
-static int package_uri_write_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
-				uint8_t *data, uint16_t data_len, bool last_block,
-				size_t total_size)
+static int package_uri_write_cb(uint16_t obj_inst_id, uint16_t res_id,
+				uint16_t res_inst_id, uint8_t *data,
+				uint16_t data_len, bool last_block,
+				size_t total_size, size_t offset)
 {
 #ifdef CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_SUPPORT
 	int error_code;
@@ -794,4 +799,4 @@ static int lwm2m_swmgmt_init(void)
 	return 0;
 }
 
-SYS_INIT(lwm2m_swmgmt_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+LWM2M_OBJ_INIT(lwm2m_swmgmt_init);

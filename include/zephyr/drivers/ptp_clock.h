@@ -4,8 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @ingroup ptp_clock_interface
+ * @brief Main header file for PTP (Precision Time Protocol) clock driver API.
+ */
+
 #ifndef ZEPHYR_INCLUDE_DRIVERS_PTP_CLOCK_H_
 #define ZEPHYR_INCLUDE_DRIVERS_PTP_CLOCK_H_
+
+/**
+ * @brief Interfaces for Precision Time Protocol (PTP) clocks.
+ * @defgroup ptp_clock_interface PTP Clock
+ * @ingroup io_interfaces
+ * @{
+ */
 
 #include <zephyr/kernel.h>
 #include <stdint.h>
@@ -40,10 +53,7 @@ __subsystem struct ptp_clock_driver_api {
 static inline int ptp_clock_set(const struct device *dev,
 				struct net_ptp_time *tm)
 {
-	const struct ptp_clock_driver_api *api =
-		(const struct ptp_clock_driver_api *)dev->api;
-
-	return api->set(dev, tm);
+	return DEVICE_API_GET(ptp_clock, dev)->set(dev, tm);
 }
 
 /**
@@ -59,10 +69,7 @@ __syscall int ptp_clock_get(const struct device *dev, struct net_ptp_time *tm);
 static inline int z_impl_ptp_clock_get(const struct device *dev,
 				       struct net_ptp_time *tm)
 {
-	const struct ptp_clock_driver_api *api =
-		(const struct ptp_clock_driver_api *)dev->api;
-
-	return api->get(dev, tm);
+	return DEVICE_API_GET(ptp_clock, dev)->get(dev, tm);
 }
 
 /**
@@ -75,32 +82,30 @@ static inline int z_impl_ptp_clock_get(const struct device *dev,
  */
 static inline int ptp_clock_adjust(const struct device *dev, int increment)
 {
-	const struct ptp_clock_driver_api *api =
-		(const struct ptp_clock_driver_api *)dev->api;
-
-	return api->adjust(dev, increment);
+	return DEVICE_API_GET(ptp_clock, dev)->adjust(dev, increment);
 }
 
 /**
- * @brief Adjust the PTP clock time change rate when compared to its neighbor.
+ * @brief Adjust the PTP clock rate ratio based on its nominal frequency
  *
  * @param dev PTP clock device
- * @param rate Rate of the clock time change
+ * @param rate Rate ratio based on its nominal frequency
  *
  * @return 0 if ok, <0 if error
  */
 static inline int ptp_clock_rate_adjust(const struct device *dev, double rate)
 {
-	const struct ptp_clock_driver_api *api =
-		(const struct ptp_clock_driver_api *)dev->api;
-
-	return api->rate_adjust(dev, rate);
+	return DEVICE_API_GET(ptp_clock, dev)->rate_adjust(dev, rate);
 }
 
 #ifdef __cplusplus
 }
 #endif
 
-#include <syscalls/ptp_clock.h>
+#include <zephyr/syscalls/ptp_clock.h>
+
+/**
+ * @}
+ */
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_PTP_CLOCK_H_ */

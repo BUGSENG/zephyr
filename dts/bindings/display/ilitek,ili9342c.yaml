@@ -4,7 +4,11 @@
 # Copyright (c) 2022, Konstantinos Papadopulos <kostas.papadopulos@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
-description: ILI9342C 320x240 display controller
+title: Ilitek ILI9342C display controller
+
+description: |
+  The Ilitek ILI9342C is a 262K colors TFT-LCD controller
+  with a maximum 240RGBx320 resolution.
 
 compatible: "ilitek,ili9342c"
 
@@ -16,7 +20,7 @@ properties:
     default: [0x01]
     description:
       select the desired Gamma curve for the current display.
-      A maximum of 4 fixed gamma curves canbe selected.
+      A maximum of 4 fixed gamma curves can be selected.
 
   ifmode:
     type: uint8-array

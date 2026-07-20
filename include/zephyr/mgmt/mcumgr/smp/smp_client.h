@@ -4,14 +4,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef H_SMP_CLIENT_
-#define H_SMP_CLIENT_
+/**
+ * @file
+ * @brief Header file for the MCUmgr SMP client API.
+ * @ingroup mcumgr_smp_client
+ */
+
+#ifndef ZEPHYR_INCLUDE_MGMT_MCUMGR_SMP_SMP_CLIENT_H_
+#define ZEPHYR_INCLUDE_MGMT_MCUMGR_SMP_SMP_CLIENT_H_
 
 #include <zephyr/kernel.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <mgmt/mcumgr/transport/smp_internal.h>
 #include <zephyr/mgmt/mcumgr/smp/smp.h>
 #include <zephyr/mgmt/mcumgr/transport/smp.h>
+
+/**
+ * @brief MCUmgr SMP client API
+ * @defgroup mcumgr_smp_client SMP client
+ * @ingroup mcumgr
+ * @{
+ */
 
 /**
  * @brief SMP client object
@@ -25,6 +38,8 @@ struct smp_client_object {
 	struct smp_transport *smpt;
 	/** SMP SEQ */
 	uint8_t smp_seq;
+	/** SMP transport data. Allows multiple client_object for single smp_transport. */
+	void *priv;
 };
 
 #ifdef __cplusplus
@@ -41,6 +56,27 @@ extern "C" {
  * @return	mcumgr_err_t code on failure
  */
 int smp_client_object_init(struct smp_client_object *smp_client, int smp_type);
+
+/**
+ * @brief Set private data for SMP transport.
+ *
+ * @param smp_client	The Client to set private data for.
+ * @param data		SMP transport private data.
+ */
+static inline void smp_client_object_set_data(struct smp_client_object *smp_client, void *data)
+{
+	smp_client->priv = data;
+}
+
+/**
+ * @brief Get private data for SMP transport.
+ *
+ * @param smp_client	The Client to set private data for.
+ */
+static inline void *smp_client_object_get_data(struct smp_client_object *smp_client)
+{
+	return smp_client->priv;
+}
 
 /**
  * @brief Response callback for SMP send.
@@ -102,8 +138,12 @@ void smp_client_buf_free(struct net_buf *nb);
 int smp_client_send_cmd(struct smp_client_object *smp_client, struct net_buf *nb,
 			smp_client_res_fn cb, void *user_data, int timeout_in_sec);
 
+/**
+ * @}
+ */
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* H_SMP_CLIENT_ */
+#endif /* ZEPHYR_INCLUDE_MGMT_MCUMGR_SMP_SMP_CLIENT_H_ */

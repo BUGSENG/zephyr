@@ -93,7 +93,7 @@ struct savearea {
 	uint32_t in[8];
 };
 
-
+#if CONFIG_EXCEPTION_DEBUG
 /*
  * Exception trap type (tt) values according to The SPARC V8
  * manual, Table 7-1.
@@ -122,7 +122,7 @@ static const struct {
 	{ .tt = 0x0A, .desc = "tag_overflow", },
 };
 
-static void print_trap_type(const z_arch_esf_t *esf)
+static void print_trap_type(const struct arch_esf *esf)
 {
 	const int tt = (esf->tbr & TBR_TT) >> TBR_TT_BIT;
 	const char *desc = "unknown";
@@ -139,16 +139,16 @@ static void print_trap_type(const z_arch_esf_t *esf)
 			}
 		}
 	}
-	LOG_ERR("tt = 0x%02X, %s", tt, desc);
+	EXCEPTION_DUMP("tt = 0x%02X, %s", tt, desc);
 }
 
-static void print_integer_registers(const z_arch_esf_t *esf)
+static void print_integer_registers(const struct arch_esf *esf)
 {
 	const struct savearea *flushed = (struct savearea *) esf->out[6];
 
-	LOG_ERR("      INS        LOCALS     OUTS       GLOBALS");
+	EXCEPTION_DUMP("      INS        LOCALS     OUTS       GLOBALS");
 	for (int i = 0; i < 8; i++) {
-		LOG_ERR(
+		EXCEPTION_DUMP(
 			"  %d:  %08x   %08x   %08x   %08x",
 			i,
 			flushed ? flushed->in[i] : 0,
@@ -159,22 +159,22 @@ static void print_integer_registers(const z_arch_esf_t *esf)
 	}
 }
 
-static void print_special_registers(const z_arch_esf_t *esf)
+static void print_special_registers(const struct arch_esf *esf)
 {
-	LOG_ERR(
+	EXCEPTION_DUMP(
 		"psr: %08x   wim: %08x   tbr: %08x   y: %08x",
 		esf->psr, esf->wim, esf->tbr, esf->y
 	);
-	LOG_ERR(" pc: %08x   npc: %08x", esf->pc, esf->npc);
+	EXCEPTION_DUMP(" pc: %08x   npc: %08x", esf->pc, esf->npc);
 }
 
-static void print_backtrace(const z_arch_esf_t *esf)
+static void print_backtrace(const struct arch_esf *esf)
 {
 	const int MAX_LOGLINES = 40;
 	const struct savearea *s = (struct savearea *) esf->out[6];
 
-	LOG_ERR("      pc         sp");
-	LOG_ERR(" #0   %08x   %08x", esf->pc, (unsigned int) s);
+	EXCEPTION_DUMP("      pc         sp");
+	EXCEPTION_DUMP(" #0   %08x   %08x", esf->pc, (unsigned int) s);
 	for (int i = 1; s && i < MAX_LOGLINES; i++) {
 		const uint32_t pc = s->in[7];
 		const uint32_t sp = s->in[6];
@@ -182,7 +182,7 @@ static void print_backtrace(const z_arch_esf_t *esf)
 		if (sp == 0U && pc == 0U) {
 			break;
 		}
-		LOG_ERR(" #%-2d  %08x   %08x", i, pc, sp);
+		EXCEPTION_DUMP(" #%-2d  %08x   %08x", i, pc, sp);
 		if (sp == 0U || sp & 7U) {
 			break;
 		}
@@ -190,22 +190,24 @@ static void print_backtrace(const z_arch_esf_t *esf)
 	}
 }
 
-static void print_all(const z_arch_esf_t *esf)
+static void print_all(const struct arch_esf *esf)
 {
-	LOG_ERR("");
+	EXCEPTION_DUMP("");
 	print_trap_type(esf);
-	LOG_ERR("");
+	EXCEPTION_DUMP("");
 	print_integer_registers(esf);
-	LOG_ERR("");
+	EXCEPTION_DUMP("");
 	print_special_registers(esf);
-	LOG_ERR("");
+	EXCEPTION_DUMP("");
 	print_backtrace(esf);
-	LOG_ERR("");
+	EXCEPTION_DUMP("");
 }
+#endif /* CONFIG_EXCEPTION_DEBUG */
 
 FUNC_NORETURN void z_sparc_fatal_error(unsigned int reason,
-				       const z_arch_esf_t *esf)
+				       const struct arch_esf *esf)
 {
+#if CONFIG_EXCEPTION_DEBUG
 	if (esf != NULL) {
 		if (IS_ENABLED(CONFIG_EXTRA_EXCEPTION_INFO)) {
 			print_all(esf);
@@ -213,6 +215,8 @@ FUNC_NORETURN void z_sparc_fatal_error(unsigned int reason,
 			print_special_registers(esf);
 		}
 	}
+#endif /* CONFIG_EXCEPTION_DEBUG */
+
 	z_fatal_error(reason, esf);
 	CODE_UNREACHABLE;
 }

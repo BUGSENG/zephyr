@@ -10,10 +10,9 @@ import os
 import socket
 import sys
 
-from coredump_parser.log_parser import CoredumpLogFile
-from coredump_parser.elf_parser import CoredumpElfFile
-
 import gdbstubs
+from coredump_parser.elf_parser import CoredumpElfFile
+from coredump_parser.log_parser import CoredumpLogFile
 
 LOGGING_FORMAT = "[%(levelname)s][%(name)s] %(message)s"
 
@@ -21,17 +20,47 @@ LOGGING_FORMAT = "[%(levelname)s][%(name)s] %(message)s"
 GDBSERVER_HOST = ""
 
 
+class FakeSocket:
+    def __init__(self) -> None:
+        self.in_stream = sys.stdin.buffer
+        self.out_stream = sys.stdout.buffer
+
+    def recv(self, bufsize):
+        return self.in_stream.read(bufsize)
+
+    def send(self, data):
+        n = self.out_stream.write(data)
+        self.out_stream.flush()
+        return n
+
+    def close(self):
+        pass
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description=(
+            "GDB stub server for Zephyr coredumps. The coredump argument must be the "
+            "raw binary stream (same bytes as between #CD:BEGIN# / #CD:END# on the UART): "
+            "typically produced by coredump_serial_log_parser.py from a serial log, or "
+            "reassembled from UDP (same format)."
+        ),
+    )
 
     parser.add_argument("elffile", help="Zephyr ELF binary")
-    parser.add_argument("logfile", help="Coredump binary log file")
-    parser.add_argument("--debug", action="store_true",
-                        help="Print extra debugging information")
-    parser.add_argument("--port", type=int, default=1234,
-                        help="GDB server port")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Print more information")
+    parser.add_argument(
+        "coredump_bin",
+        metavar="coredump_bin",
+        help=(
+            "Raw coredump binary (.bin): output of coredump_serial_log_parser.py "
+            "or an equivalent byte-for-byte capture (e.g. host UDP reassembly)"
+        ),
+    )
+    parser.add_argument("--debug", action="store_true", help="Print extra debugging information")
+    parser.add_argument("--port", type=int, default=1234, help="GDB server port")
+    parser.add_argument("--pipe", action="store_true", help="Use stdio to communicate with gdb")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Print more information")
 
     return parser.parse_args()
 
@@ -73,15 +102,15 @@ def main():
         logger.error(f"Cannot find file {args.elffile}, exiting...")
         sys.exit(1)
 
-    if not os.path.isfile(args.logfile):
-        logger.error(f"Cannot find file {args.logfile}, exiting...")
+    if not os.path.isfile(args.coredump_bin):
+        logger.error(f"Cannot find file {args.coredump_bin}, exiting...")
         sys.exit(1)
 
-    logger.info(f"Log file: {args.logfile}")
+    logger.info(f"Coredump file: {args.coredump_bin}")
     logger.info(f"ELF file: {args.elffile}")
 
-    # Parse the coredump binary log file
-    logf = CoredumpLogFile(args.logfile)
+    # Parse the coredump binary file
+    logf = CoredumpLogFile(args.coredump_bin)
     logf.open()
     if not logf.parse():
         logger.error("Cannot parse log file, exiting...")
@@ -99,19 +128,23 @@ def main():
 
     gdbstub = gdbstubs.get_gdbstub(logf, elff)
 
-    # Start a GDB server
-    gdbserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if not args.pipe:
+        # Start a GDB server
+        gdbserver = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    # Reuse address so we don't have to wait for socket to be
-    # close before we can bind to the port again
-    gdbserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Reuse address so we don't have to wait for socket to be
+        # close before we can bind to the port again
+        gdbserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    gdbserver.bind((GDBSERVER_HOST, args.port))
-    gdbserver.listen(1)
+        gdbserver.bind((GDBSERVER_HOST, args.port))
+        gdbserver.listen(1)
 
-    logger.info(f"Waiting GDB connection on port {args.port}...")
+        logger.info(f"Waiting GDB connection on port {args.port}...")
 
-    conn, remote = gdbserver.accept()
+        conn, remote = gdbserver.accept()
+    else:
+        conn = FakeSocket()
+        remote = "pipe"
 
     if conn:
         logger.info(f"Accepted GDB connection from {remote}")
@@ -120,7 +153,8 @@ def main():
 
         conn.close()
 
-    gdbserver.close()
+    if not args.pipe:
+        gdbserver.close()
 
     logger.info("GDB session finished.")
 

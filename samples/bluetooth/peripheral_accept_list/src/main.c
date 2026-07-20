@@ -14,40 +14,41 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci.h>
 
 /* Custom Service Variables */
 #define BT_UUID_CUSTOM_SERVICE_VAL \
 	BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef0)
 
-static struct bt_uuid_128 primary_service_uuid = BT_UUID_INIT_128(
+static const struct bt_uuid_128 primary_service_uuid = BT_UUID_INIT_128(
 	BT_UUID_CUSTOM_SERVICE_VAL);
 
-static struct bt_uuid_128 read_characteristic_uuid = BT_UUID_INIT_128(
+static const struct bt_uuid_128 read_characteristic_uuid = BT_UUID_INIT_128(
 	BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1));
 
-static struct bt_uuid_128 write_characteristic_uuid = BT_UUID_INIT_128(
+static const struct bt_uuid_128 write_characteristic_uuid = BT_UUID_INIT_128(
 	BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef2));
 
-static int signed_value;
+static int stored_value;
 static struct bt_le_adv_param adv_param;
 static int bond_count;
 
-static ssize_t read_signed(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+static ssize_t read_cb(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			   void *buf, uint16_t len, uint16_t offset)
 {
-	int *value = &signed_value;
+	int *value = &stored_value;
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, value,
-				 sizeof(signed_value));
+				 sizeof(stored_value));
 }
 
-static ssize_t write_signed(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+static ssize_t write_cb(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			    const void *buf, uint16_t len, uint16_t offset,
 			    uint8_t flags)
 {
-	int *value = &signed_value;
+	int *value = &stored_value;
 
-	if (offset + len > sizeof(signed_value)) {
+	if (offset + len > sizeof(stored_value)) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 	}
 
@@ -62,11 +63,11 @@ BT_GATT_SERVICE_DEFINE(primary_service,
 	BT_GATT_CHARACTERISTIC(&read_characteristic_uuid.uuid,
 			       BT_GATT_CHRC_READ,
 			       BT_GATT_PERM_READ,
-			       read_signed, NULL, NULL),
+			       read_cb, NULL, NULL),
 	BT_GATT_CHARACTERISTIC(&write_characteristic_uuid.uuid,
 			       BT_GATT_CHRC_WRITE,
 			       BT_GATT_PERM_WRITE_ENCRYPT,
-			       NULL, write_signed, NULL),
+			       NULL, write_cb, NULL),
 );
 
 static const struct bt_data ad[] = {
@@ -74,13 +75,14 @@ static const struct bt_data ad[] = {
 };
 
 static const struct bt_data sd[] = {
-	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_CUSTOM_SERVICE_VAL)
+	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_CUSTOM_SERVICE_VAL),
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
 };
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	if (err) {
-		printk("Connection failed (err 0x%02x)\n", err);
+		printk("Connection failed, err 0x%02x %s\n", err, bt_hci_err_to_str(err));
 	} else {
 		printk("Connected\n");
 	}
@@ -88,7 +90,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	printk("Disconnected (reason 0x%02x)\n", reason);
+	printk("Disconnected, reason 0x%02x %s\n", reason, bt_hci_err_to_str(reason));
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
@@ -98,11 +100,8 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 
 static void add_bonded_addr_to_filter_list(const struct bt_bond_info *info, void *data)
 {
-	char addr_str[BT_ADDR_LE_STR_LEN];
-
 	bt_le_filter_accept_list_add(&info->addr);
-	bt_addr_le_to_str(&info->addr, addr_str, sizeof(addr_str));
-	printk("Added %s to advertising accept filter list\n", addr_str);
+	printk("Added %s to advertising accept filter list\n", bt_addr_le_str(&info->addr));
 	bond_count++;
 }
 
@@ -119,7 +118,7 @@ static void bt_ready(void)
 	bond_count = 0;
 	bt_foreach_bond(BT_ID_DEFAULT, add_bonded_addr_to_filter_list, NULL);
 
-	adv_param = *BT_LE_ADV_CONN_NAME;
+	adv_param = *BT_LE_ADV_CONN_FAST_1;
 
 	/* If we have got at least one bond, activate the filter */
 	if (bond_count) {

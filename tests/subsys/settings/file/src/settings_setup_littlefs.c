@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "settings_test.h"
+#include <settings_test.h>
 #include <zephyr/device.h>
 #include <zephyr/fs/fs.h>
 #include <zephyr/fs/littlefs.h>
 
 #define LITTLEFS_PARTITION	settings_file_partition
-#define LITTLEFS_PARTITION_ID	FIXED_PARTITION_ID(LITTLEFS_PARTITION)
+#define LITTLEFS_PARTITION_ID	PARTITION_ID(LITTLEFS_PARTITION)
 
 /* LittleFS work area struct */
 FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(cstorage);
@@ -29,7 +29,7 @@ void *config_setup_fs(void)
 	rc = flash_area_open(LITTLEFS_PARTITION_ID, &fap);
 	zassume_true(rc == 0, "opening flash area for erase [%d]\n", rc);
 
-	rc = flash_area_erase(fap, 0, fap->fa_size);
+	rc = flash_area_flatten(fap, 0, fap->fa_size);
 	zassume_true(rc == 0, "erasing flash area [%d]\n", rc);
 
 	rc = fs_mount(&littlefs_mnt);
