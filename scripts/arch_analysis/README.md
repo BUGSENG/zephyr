@@ -40,6 +40,31 @@ python3 scripts/arch_analysis/arch_layers.py \
 `objdump`/`nm` are auto-detected from the build's `CMakeCache.txt`; override
 with `--objdump` / `--nm` if needed.
 
+### Component mapping
+
+By default, source files are mapped to components using the project's
+`MAINTAINERS.yml` via `scripts/get_maintainer.py`. Alternatively, you can
+provide a custom JSON mapping file with `--components_map`:
+
+```sh
+python3 scripts/arch_analysis/arch_layers.py \
+    --build build \
+    --config scripts/arch_analysis/zephyr_scope.yaml \
+    --components_map components.json \
+    --out-dir build/arch_analysis
+```
+
+The JSON mapping file has the structure:
+```json
+[
+  {"file": "kernel/sched.c", "component": "kernel"},
+  {"file": "drivers/gpio/gpio.c", "component": "drivers"},
+  ...
+]
+```
+
+Files not found in the mapping are classified as `UNMAINTAINED`.
+
 ## Interactive web app
 
 For exploration, `serve.py` runs a local web app on top of a real build. The
@@ -79,12 +104,16 @@ The independence rule used everywhere (CLI and web app) is the talk's core one:
 
 ## The model
 
-The component partition is **not** maintained here — it is the set of areas in
-the top-level `MAINTAINERS.yml`. Each source file is assigned to its most
-specific matching area (longest literal `files` prefix wins when several match).
-Files outside the Zephyr repo (HAL modules) become `module: <name>`; in-repo
-files matching no area become `UNMAINTAINED`; unresolved toolchain symbols are
-`EXTERNAL`.
+The component partition is **not** maintained here by default — it is the set
+of areas in the top-level `MAINTAINERS.yml`. Each source file is assigned to its
+most specific matching area (longest literal `files` prefix wins when several
+match). Files outside the Zephyr repo (HAL modules) become `module: <name>`;
+in-repo files matching no area become `UNMAINTAINED`; unresolved toolchain
+symbols are `EXTERNAL`.
+
+Alternatively, you can provide a custom component mapping via `--components_map`
+(see [Component mapping](#component-mapping) above), which allows you to define
+your own file-to-component associations in a JSON file.
 
 `zephyr_scope.yaml` therefore only declares the **qualification scope** — the
 list of areas that are in-scope (default: `Kernel`) — plus an optional override

@@ -386,6 +386,53 @@ def write_text(rows, path):
                      f"{r['action']:<4} {r['count']:>5}\n")
 
 
+class JsonClassifier:
+    """Map a source file to a component using a JSON mapping file.
+
+    The JSON file has the structure: [{"file": <path>, "component": <comp name>}, ...]
+    Files not found in the mapping are classified as "UNMAINTAINED".
+    """
+
+    def __init__(self, mapping_file):
+        self.mapping = {}
+        try:
+            with open(mapping_file) as fh:
+                data = json.load(fh)
+                for entry in data:
+                    file_path = entry.get("file")
+                    component = entry.get("component")
+                    if file_path and component:
+                        # Normalize the file path when storing in the mapping
+                        normalized_path = self._normalize(file_path)
+                        self.mapping[normalized_path] = component
+        except Exception as e:
+            sys.exit(f"error: failed to load components map: {e}")
+        self._cache = {}
+
+    def _normalize(self, source):
+        """Return normalized path for lookup.
+        
+        Normalize path separators to forward slashes and remove any redundant
+        separators or relative path components.
+        """
+        s = source.replace("\\", "/").replace(os.sep, "/")
+        # Remove leading ./ and duplicate slashes
+        s = re.sub(r'^\./+', '', s)
+        s = re.sub(r'/+', '/', s)
+        return s
+
+    def component(self, source):
+        if source in self._cache:
+            return self._cache[source]
+        normalized = self._normalize(source)
+        comp = self.mapping.get(normalized, "UNMAINTAINED")
+        self._cache[source] = comp
+        return comp
+
+    def display(self, source):
+        return source
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -396,6 +443,10 @@ def main():
                     help="output directory (default: <build>/arch_analysis)")
     ap.add_argument("--objdump", help="override objdump path")
     ap.add_argument("--nm", help="override nm path")
+    ap.add_argument("--components_map", 
+                    help="JSON file mapping files to components "
+                         "(alternative to MAINTAINERS.yml; "
+                         "format: [{\"file\": <path>, \"component\": <comp>}, ...])")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -403,7 +454,12 @@ def main():
     os.makedirs(out, exist_ok=True)
 
     cfg = yaml.safe_load(open(args.config))
-    classifier = MaintainersClassifier(ZEPHYR_BASE, cfg.get("maintainers"))
+    
+    if args.components_map:
+        classifier = JsonClassifier(args.components_map)
+    else:
+        classifier = MaintainersClassifier(ZEPHYR_BASE, cfg.get("maintainers"))
+    
     scope = ScopeModel(cfg)
 
     objdump, nm = (args.objdump, args.nm)
