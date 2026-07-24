@@ -23,4 +23,4 @@
 
 # MAINTAINERS areas that make up the qualification scope.
 in_scope:
-  - Kernel
+  - ZEPHYR_KERNEL_API
