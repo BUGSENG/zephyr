@@ -21,10 +21,12 @@ option(ECLAIR_SUMMARY_TXT "Plain textual summary format" OFF)
 option(ECLAIR_SUMMARY_DOC "DOC summary format" OFF)
 option(ECLAIR_SUMMARY_ODT "ODT summary format" OFF)
 option(ECLAIR_SUMMARY_HTML "HTML summary format" OFF)
+option(ECLAIR_SUMMARY_JSON "Detailed JSON format" OFF)
 option(ECLAIR_FULL_TXT "Detailed plain textual format" ON)
 option(ECLAIR_FULL_DOC "Detailed DOC format" OFF)
 option(ECLAIR_FULL_ODT "Detailed ODT format" OFF)
 option(ECLAIR_FULL_HTML "Detailed HTML format" OFF)
+option(ECLAIR_FULL_JSON "Detailed JSON format" OFF)
 
 cmake_dependent_option(ECLAIR_FULL_DOC_ALL_AREAS "Show all areas in a full doc report"
                        OFF "ECLAIR_FULL_DOC OR ECLAIR_FULL_ODT" OFF)
