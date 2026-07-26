@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_DMA_FILES, "^zephyr/include/zephyr/drivers/dma\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_DMA_FILES, "^zephyr/drivers/dma/.*$"}
--file_tag+={ZEPHYR_DRIVERS_DMA_FILES, "^zephyr/include/zephyr/drivers/dma/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DMA_FILES, "^include/zephyr/drivers/dma\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_DMA_FILES, "^drivers/dma/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DMA_FILES, "^include/zephyr/drivers/dma/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_DMA component definition."
 -config=B.INDEPENDENCE,component_entities+=

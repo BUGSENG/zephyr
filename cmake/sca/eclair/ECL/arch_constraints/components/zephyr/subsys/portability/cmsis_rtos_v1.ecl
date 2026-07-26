@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V1_FILES, "^zephyr/subsys/portability/cmsis_rtos_v1/.*$"}
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V1_FILES, "^zephyr/include/zephyr/portability/cmsis_os\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V1_FILES, "^subsys/portability/cmsis_rtos_v1/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V1_FILES, "^include/zephyr/portability/cmsis_os\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V1 component definition."
 -config=B.INDEPENDENCE,component_entities+=

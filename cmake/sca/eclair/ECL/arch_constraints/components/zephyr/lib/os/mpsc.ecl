@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_OS_MPSC_FILES, "^zephyr/include/zephyr/sys/mpsc.*\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_MPSC_FILES, "^zephyr/lib/os/mpsc_pbuf\\.c$"}
+-file_tag+={ZEPHYR_LIB_OS_MPSC_FILES, "^include/zephyr/sys/mpsc.*\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_MPSC_FILES, "^lib/os/mpsc_pbuf\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_MPSC component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_DRIVERS_HDLC_RCP_IF_FILES, "^zephyr/drivers/hdlc_rcp_if/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_HDLC_RCP_IF_FILES, "^drivers/hdlc_rcp_if/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_HDLC_RCP_IF component definition."
 -config=B.INDEPENDENCE,component_entities+=

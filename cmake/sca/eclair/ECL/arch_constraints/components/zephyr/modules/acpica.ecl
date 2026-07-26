@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_ACPICA_FILES, "^zephyr/modules/acpica/.*$"}
+-file_tag+={ZEPHYR_MODULES_ACPICA_FILES, "^modules/acpica/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_ACPICA component definition."
 -config=B.INDEPENDENCE,component_entities+=

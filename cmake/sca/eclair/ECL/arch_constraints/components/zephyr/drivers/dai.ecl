@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_DAI_FILES, "^zephyr/include/zephyr/drivers/dai\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_DAI_FILES, "^zephyr/drivers/dai/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DAI_FILES, "^include/zephyr/drivers/dai\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_DAI_FILES, "^drivers/dai/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_DAI_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/dai.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_DAI component definition."

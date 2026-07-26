@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_PMCI_FILES, "^zephyr/subsys/pmci/.*$"}
--file_tag+={ZEPHYR_SUBSYS_PMCI_FILES, "^zephyr/include/zephyr/pmci/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PMCI_FILES, "^subsys/pmci/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PMCI_FILES, "^include/zephyr/pmci/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_PMCI component definition."
 -config=B.INDEPENDENCE,component_entities+=

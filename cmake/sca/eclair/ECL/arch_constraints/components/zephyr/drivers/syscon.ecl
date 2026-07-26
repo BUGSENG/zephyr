@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_SYSCON_FILES, "^zephyr/include/zephyr/drivers/syscon\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_SYSCON_FILES, "^zephyr/drivers/syscon/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SYSCON_FILES, "^include/zephyr/drivers/syscon\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_SYSCON_FILES, "^drivers/syscon/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_SYSCON_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/syscon.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_SYSCON component definition."

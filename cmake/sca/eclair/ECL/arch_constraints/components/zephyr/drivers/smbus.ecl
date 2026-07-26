@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_SMBUS_FILES, "^zephyr/include/zephyr/drivers/smbus\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_SMBUS_FILES, "^zephyr/drivers/smbus/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SMBUS_FILES, "^include/zephyr/drivers/smbus\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_SMBUS_FILES, "^drivers/smbus/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_SMBUS_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/smbus.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_SMBUS component definition."

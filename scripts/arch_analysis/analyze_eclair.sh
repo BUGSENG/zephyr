@@ -16,10 +16,12 @@ BOARD=$1
 SAMPLE=$2
 THREADS=$3
 
+
 FULL_JSON_OUTPUT="../../build/sca/eclair/report_full_json"
 # Generate output in build/sca/eclair/report_full_json
 (
     cd ../..
+    rm -fr build
     export ECLS_DIR="${PWD}/cmake/sca/eclair/ECL/arch_constraints"
     west build -b "${BOARD}" "${SAMPLE}" -p always "-o=-j${THREADS}" -- \
         -DZEPHYR_SCA_VARIANT=eclair \

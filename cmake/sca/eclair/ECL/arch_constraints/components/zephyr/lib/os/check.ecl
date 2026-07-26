@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_OS_CHECK_FILES, "^zephyr/include/zephyr/sys/check\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_CHECK_FILES, "^include/zephyr/sys/check\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_CHECK component definition."
 -config=B.INDEPENDENCE,component_entities+=

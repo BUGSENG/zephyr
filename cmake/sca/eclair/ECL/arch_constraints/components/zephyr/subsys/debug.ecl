@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_DEBUG_FILES, "^zephyr/subsys/debug/.*$"}
--file_tag+={ZEPHYR_SUBSYS_DEBUG_FILES, "^zephyr/include/zephyr/debug/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DEBUG_FILES, "^subsys/debug/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DEBUG_FILES, "^include/zephyr/debug/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_DEBUG component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_CRYPTO_FILES, "^zephyr/drivers/crypto/.*$"}
--file_tag+={ZEPHYR_DRIVERS_CRYPTO_FILES, "^zephyr/include/zephyr/crypto/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CRYPTO_FILES, "^drivers/crypto/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CRYPTO_FILES, "^include/zephyr/crypto/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_CRYPTO component definition."
 -config=B.INDEPENDENCE,component_entities+=

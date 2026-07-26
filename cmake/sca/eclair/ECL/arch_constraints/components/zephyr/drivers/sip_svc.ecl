@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_SIP_SVC_FILES, "^zephyr/drivers/sip_svc/.*$"}
--file_tag+={ZEPHYR_DRIVERS_SIP_SVC_FILES, "^zephyr/include/zephyr/drivers/sip_svc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SIP_SVC_FILES, "^drivers/sip_svc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SIP_SVC_FILES, "^include/zephyr/drivers/sip_svc/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_SIP_SVC_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/sip_svc_driver\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_SIP_SVC component definition."

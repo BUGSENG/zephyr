@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_EMUL_FILES, "^zephyr/subsys/emul/.*$"}
--file_tag+={ZEPHYR_SUBSYS_EMUL_FILES, "^zephyr/include/zephyr/drivers/emul.*\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_EMUL_FILES, "^subsys/emul/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_EMUL_FILES, "^include/zephyr/drivers/emul.*\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_EMUL component definition."
 -config=B.INDEPENDENCE,component_entities+=

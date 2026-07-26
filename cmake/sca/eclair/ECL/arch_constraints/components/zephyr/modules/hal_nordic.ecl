@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_NORDIC_FILES, "^zephyr/modules/hal_nordic/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_NORDIC_FILES, "^modules/hal_nordic/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_NORDIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

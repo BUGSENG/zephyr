@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_MISC_FILES, "^zephyr/include/zephyr/drivers/misc/.*$"}
--file_tag+={ZEPHYR_DRIVERS_MISC_FILES, "^zephyr/drivers/misc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MISC_FILES, "^include/zephyr/drivers/misc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MISC_FILES, "^drivers/misc/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_MISC component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_NXP_FILES, "^zephyr/modules/hal_nxp/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_NXP_FILES, "^modules/hal_nxp/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_NXP component definition."
 -config=B.INDEPENDENCE,component_entities+=

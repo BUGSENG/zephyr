@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_GNSS_FILES, "^zephyr/include/zephyr/drivers/gnss\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_GNSS_FILES, "^zephyr/drivers/gnss/.*$"}
--file_tag+={ZEPHYR_DRIVERS_GNSS_FILES, "^zephyr/include/zephyr/drivers/gnss/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_GNSS_FILES, "^include/zephyr/drivers/gnss\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_GNSS_FILES, "^drivers/gnss/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_GNSS_FILES, "^include/zephyr/drivers/gnss/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_GNSS_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/gnss.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_GNSS component definition."

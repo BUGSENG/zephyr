@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_MFD_FILES, "^zephyr/drivers/mfd/.*$"}
--file_tag+={ZEPHYR_DRIVERS_MFD_FILES, "^zephyr/include/zephyr/drivers/mfd/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MFD_FILES, "^drivers/mfd/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MFD_FILES, "^include/zephyr/drivers/mfd/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_MFD component definition."
 -config=B.INDEPENDENCE,component_entities+=

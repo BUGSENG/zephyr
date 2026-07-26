@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_PLATFORM_FILES, "^zephyr/boards/.*$"}
--file_tag+={ZEPHYR_PLATFORM_FILES, "^zephyr/soc/.*$"}
--file_tag+={ZEPHYR_PLATFORM_FILES, "^zephyr/include/zephyr/platform/.*$"}
+-file_tag+={ZEPHYR_PLATFORM_FILES, "^boards/.*$"}
+-file_tag+={ZEPHYR_PLATFORM_FILES, "^soc/.*$"}
+-file_tag+={ZEPHYR_PLATFORM_FILES, "^include/zephyr/platform/.*$"}
 
 -doc_begin="The ZEPHYR_PLATFORM component definition."
 -config=B.INDEPENDENCE,component_entities+=

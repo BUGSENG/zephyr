@@ -1,9 +1,9 @@
--file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^zephyr/drivers/firmware/scmi/.*$"}
--file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^zephyr/include/zephyr/drivers/firmware/scmi/.*$"}
--file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^zephyr/drivers/firmware/tisci/.*$"}
--file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^zephyr/include/zephyr/drivers/firmware/tisci/.*$"}
--file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^zephyr/drivers/firmware/.*$"}
--file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^zephyr/include/zephyr/drivers/firmware/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^drivers/firmware/scmi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^include/zephyr/drivers/firmware/scmi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^drivers/firmware/tisci/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^include/zephyr/drivers/firmware/tisci/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^drivers/firmware/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FIRMWARE_FILES, "^include/zephyr/drivers/firmware/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_FIRMWARE component definition."
 -config=B.INDEPENDENCE,component_entities+=

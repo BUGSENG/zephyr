@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_UAOL_FILES, "^zephyr/drivers/uaol/.*$"}
--file_tag+={ZEPHYR_DRIVERS_UAOL_FILES, "^zephyr/include/zephyr/drivers/uaol\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_UAOL_FILES, "^drivers/uaol/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_UAOL_FILES, "^include/zephyr/drivers/uaol\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_UAOL component definition."
 -config=B.INDEPENDENCE,component_entities+=

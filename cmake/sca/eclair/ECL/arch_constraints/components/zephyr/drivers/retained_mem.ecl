@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_RETAINED_MEM_FILES, "^zephyr/include/zephyr/drivers/retained_mem\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_RETAINED_MEM_FILES, "^zephyr/drivers/retained_mem/.*$"}
--file_tag+={ZEPHYR_DRIVERS_RETAINED_MEM_FILES, "^zephyr/include/zephyr/drivers/retained_mem/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_RETAINED_MEM_FILES, "^include/zephyr/drivers/retained_mem\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_RETAINED_MEM_FILES, "^drivers/retained_mem/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_RETAINED_MEM_FILES, "^include/zephyr/drivers/retained_mem/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_RETAINED_MEM_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/retained_mem.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_RETAINED_MEM component definition."

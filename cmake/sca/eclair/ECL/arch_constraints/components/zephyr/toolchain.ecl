@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_TOOLCHAIN_FILES, "^zephyr/include/zephyr/toolchain\\.h$"}
--file_tag+={ZEPHYR_TOOLCHAIN_FILES, "^zephyr/include/zephyr/toolchain/.*$"}
+-file_tag+={ZEPHYR_TOOLCHAIN_FILES, "^include/zephyr/toolchain\\.h$"}
+-file_tag+={ZEPHYR_TOOLCHAIN_FILES, "^include/zephyr/toolchain/.*$"}
 
 -doc_begin="The ZEPHYR_TOOLCHAIN component definition."
 -config=B.INDEPENDENCE,component_entities+=

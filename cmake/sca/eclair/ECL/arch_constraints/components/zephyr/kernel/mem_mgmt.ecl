@@ -1,15 +1,15 @@
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/kernel/kheap\\.c$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/kernel/mempool\\.c$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/kernel/mem_slab\\.c$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/include/zephyr/kernel/mm/.*$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/kernel/include/mmu\\.h$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/kernel/mmu\\.c$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/kernel/paging/.*$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^kernel/kheap\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^kernel/mempool\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^kernel/mem_slab\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^include/zephyr/kernel/mm/.*$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^kernel/include/mmu\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^kernel/mmu\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^kernel/paging/.*$"}
 -file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/demand_paging\\.h$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/include/zephyr/kernel/mm\\.h$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/include/zephyr/kernel/internal/mm\\.h$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/include/zephyr/app_memory/.*$"}
--file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^zephyr/kernel/mem_domain\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^include/zephyr/kernel/mm\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^include/zephyr/kernel/internal/mm\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^include/zephyr/app_memory/.*$"}
+-file_tag+={ZEPHYR_KERNEL_MEM_MGMT_FILES, "^kernel/mem_domain\\.c$"}
 
 -doc_begin="The ZEPHYR_KERNEL_MEM_MGMT component definition."
 -config=B.INDEPENDENCE,component_entities+=

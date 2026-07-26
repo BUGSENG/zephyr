@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_MODEM_FILES, "^zephyr/drivers/modem/.*$"}
--file_tag+={ZEPHYR_DRIVERS_MODEM_FILES, "^zephyr/include/zephyr/drivers/modem/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MODEM_FILES, "^drivers/modem/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MODEM_FILES, "^include/zephyr/drivers/modem/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_MODEM component definition."
 -config=B.INDEPENDENCE,component_entities+=

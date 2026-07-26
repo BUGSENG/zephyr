@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_PS2_FILES, "^zephyr/include/zephyr/drivers/ps2\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_PS2_FILES, "^zephyr/drivers/ps2/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PS2_FILES, "^include/zephyr/drivers/ps2\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_PS2_FILES, "^drivers/ps2/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_PS2_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/ps2.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_PS2 component definition."

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_KERNEL_ERRNO_FILES, "^zephyr/include/zephyr/sys/errno_private\\.h$"}
--file_tag+={ZEPHYR_KERNEL_ERRNO_FILES, "^zephyr/kernel/errno\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_ERRNO_FILES, "^include/zephyr/sys/errno_private\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_ERRNO_FILES, "^kernel/errno\\.c$"}
 -file_tag+={ZEPHYR_KERNEL_ERRNO_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/errno.*\\.h$"}
 
 -doc_begin="The ZEPHYR_KERNEL_ERRNO component definition."

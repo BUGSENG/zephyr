@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_RANDOM_FILES, "^zephyr/subsys/random/.*$"}
--file_tag+={ZEPHYR_SUBSYS_RANDOM_FILES, "^zephyr/include/zephyr/random/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_RANDOM_FILES, "^subsys/random/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_RANDOM_FILES, "^include/zephyr/random/.*$"}
 -file_tag+={ZEPHYR_SUBSYS_RANDOM_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/random\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_RANDOM component definition."

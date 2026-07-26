@@ -1,18 +1,18 @@
 eval_file_glob(join_paths(ecls_dir,"components/zephyr/lib/utils/*.ecl"))
 
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/lib/utils/.*$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/util.*\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/base64\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/math_extras\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/math_extras_impl\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/notify\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/onoff\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/sys_getopt\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/minmax\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/set\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/data/cobs\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/data/json\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^zephyr/include/zephyr/sys/byteorder\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^lib/utils/.*$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/util.*\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/base64\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/math_extras\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/math_extras_impl\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/notify\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/onoff\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/sys_getopt\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/minmax\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/set\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/data/cobs\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/data/json\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GENERIC_FILES, "^include/zephyr/sys/byteorder\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

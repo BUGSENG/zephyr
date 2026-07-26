@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_MGMT_FILES, "^zephyr/subsys/mgmt/.*$"}
--file_tag+={ZEPHYR_SUBSYS_MGMT_FILES, "^zephyr/include/zephyr/mgmt/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_MGMT_FILES, "^subsys/mgmt/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_MGMT_FILES, "^include/zephyr/mgmt/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_MGMT component definition."
 -config=B.INDEPENDENCE,component_entities+=

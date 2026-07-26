@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_SETTINGS_FILES, "^zephyr/subsys/settings/.*$"}
--file_tag+={ZEPHYR_SUBSYS_SETTINGS_FILES, "^zephyr/include/zephyr/settings/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SETTINGS_FILES, "^subsys/settings/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SETTINGS_FILES, "^include/zephyr/settings/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_SETTINGS component definition."
 -config=B.INDEPENDENCE,component_entities+=

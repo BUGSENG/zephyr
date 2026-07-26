@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_DRIVERS_NET_FILES, "^zephyr/drivers/net/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_NET_FILES, "^drivers/net/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_NET component definition."
 -config=B.INDEPENDENCE,component_entities+=

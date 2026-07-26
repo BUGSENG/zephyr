@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_FLASH_FILES, "^zephyr/include/zephyr/drivers/flash\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_FLASH_FILES, "^zephyr/drivers/flash/.*$"}
--file_tag+={ZEPHYR_DRIVERS_FLASH_FILES, "^zephyr/include/zephyr/drivers/flash/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FLASH_FILES, "^include/zephyr/drivers/flash\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_FLASH_FILES, "^drivers/flash/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FLASH_FILES, "^include/zephyr/drivers/flash/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_FLASH_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/flash.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_FLASH component definition."

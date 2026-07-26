@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_SMF_FILES, "^zephyr/lib/smf/.*$"}
--file_tag+={ZEPHYR_LIB_SMF_FILES, "^zephyr/include/zephyr/smf\\.h$"}
+-file_tag+={ZEPHYR_LIB_SMF_FILES, "^lib/smf/.*$"}
+-file_tag+={ZEPHYR_LIB_SMF_FILES, "^include/zephyr/smf\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_SMF component definition."
 -config=B.INDEPENDENCE,component_entities+=

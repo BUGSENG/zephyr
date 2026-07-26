@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_TEE_FILES, "^zephyr/include/zephyr/drivers/tee\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_TEE_FILES, "^zephyr/drivers/tee/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_TEE_FILES, "^include/zephyr/drivers/tee\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_TEE_FILES, "^drivers/tee/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_TEE_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/tee.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_TEE component definition."

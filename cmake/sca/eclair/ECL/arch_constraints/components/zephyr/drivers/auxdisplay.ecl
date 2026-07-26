@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_AUXDISPLAY_FILES, "^zephyr/include/zephyr/drivers/auxdisplay\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_AUXDISPLAY_FILES, "^zephyr/drivers/auxdisplay/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_AUXDISPLAY_FILES, "^include/zephyr/drivers/auxdisplay\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_AUXDISPLAY_FILES, "^drivers/auxdisplay/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_AUXDISPLAY_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/auxdisplay.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_AUXDISPLAY component definition."

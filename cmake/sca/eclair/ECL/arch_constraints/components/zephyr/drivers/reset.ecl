@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_RESET_FILES, "^zephyr/include/zephyr/drivers/reset\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_RESET_FILES, "^zephyr/drivers/reset/.*$"}
--file_tag+={ZEPHYR_DRIVERS_RESET_FILES, "^zephyr/include/zephyr/drivers/reset/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_RESET_FILES, "^include/zephyr/drivers/reset\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_RESET_FILES, "^drivers/reset/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_RESET_FILES, "^include/zephyr/drivers/reset/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_RESET_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/reset.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_RESET component definition."

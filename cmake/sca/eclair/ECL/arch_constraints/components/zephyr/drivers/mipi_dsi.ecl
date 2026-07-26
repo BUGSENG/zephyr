@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_MIPI_DSI_FILES, "^zephyr/include/zephyr/drivers/mipi_dsi\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_MIPI_DSI_FILES, "^zephyr/drivers/mipi_dsi/.*$"}
--file_tag+={ZEPHYR_DRIVERS_MIPI_DSI_FILES, "^zephyr/include/zephyr/drivers/mipi_dsi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MIPI_DSI_FILES, "^include/zephyr/drivers/mipi_dsi\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_MIPI_DSI_FILES, "^drivers/mipi_dsi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MIPI_DSI_FILES, "^include/zephyr/drivers/mipi_dsi/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_MIPI_DSI component definition."
 -config=B.INDEPENDENCE,component_entities+=

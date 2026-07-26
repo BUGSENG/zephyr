@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_OS_POWEROFF_FILES, "^zephyr/include/zephyr/sys/poweroff\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_POWEROFF_FILES, "^zephyr/lib/os/poweroff\\.c$"}
+-file_tag+={ZEPHYR_LIB_OS_POWEROFF_FILES, "^include/zephyr/sys/poweroff\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_POWEROFF_FILES, "^lib/os/poweroff\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_POWEROFF component definition."
 -config=B.INDEPENDENCE,component_entities+=

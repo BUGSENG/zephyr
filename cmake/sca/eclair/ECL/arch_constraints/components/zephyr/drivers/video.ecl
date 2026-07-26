@@ -1,7 +1,7 @@
--file_tag+={ZEPHYR_DRIVERS_VIDEO_FILES, "^zephyr/include/zephyr/drivers/video.*\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_VIDEO_FILES, "^zephyr/drivers/video/.*$"}
--file_tag+={ZEPHYR_DRIVERS_VIDEO_FILES, "^zephyr/include/zephyr/video.*$"}
--file_tag+={ZEPHYR_DRIVERS_VIDEO_FILES, "^zephyr/include/zephyr/drivers/video/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_VIDEO_FILES, "^include/zephyr/drivers/video.*\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_VIDEO_FILES, "^drivers/video/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_VIDEO_FILES, "^include/zephyr/video.*$"}
+-file_tag+={ZEPHYR_DRIVERS_VIDEO_FILES, "^include/zephyr/drivers/video/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_VIDEO component definition."
 -config=B.INDEPENDENCE,component_entities+=

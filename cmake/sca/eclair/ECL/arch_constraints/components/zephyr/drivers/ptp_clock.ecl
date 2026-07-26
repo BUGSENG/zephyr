@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_PTP_CLOCK_FILES, "^zephyr/include/zephyr/drivers/ptp_clock\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_PTP_CLOCK_FILES, "^zephyr/drivers/ptp_clock/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PTP_CLOCK_FILES, "^include/zephyr/drivers/ptp_clock\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_PTP_CLOCK_FILES, "^drivers/ptp_clock/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_PTP_CLOCK_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/ptp_clock.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_PTP_CLOCK component definition."

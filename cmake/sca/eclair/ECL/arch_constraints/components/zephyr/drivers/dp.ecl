@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_DP_FILES, "^zephyr/drivers/dp/.*$"}
--file_tag+={ZEPHYR_DRIVERS_DP_FILES, "^zephyr/include/zephyr/drivers/swdp\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_DP_FILES, "^drivers/dp/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DP_FILES, "^include/zephyr/drivers/swdp\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_DP component definition."
 -config=B.INDEPENDENCE,component_entities+=

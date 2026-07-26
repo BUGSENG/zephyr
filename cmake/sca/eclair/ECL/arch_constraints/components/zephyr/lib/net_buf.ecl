@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_NET_BUF_FILES, "^zephyr/(include/zephyr|lib)/net_buf.*$"}
+-file_tag+={ZEPHYR_LIB_NET_BUF_FILES, "^(include/zephyr|lib)/net_buf.*$"}
 
 -doc_begin="The ZEPHYR_LIB_NET_BUF component definition."
 -config=B.INDEPENDENCE,component_entities+=

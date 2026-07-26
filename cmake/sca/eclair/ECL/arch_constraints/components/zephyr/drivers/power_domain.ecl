@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_DRIVERS_POWER_DOMAIN_FILES, "^zephyr/drivers/power_domain/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_POWER_DOMAIN_FILES, "^drivers/power_domain/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_POWER_DOMAIN component definition."
 -config=B.INDEPENDENCE,component_entities+=

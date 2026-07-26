@@ -1,7 +1,7 @@
--file_tag+={ZEPHYR_KERNEL_DEVICE_FILES, "^zephyr/include/zephyr/device\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_DEVICE_FILES, "^include/zephyr/device\\.h$"}
 -file_tag+={ZEPHYR_KERNEL_DEVICE_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/device.*\\.h$"}
--file_tag+={ZEPHYR_KERNEL_DEVICE_FILES, "^zephyr/kernel/device\\.c$"}
--file_tag+={ZEPHYR_KERNEL_DEVICE_FILES, "^zephyr/include/zephyr/sys/device_mmio\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_DEVICE_FILES, "^kernel/device\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_DEVICE_FILES, "^include/zephyr/sys/device_mmio\\.h$"}
 
 -doc_begin="The ZEPHYR_KERNEL_DEVICE component definition."
 -config=B.INDEPENDENCE,component_entities+=

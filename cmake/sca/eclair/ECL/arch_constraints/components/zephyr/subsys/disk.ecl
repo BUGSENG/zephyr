@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_DISK_FILES, "^zephyr/subsys/disk/.*$"}
--file_tag+={ZEPHYR_SUBSYS_DISK_FILES, "^zephyr/include/zephyr/storage/disk_access\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_DISK_FILES, "^subsys/disk/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DISK_FILES, "^include/zephyr/storage/disk_access\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_DISK component definition."
 -config=B.INDEPENDENCE,component_entities+=

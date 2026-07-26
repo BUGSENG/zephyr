@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_IPC_FILES, "^zephyr/subsys/ipc/.*$"}
--file_tag+={ZEPHYR_SUBSYS_IPC_FILES, "^zephyr/include/zephyr/ipc/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_IPC_FILES, "^subsys/ipc/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_IPC_FILES, "^include/zephyr/ipc/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_IPC component definition."
 -config=B.INDEPENDENCE,component_entities+=

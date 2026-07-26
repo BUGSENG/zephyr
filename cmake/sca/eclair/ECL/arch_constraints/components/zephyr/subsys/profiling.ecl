@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_SUBSYS_PROFILING_FILES, "^zephyr/subsys/profiling/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PROFILING_FILES, "^subsys/profiling/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_PROFILING component definition."
 -config=B.INDEPENDENCE,component_entities+=

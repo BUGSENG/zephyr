@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HOSTAP_FILES, "^zephyr/modules/hostap/.*$"}
+-file_tag+={ZEPHYR_MODULES_HOSTAP_FILES, "^modules/hostap/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HOSTAP component definition."
 -config=B.INDEPENDENCE,component_entities+=

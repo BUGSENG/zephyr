@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_KERNEL_USAGE_FILES, "^zephyr/kernel/usage\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_USAGE_FILES, "^kernel/usage\\.c$"}
 
 -doc_begin="The ZEPHYR_KERNEL_USAGE component definition."
 -config=B.INDEPENDENCE,component_entities+=

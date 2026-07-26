@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_PINCTRL_FILES, "^zephyr/include/zephyr/drivers/pinctrl\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_PINCTRL_FILES, "^zephyr/drivers/pinctrl/.*$"}
--file_tag+={ZEPHYR_DRIVERS_PINCTRL_FILES, "^zephyr/include/zephyr/drivers/pinctrl/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PINCTRL_FILES, "^include/zephyr/drivers/pinctrl\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_PINCTRL_FILES, "^drivers/pinctrl/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PINCTRL_FILES, "^include/zephyr/drivers/pinctrl/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_PINCTRL component definition."
 -config=B.INDEPENDENCE,component_entities+=

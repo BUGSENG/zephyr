@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_BOUFFALOLAB_FILES, "^zephyr/modules/hal_bouffalolab/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_BOUFFALOLAB_FILES, "^modules/hal_bouffalolab/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_BOUFFALOLAB component definition."
 -config=B.INDEPENDENCE,component_entities+=

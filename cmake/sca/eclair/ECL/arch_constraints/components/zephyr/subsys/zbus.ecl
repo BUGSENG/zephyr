@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_ZBUS_FILES, "^zephyr/subsys/zbus/.*$"}
--file_tag+={ZEPHYR_SUBSYS_ZBUS_FILES, "^zephyr/include/zephyr/zbus/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_ZBUS_FILES, "^subsys/zbus/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_ZBUS_FILES, "^include/zephyr/zbus/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_ZBUS component definition."
 -config=B.INDEPENDENCE,component_entities+=

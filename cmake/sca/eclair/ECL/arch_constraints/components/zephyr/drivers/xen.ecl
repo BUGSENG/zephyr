@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_XEN_FILES, "^zephyr/drivers/xen/.*$"}
--file_tag+={ZEPHYR_DRIVERS_XEN_FILES, "^zephyr/include/zephyr/xen/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_XEN_FILES, "^drivers/xen/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_XEN_FILES, "^include/zephyr/xen/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_XEN component definition."
 -config=B.INDEPENDENCE,component_entities+=

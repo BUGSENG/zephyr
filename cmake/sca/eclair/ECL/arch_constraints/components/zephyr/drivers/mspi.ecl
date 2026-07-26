@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_MSPI_FILES, "^zephyr/include/zephyr/drivers/mspi.*\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_MSPI_FILES, "^zephyr/drivers/mspi/.*$"}
--file_tag+={ZEPHYR_DRIVERS_MSPI_FILES, "^zephyr/include/zephyr/drivers/mspi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MSPI_FILES, "^include/zephyr/drivers/mspi.*\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_MSPI_FILES, "^drivers/mspi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MSPI_FILES, "^include/zephyr/drivers/mspi/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_MSPI_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/mspi.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_MSPI component definition."

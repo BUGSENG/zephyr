@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_KERNEL_STRUCTS_FILES, "^zephyr/include/zephyr/kernel_structs\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_STRUCTS_FILES, "^include/zephyr/kernel_structs\\.h$"}
 
 -doc_begin="The ZEPHYR_KERNEL_STRUCTS component definition."
 -config=B.INDEPENDENCE,component_entities+=

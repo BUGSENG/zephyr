@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_LOGGING_FILES, "^zephyr/subsys/logging/.*$"}
--file_tag+={ZEPHYR_SUBSYS_LOGGING_FILES, "^zephyr/include/zephyr/logging/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_LOGGING_FILES, "^subsys/logging/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_LOGGING_FILES, "^include/zephyr/logging/.*$"}
 -file_tag+={ZEPHYR_SUBSYS_LOGGING_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/log_msg\\.h$"}
 -file_tag+={ZEPHYR_SUBSYS_LOGGING_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/log_ctrl\\.h$"}
 

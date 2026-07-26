@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_THRIFT_FILES, "^zephyr/modules/thrift/.*$"}
+-file_tag+={ZEPHYR_MODULES_THRIFT_FILES, "^modules/thrift/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_THRIFT component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_LIB_HASH_FILES, "^zephyr/lib/hash/.*$"}
--file_tag+={ZEPHYR_LIB_HASH_FILES, "^zephyr/include/zephyr/sys/hash_map.*$"}
--file_tag+={ZEPHYR_LIB_HASH_FILES, "^zephyr/include/zephyr/sys/hash_function\\.h$"}
+-file_tag+={ZEPHYR_LIB_HASH_FILES, "^lib/hash/.*$"}
+-file_tag+={ZEPHYR_LIB_HASH_FILES, "^include/zephyr/sys/hash_map.*$"}
+-file_tag+={ZEPHYR_LIB_HASH_FILES, "^include/zephyr/sys/hash_function\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_HASH component definition."
 -config=B.INDEPENDENCE,component_entities+=

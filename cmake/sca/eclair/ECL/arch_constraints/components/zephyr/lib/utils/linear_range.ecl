@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_UTILS_LINEAR_RANGE_FILES, "^zephyr/include/zephyr/sys/linear_range\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_LINEAR_RANGE_FILES, "^include/zephyr/sys/linear_range\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_LINEAR_RANGE component definition."
 -config=B.INDEPENDENCE,component_entities+=

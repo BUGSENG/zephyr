@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_CMSIS_DSP_FILES, "^zephyr/modules/cmsis-dsp/.*$"}
+-file_tag+={ZEPHYR_MODULES_CMSIS_DSP_FILES, "^modules/cmsis-dsp/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_CMSIS_DSP component definition."
 -config=B.INDEPENDENCE,component_entities+=

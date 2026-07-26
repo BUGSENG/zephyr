@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_OS_FORMATTED_OUTPUT_FILES, "^zephyr/include/zephyr/sys/cbprintf.*\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_FORMATTED_OUTPUT_FILES, "^zephyr/lib/os/cbprintf.*\\.c$"}
+-file_tag+={ZEPHYR_LIB_OS_FORMATTED_OUTPUT_FILES, "^include/zephyr/sys/cbprintf.*\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_FORMATTED_OUTPUT_FILES, "^lib/os/cbprintf.*\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_FORMATTED_OUTPUT component definition."
 -config=B.INDEPENDENCE,component_entities+=

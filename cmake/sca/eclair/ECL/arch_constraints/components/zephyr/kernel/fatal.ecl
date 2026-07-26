@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_KERNEL_FATAL_FILES, "^zephyr/include/zephyr/fatal.*$"}
--file_tag+={ZEPHYR_KERNEL_FATAL_FILES, "^zephyr/kernel/fatal\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_FATAL_FILES, "^include/zephyr/fatal.*$"}
+-file_tag+={ZEPHYR_KERNEL_FATAL_FILES, "^kernel/fatal\\.c$"}
 
 -doc_begin="The ZEPHYR_KERNEL_FATAL component definition."
 -config=B.INDEPENDENCE,component_entities+=

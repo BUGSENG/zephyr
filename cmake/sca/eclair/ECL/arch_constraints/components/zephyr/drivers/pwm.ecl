@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_PWM_FILES, "^zephyr/include/zephyr/drivers/pwm\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_PWM_FILES, "^zephyr/drivers/pwm/.*$"}
--file_tag+={ZEPHYR_DRIVERS_PWM_FILES, "^zephyr/include/zephyr/drivers/pwm/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PWM_FILES, "^include/zephyr/drivers/pwm\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_PWM_FILES, "^drivers/pwm/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PWM_FILES, "^include/zephyr/drivers/pwm/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_PWM_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/pwm.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_PWM component definition."

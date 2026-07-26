@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_SHELL_FILES, "^zephyr/subsys/shell/.*$"}
--file_tag+={ZEPHYR_SUBSYS_SHELL_FILES, "^zephyr/include/zephyr/shell/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SHELL_FILES, "^subsys/shell/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SHELL_FILES, "^include/zephyr/shell/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_SHELL component definition."
 -config=B.INDEPENDENCE,component_entities+=

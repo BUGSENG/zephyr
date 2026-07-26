@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_COUNTER_FILES, "^zephyr/include/zephyr/drivers/counter\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_COUNTER_FILES, "^zephyr/drivers/counter/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_COUNTER_FILES, "^include/zephyr/drivers/counter\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_COUNTER_FILES, "^drivers/counter/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_COUNTER_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/counter.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_COUNTER component definition."

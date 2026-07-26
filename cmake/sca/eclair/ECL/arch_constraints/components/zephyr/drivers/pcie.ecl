@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_PCIE_FILES, "^zephyr/drivers/pcie/.*$"}
--file_tag+={ZEPHYR_DRIVERS_PCIE_FILES, "^zephyr/include/zephyr/drivers/pcie/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PCIE_FILES, "^drivers/pcie/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PCIE_FILES, "^include/zephyr/drivers/pcie/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_PCIE component definition."
 -config=B.INDEPENDENCE,component_entities+=

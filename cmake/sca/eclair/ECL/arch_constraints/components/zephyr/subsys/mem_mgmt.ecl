@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_MEM_MGMT_FILES, "^zephyr/subsys/mem_mgmt/.*$"}
--file_tag+={ZEPHYR_SUBSYS_MEM_MGMT_FILES, "^zephyr/include/zephyr/mem_mgmt/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_MEM_MGMT_FILES, "^subsys/mem_mgmt/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_MEM_MGMT_FILES, "^include/zephyr/mem_mgmt/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_MEM_MGMT component definition."
 -config=B.INDEPENDENCE,component_entities+=

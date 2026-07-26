@@ -1,7 +1,7 @@
--file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^zephyr/include/zephyr/drivers/sensor\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^zephyr/drivers/sensor/.*$"}
--file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^zephyr/include/zephyr/drivers/sensor/.*$"}
--file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^zephyr/include/zephyr/drivers/sensor.*\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^include/zephyr/drivers/sensor\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^drivers/sensor/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^include/zephyr/drivers/sensor/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^include/zephyr/drivers/sensor.*\\.h$"}
 -file_tag+={ZEPHYR_DRIVERS_SENSOR_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/sensor.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_SENSOR component definition."

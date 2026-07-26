@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_SPI_FILES, "^zephyr/include/zephyr/drivers/spi.*\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_SPI_FILES, "^zephyr/drivers/spi/.*$"}
--file_tag+={ZEPHYR_DRIVERS_SPI_FILES, "^zephyr/include/zephyr/drivers/spi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SPI_FILES, "^include/zephyr/drivers/spi.*\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_SPI_FILES, "^drivers/spi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SPI_FILES, "^include/zephyr/drivers/spi/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_SPI_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/spi.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_SPI component definition."

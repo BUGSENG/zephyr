@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_GPIO_FILES, "^zephyr/include/zephyr/drivers/gpio\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_GPIO_FILES, "^zephyr/drivers/gpio/.*$"}
--file_tag+={ZEPHYR_DRIVERS_GPIO_FILES, "^zephyr/include/zephyr/drivers/gpio/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_GPIO_FILES, "^include/zephyr/drivers/gpio\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_GPIO_FILES, "^drivers/gpio/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_GPIO_FILES, "^include/zephyr/drivers/gpio/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_GPIO_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/gpio.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_GPIO component definition."

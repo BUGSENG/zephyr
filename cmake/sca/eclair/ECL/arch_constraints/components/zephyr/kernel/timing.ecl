@@ -1,9 +1,9 @@
--file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^zephyr/kernel/timer\\.c$"}
--file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^zephyr/kernel/include/timeout_q\\.h$"}
--file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^zephyr/kernel/timeout\\.c$"}
--file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^zephyr/include/zephyr/sys/clock\\.h$"}
--file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^zephyr/include/zephyr/sys_clock\\.h$"}
--file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^zephyr/lib/os/clock\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^kernel/timer\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^kernel/include/timeout_q\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^kernel/timeout\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^include/zephyr/sys/clock\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^include/zephyr/sys_clock\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^lib/os/clock\\.c$"}
 -file_tag+={ZEPHYR_KERNEL_TIMING_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/clock\\.h$"}
 
 -doc_begin="The ZEPHYR_KERNEL_TIMING component definition."

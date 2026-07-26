@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_EDAC_FILES, "^zephyr/include/zephyr/drivers/edac\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_EDAC_FILES, "^zephyr/drivers/edac/.*$"}
--file_tag+={ZEPHYR_DRIVERS_EDAC_FILES, "^zephyr/include/zephyr/drivers/edac/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_EDAC_FILES, "^include/zephyr/drivers/edac\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_EDAC_FILES, "^drivers/edac/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_EDAC_FILES, "^include/zephyr/drivers/edac/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_EDAC component definition."
 -config=B.INDEPENDENCE,component_entities+=

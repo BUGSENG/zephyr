@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_OS_ITERABLE_SECTIONS_FILES, "^zephyr/include/zephyr/sys/iterable_sections\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_ITERABLE_SECTIONS_FILES, "^include/zephyr/sys/iterable_sections\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_ITERABLE_SECTIONS component definition."
 -config=B.INDEPENDENCE,component_entities+=

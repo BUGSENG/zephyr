@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_UTILS_BYTEORDER_FILES, "^zephyr/include/zephyr/sys/byteorder\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_BYTEORDER_FILES, "^include/zephyr/sys/byteorder\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_BYTEORDER component definition."
 -config=B.INDEPENDENCE,component_entities+=

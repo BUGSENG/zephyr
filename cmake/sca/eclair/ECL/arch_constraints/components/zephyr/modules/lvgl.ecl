@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_LVGL_FILES, "^zephyr/modules/lvgl/.*$"}
+-file_tag+={ZEPHYR_MODULES_LVGL_FILES, "^modules/lvgl/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_LVGL component definition."
 -config=B.INDEPENDENCE,component_entities+=

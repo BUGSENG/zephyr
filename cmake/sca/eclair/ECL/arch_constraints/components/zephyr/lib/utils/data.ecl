@@ -1,8 +1,8 @@
--file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^zephyr/include/zephyr/data/cobs\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^zephyr/lib/utils/cobs\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^zephyr/include/zephyr/data/json\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^zephyr/lib/utils/json\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^zephyr/include/zephyr/data/navigation\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^include/zephyr/data/cobs\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^lib/utils/cobs\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^include/zephyr/data/json\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^lib/utils/json\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_FILES, "^include/zephyr/data/navigation\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_DATA component definition."
 -config=B.INDEPENDENCE,component_entities+=

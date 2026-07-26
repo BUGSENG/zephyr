@@ -1,5 +1,5 @@
 -file_tag+={ZEPHYR_CONFIG_FILES, "^.*/build/zephyr/include/generated/zephyr/autoconf\\.h$"}
--file_tag+={ZEPHYR_CONFIG_FILES, "^zephyr/build/zephyr/misc/generated/configs\\.c$"}
+-file_tag+={ZEPHYR_CONFIG_FILES, "^build/zephyr/misc/generated/configs\\.c$"}
 -file_tag+={ZEPHYR_CONFIG_FILES, "^.*/build/zephyr/misc/generated/configs\\.c$"}
 
 -doc_begin="The ZEPHYR_CONFIG component definition."

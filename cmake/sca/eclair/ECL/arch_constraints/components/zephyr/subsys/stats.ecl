@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_SUBSYS_STATS_FILES, "^zephyr/subsys/stats/.*$"}
--file_tag+={ZEPHYR_SUBSYS_STATS_FILES, "^zephyr/include/zephyr/stats/.*$"}
--file_tag+={ZEPHYR_SUBSYS_STATS_FILES, "^zephyr/include/zephyr/kernel/stats\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_STATS_FILES, "^subsys/stats/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_STATS_FILES, "^include/zephyr/stats/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_STATS_FILES, "^include/zephyr/kernel/stats\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_STATS component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_TIMER_FILES, "^zephyr/drivers/timer/.*$"}
--file_tag+={ZEPHYR_DRIVERS_TIMER_FILES, "^zephyr/include/zephyr/drivers/timer/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_TIMER_FILES, "^drivers/timer/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_TIMER_FILES, "^include/zephyr/drivers/timer/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_TIMER component definition."
 -config=B.INDEPENDENCE,component_entities+=

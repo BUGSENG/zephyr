@@ -1,8 +1,8 @@
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^zephyr/subsys/portability/cmsis_rtos_v2/.*$"}
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^zephyr/include/zephyr/portability/cmsis_os2\\.h$"}
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^zephyr/include/zephyr/portability/cmsis_types\\.h$"}
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^zephyr/subsys/portability/cmsis_rtos_V2/.*$"}
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^zephyr/include/zephyr/portability/cmsis_os\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^subsys/portability/cmsis_rtos_v2/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^include/zephyr/portability/cmsis_os2\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^include/zephyr/portability/cmsis_types\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^subsys/portability/cmsis_rtos_V2/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2_FILES, "^include/zephyr/portability/cmsis_os\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_PORTABILITY_CMSIS_RTOS_V2 component definition."
 -config=B.INDEPENDENCE,component_entities+=

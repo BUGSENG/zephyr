@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_I2S_FILES, "^zephyr/include/zephyr/drivers/i2s\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_I2S_FILES, "^zephyr/drivers/i2s/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_I2S_FILES, "^include/zephyr/drivers/i2s\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_I2S_FILES, "^drivers/i2s/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_I2S_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/i2s.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_I2S component definition."

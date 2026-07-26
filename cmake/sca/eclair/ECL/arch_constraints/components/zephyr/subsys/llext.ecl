@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_LLEXT_FILES, "^zephyr/subsys/llext/.*$"}
--file_tag+={ZEPHYR_SUBSYS_LLEXT_FILES, "^zephyr/include/zephyr/llext/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_LLEXT_FILES, "^subsys/llext/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_LLEXT_FILES, "^include/zephyr/llext/.*$"}
 -file_tag+={ZEPHYR_SUBSYS_LLEXT_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/llext\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_LLEXT component definition."

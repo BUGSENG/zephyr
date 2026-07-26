@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_PM_FILES, "^zephyr/subsys/pm/.*$"}
--file_tag+={ZEPHYR_SUBSYS_PM_FILES, "^zephyr/include/zephyr/pm/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PM_FILES, "^subsys/pm/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PM_FILES, "^include/zephyr/pm/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_PM component definition."
 -config=B.INDEPENDENCE,component_entities+=

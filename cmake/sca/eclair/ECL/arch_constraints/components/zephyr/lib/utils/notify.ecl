@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_UTILS_NOTIFY_FILES, "^zephyr/include/zephyr/sys/notify\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_NOTIFY_FILES, "^zephyr/lib/utils/notify\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_NOTIFY_FILES, "^include/zephyr/sys/notify\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_NOTIFY_FILES, "^lib/utils/notify\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_NOTIFY component definition."
 -config=B.INDEPENDENCE,component_entities+=

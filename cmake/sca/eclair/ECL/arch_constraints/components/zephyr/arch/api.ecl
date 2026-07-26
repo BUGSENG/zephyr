@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_ARCH_API_FILES, "^zephyr/include/zephyr/arch/arch_interface\\.h$"}
--file_tag+={ZEPHYR_ARCH_API_FILES, "^zephyr/include/zephyr/arch/cache\\.h$"}
--file_tag+={ZEPHYR_ARCH_API_FILES, "^zephyr/include/zephyr/arch/exception\\.h$"}
+-file_tag+={ZEPHYR_ARCH_API_FILES, "^include/zephyr/arch/arch_interface\\.h$"}
+-file_tag+={ZEPHYR_ARCH_API_FILES, "^include/zephyr/arch/cache\\.h$"}
+-file_tag+={ZEPHYR_ARCH_API_FILES, "^include/zephyr/arch/exception\\.h$"}
 
 -doc_begin="The ZEPHYR_ARCH_API component definition."
 -config=B.INDEPENDENCE,component_entities+=

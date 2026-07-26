@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_SUBSYS_TESTSUITE_FILES, "^zephyr/subsys/testsuite/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_TESTSUITE_FILES, "^subsys/testsuite/.*$"}
 -file_tag+={ZEPHYR_SUBSYS_TESTSUITE_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/ztest_test\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_TESTSUITE component definition."

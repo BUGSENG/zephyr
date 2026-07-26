@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_DRIVERS_CELLULAR_FILES, "^zephyr/include/zephyr/drivers/cellular\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_CELLULAR_FILES, "^include/zephyr/drivers/cellular\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_CELLULAR component definition."
 -config=B.INDEPENDENCE,component_entities+=

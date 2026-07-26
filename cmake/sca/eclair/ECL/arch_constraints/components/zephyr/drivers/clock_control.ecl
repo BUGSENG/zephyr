@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_CLOCK_CONTROL_FILES, "^zephyr/include/zephyr/drivers/clock_control\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_CLOCK_CONTROL_FILES, "^zephyr/drivers/clock_control/.*$"}
--file_tag+={ZEPHYR_DRIVERS_CLOCK_CONTROL_FILES, "^zephyr/include/zephyr/drivers/clock_control/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CLOCK_CONTROL_FILES, "^include/zephyr/drivers/clock_control\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_CLOCK_CONTROL_FILES, "^drivers/clock_control/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CLOCK_CONTROL_FILES, "^include/zephyr/drivers/clock_control/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_CLOCK_CONTROL component definition."
 -config=B.INDEPENDENCE,component_entities+=

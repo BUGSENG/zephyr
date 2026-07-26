@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_HWSPINLOCK_FILES, "^zephyr/include/zephyr/drivers/hwspinlock\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_HWSPINLOCK_FILES, "^zephyr/drivers/hwspinlock/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_HWSPINLOCK_FILES, "^include/zephyr/drivers/hwspinlock\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_HWSPINLOCK_FILES, "^drivers/hwspinlock/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_HWSPINLOCK component definition."
 -config=B.INDEPENDENCE,component_entities+=

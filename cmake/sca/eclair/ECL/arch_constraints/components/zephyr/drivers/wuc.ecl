@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_WUC_FILES, "^zephyr/drivers/wuc/.*$"}
--file_tag+={ZEPHYR_DRIVERS_WUC_FILES, "^zephyr/include/zephyr/drivers/wuc\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_WUC_FILES, "^drivers/wuc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_WUC_FILES, "^include/zephyr/drivers/wuc\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_WUC component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_DAC_FILES, "^zephyr/include/zephyr/drivers/dac\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_DAC_FILES, "^zephyr/drivers/dac/.*$"}
--file_tag+={ZEPHYR_DRIVERS_DAC_FILES, "^zephyr/include/zephyr/drivers/dac/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DAC_FILES, "^include/zephyr/drivers/dac\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_DAC_FILES, "^drivers/dac/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DAC_FILES, "^include/zephyr/drivers/dac/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_DAC_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/dac.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_DAC component definition."

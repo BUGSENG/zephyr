@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_OS_CLEANUP_FILES, "^zephyr/include/zephyr/cleanup\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_CLEANUP_FILES, "^include/zephyr/cleanup\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_CLEANUP component definition."
 -config=B.INDEPENDENCE,component_entities+=

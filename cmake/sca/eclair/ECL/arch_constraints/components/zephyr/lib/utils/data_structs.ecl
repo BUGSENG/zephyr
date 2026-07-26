@@ -1,18 +1,18 @@
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/rb\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/lib/utils/rb\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/bitarray\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/lib/utils/bitarray\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/set\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/lib/utils/set\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/dlist\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/sflist\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/ring_buffer\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/lib/utils/ring_buffer\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/slist\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/types\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/list_gen\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/include/zephyr/sys/winstream\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^zephyr/lib/utils/winstream\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/rb\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^lib/utils/rb\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/bitarray\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^lib/utils/bitarray\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/set\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^lib/utils/set\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/dlist\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/sflist\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/ring_buffer\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^lib/utils/ring_buffer\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/slist\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/types\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/list_gen\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^include/zephyr/sys/winstream\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_DATA_STRUCTS_FILES, "^lib/utils/winstream\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_DATA_STRUCTS component definition."
 -config=B.INDEPENDENCE,component_entities+=

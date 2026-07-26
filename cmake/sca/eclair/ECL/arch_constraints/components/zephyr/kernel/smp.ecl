@@ -1,9 +1,9 @@
--file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^zephyr/include/zephyr/spinlock\\.h$"}
--file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^zephyr/kernel/spinlock_validate\\.c$"}
--file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^zephyr/include/zephyr/kernel/smp\\.h$"}
--file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^zephyr/kernel/smp\\.c$"}
--file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^zephyr/kernel/ipi\\.c$"}
--file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^zephyr/kernel/include/ipi\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^include/zephyr/spinlock\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^kernel/spinlock_validate\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^include/zephyr/kernel/smp\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^kernel/smp\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^kernel/ipi\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_SMP_FILES, "^kernel/include/ipi\\.h$"}
 
 -doc_begin="The ZEPHYR_KERNEL_SMP component definition."
 -config=B.INDEPENDENCE,component_entities+=

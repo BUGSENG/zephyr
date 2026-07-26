@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_CACHE_FILES, "^zephyr/include/zephyr/drivers/cache\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_CACHE_FILES, "^zephyr/drivers/cache/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CACHE_FILES, "^include/zephyr/drivers/cache\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_CACHE_FILES, "^drivers/cache/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_CACHE component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_MIN_HEAP_FILES, "^zephyr/lib/min_heap/.*$"}
--file_tag+={ZEPHYR_LIB_MIN_HEAP_FILES, "^zephyr/include/zephyr/sys/min_heap\\.h$"}
+-file_tag+={ZEPHYR_LIB_MIN_HEAP_FILES, "^lib/min_heap/.*$"}
+-file_tag+={ZEPHYR_LIB_MIN_HEAP_FILES, "^include/zephyr/sys/min_heap\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_MIN_HEAP component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_LIBC_FILES, "^zephyr/lib/libc/.*$"}
--file_tag+={ZEPHYR_LIB_LIBC_FILES, "^zephyr/include/zephyr/sys/libc-hooks\\.h$"}
+-file_tag+={ZEPHYR_LIB_LIBC_FILES, "^lib/libc/.*$"}
+-file_tag+={ZEPHYR_LIB_LIBC_FILES, "^include/zephyr/sys/libc-hooks\\.h$"}
 -file_tag+={ZEPHYR_LIB_LIBC_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/libc-hooks\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_LIBC component definition."

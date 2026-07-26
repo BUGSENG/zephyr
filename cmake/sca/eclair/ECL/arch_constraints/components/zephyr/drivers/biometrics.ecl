@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_BIOMETRICS_FILES, "^zephyr/include/zephyr/drivers/biometrics\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_BIOMETRICS_FILES, "^zephyr/drivers/biometrics/.*$"}
--file_tag+={ZEPHYR_DRIVERS_BIOMETRICS_FILES, "^zephyr/include/zephyr/drivers/biometrics/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_BIOMETRICS_FILES, "^include/zephyr/drivers/biometrics\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_BIOMETRICS_FILES, "^drivers/biometrics/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_BIOMETRICS_FILES, "^include/zephyr/drivers/biometrics/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_BIOMETRICS_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/biometrics.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_BIOMETRICS component definition."

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_BBRAM_FILES, "^zephyr/include/zephyr/drivers/bbram\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_BBRAM_FILES, "^zephyr/drivers/bbram/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_BBRAM_FILES, "^include/zephyr/drivers/bbram\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_BBRAM_FILES, "^drivers/bbram/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_BBRAM_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/bbram.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_BBRAM component definition."

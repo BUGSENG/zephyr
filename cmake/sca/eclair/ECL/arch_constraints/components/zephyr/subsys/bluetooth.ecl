@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_BLUETOOTH_FILES, "^zephyr/subsys/bluetooth/.*$"}
--file_tag+={ZEPHYR_SUBSYS_BLUETOOTH_FILES, "^zephyr/include/zephyr/bluetooth/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_BLUETOOTH_FILES, "^subsys/bluetooth/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_BLUETOOTH_FILES, "^include/zephyr/bluetooth/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_BLUETOOTH component definition."
 -config=B.INDEPENDENCE,component_entities+=

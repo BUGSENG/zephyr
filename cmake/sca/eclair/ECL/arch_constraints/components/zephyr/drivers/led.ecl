@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_LED_FILES, "^zephyr/include/zephyr/drivers/led\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_LED_FILES, "^zephyr/drivers/led/.*$"}
--file_tag+={ZEPHYR_DRIVERS_LED_FILES, "^zephyr/include/zephyr/drivers/led/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_LED_FILES, "^include/zephyr/drivers/led\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_LED_FILES, "^drivers/led/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_LED_FILES, "^include/zephyr/drivers/led/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_LED_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/led.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_LED component definition."

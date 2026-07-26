@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_OS_P4WQ_FILES, "^zephyr/include/zephyr/sys/p4wq\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_P4WQ_FILES, "^zephyr/lib/os/p4wq\\.c$"}
+-file_tag+={ZEPHYR_LIB_OS_P4WQ_FILES, "^include/zephyr/sys/p4wq\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_P4WQ_FILES, "^lib/os/p4wq\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_P4WQ component definition."
 -config=B.INDEPENDENCE,component_entities+=

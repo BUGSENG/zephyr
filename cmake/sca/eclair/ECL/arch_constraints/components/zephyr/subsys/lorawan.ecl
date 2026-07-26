@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_LORAWAN_FILES, "^zephyr/subsys/lorawan/.*$"}
--file_tag+={ZEPHYR_SUBSYS_LORAWAN_FILES, "^zephyr/include/zephyr/lorawan/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_LORAWAN_FILES, "^subsys/lorawan/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_LORAWAN_FILES, "^include/zephyr/lorawan/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_LORAWAN component definition."
 -config=B.INDEPENDENCE,component_entities+=

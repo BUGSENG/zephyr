@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_PSI5_FILES, "^zephyr/drivers/psi5/.*$"}
--file_tag+={ZEPHYR_DRIVERS_PSI5_FILES, "^zephyr/include/zephyr/drivers/psi5/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PSI5_FILES, "^drivers/psi5/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PSI5_FILES, "^include/zephyr/drivers/psi5/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_PSI5_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/psi5\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_PSI5 component definition."

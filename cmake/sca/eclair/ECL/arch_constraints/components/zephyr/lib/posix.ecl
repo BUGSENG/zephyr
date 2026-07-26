@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_POSIX_FILES, "^zephyr/lib/posix/.*$"}
--file_tag+={ZEPHYR_LIB_POSIX_FILES, "^zephyr/include/zephyr/posix/.*$"}
+-file_tag+={ZEPHYR_LIB_POSIX_FILES, "^lib/posix/.*$"}
+-file_tag+={ZEPHYR_LIB_POSIX_FILES, "^include/zephyr/posix/.*$"}
 -file_tag+={ZEPHYR_LIB_POSIX_FILES, "^.*/build/zephyr/include/generated/posix/.*$"}
 
 -doc_begin="The ZEPHYR_LIB_POSIX component definition."

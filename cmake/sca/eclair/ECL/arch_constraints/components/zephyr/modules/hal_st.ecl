@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_ST_FILES, "^zephyr/modules/hal_st/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_ST_FILES, "^modules/hal_st/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_ST component definition."
 -config=B.INDEPENDENCE,component_entities+=

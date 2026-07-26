@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_UUID_FILES, "^zephyr/lib/uuid/.*$"}
--file_tag+={ZEPHYR_LIB_UUID_FILES, "^zephyr/include/zephyr/sys/uuid\\.h$"}
+-file_tag+={ZEPHYR_LIB_UUID_FILES, "^lib/uuid/.*$"}
+-file_tag+={ZEPHYR_LIB_UUID_FILES, "^include/zephyr/sys/uuid\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_UUID component definition."
 -config=B.INDEPENDENCE,component_entities+=

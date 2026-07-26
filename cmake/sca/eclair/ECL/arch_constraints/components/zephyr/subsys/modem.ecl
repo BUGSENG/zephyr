@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_MODEM_FILES, "^zephyr/subsys/modem/.*$"}
--file_tag+={ZEPHYR_SUBSYS_MODEM_FILES, "^zephyr/include/zephyr/modem/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_MODEM_FILES, "^subsys/modem/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_MODEM_FILES, "^include/zephyr/modem/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_MODEM component definition."
 -config=B.INDEPENDENCE,component_entities+=

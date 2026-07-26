@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_KERNEL_INTERNAL_FILES, "^zephyr/kernel/include/kernel_internal\\.h$"}
--file_tag+={ZEPHYR_KERNEL_INTERNAL_FILES, "^zephyr/lib/os/thread_entry\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_INTERNAL_FILES, "^kernel/include/kernel_internal\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_INTERNAL_FILES, "^lib/os/thread_entry\\.c$"}
 
 -doc_begin="The ZEPHYR_KERNEL_INTERNAL component definition."
 -config=B.INDEPENDENCE,component_entities+=

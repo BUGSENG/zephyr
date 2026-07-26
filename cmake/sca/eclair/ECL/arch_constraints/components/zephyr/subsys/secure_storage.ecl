@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_SUBSYS_SECURE_STORAGE_FILES, "^zephyr/subsys/secure_storage/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SECURE_STORAGE_FILES, "^subsys/secure_storage/.*$"}
 -file_tag+={ZEPHYR_SUBSYS_SECURE_STORAGE_FILES, "^.*/build/zephyr/include/generated/zephyr/secure_storage/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_SECURE_STORAGE component definition."

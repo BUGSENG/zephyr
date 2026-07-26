@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_TASK_WDT_FILES, "^zephyr/subsys/task_wdt/.*$"}
--file_tag+={ZEPHYR_SUBSYS_TASK_WDT_FILES, "^zephyr/include/zephyr/task_wdt/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_TASK_WDT_FILES, "^subsys/task_wdt/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_TASK_WDT_FILES, "^include/zephyr/task_wdt/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_TASK_WDT component definition."
 -config=B.INDEPENDENCE,component_entities+=

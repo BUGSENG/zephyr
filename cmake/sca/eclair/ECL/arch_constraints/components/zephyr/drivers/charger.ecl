@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_CHARGER_FILES, "^zephyr/include/zephyr/drivers/charger\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_CHARGER_FILES, "^zephyr/drivers/charger/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CHARGER_FILES, "^include/zephyr/drivers/charger\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_CHARGER_FILES, "^drivers/charger/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_CHARGER_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/charger.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_CHARGER component definition."

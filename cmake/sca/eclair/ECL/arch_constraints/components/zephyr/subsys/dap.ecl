@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_DAP_FILES, "^zephyr/subsys/dap/.*$"}
--file_tag+={ZEPHYR_SUBSYS_DAP_FILES, "^zephyr/include/zephyr/dap/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DAP_FILES, "^subsys/dap/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DAP_FILES, "^include/zephyr/dap/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_DAP component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_USB_C_FILES, "^zephyr/drivers/usb_c/.*$"}
--file_tag+={ZEPHYR_DRIVERS_USB_C_FILES, "^zephyr/include/zephyr/drivers/usb_c/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_USB_C_FILES, "^drivers/usb_c/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_USB_C_FILES, "^include/zephyr/drivers/usb_c/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_USB_C component definition."
 -config=B.INDEPENDENCE,component_entities+=

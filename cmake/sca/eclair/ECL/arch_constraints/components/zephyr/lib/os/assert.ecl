@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_OS_ASSERT_FILES, "^zephyr/include/zephyr/sys/__assert\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_ASSERT_FILES, "^zephyr/lib/os/assert\\.c$"}
+-file_tag+={ZEPHYR_LIB_OS_ASSERT_FILES, "^include/zephyr/sys/__assert\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_ASSERT_FILES, "^lib/os/assert\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_ASSERT component definition."
 -config=B.INDEPENDENCE,component_entities+=

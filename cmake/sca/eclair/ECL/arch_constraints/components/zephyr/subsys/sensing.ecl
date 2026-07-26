@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_SENSING_FILES, "^zephyr/subsys/sensing/.*$"}
--file_tag+={ZEPHYR_SUBSYS_SENSING_FILES, "^zephyr/include/zephyr/sensing/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SENSING_FILES, "^subsys/sensing/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SENSING_FILES, "^include/zephyr/sensing/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_SENSING component definition."
 -config=B.INDEPENDENCE,component_entities+=

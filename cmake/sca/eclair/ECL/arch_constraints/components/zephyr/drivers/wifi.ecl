@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_WIFI_FILES, "^zephyr/drivers/wifi/.*$"}
--file_tag+={ZEPHYR_DRIVERS_WIFI_FILES, "^zephyr/include/zephyr/drivers/wifi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_WIFI_FILES, "^drivers/wifi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_WIFI_FILES, "^include/zephyr/drivers/wifi/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_WIFI component definition."
 -config=B.INDEPENDENCE,component_entities+=

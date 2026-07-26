@@ -57,7 +57,7 @@ they are not instances of commented-out code."
 conform to the directive."
 -config=MC3A2.D4.10,reports+={safe, "first_area(text(^/\\* This file is intended to be included multiple times\\. \\*/$, begin-4))"}
 -config=MC3A2.D4.10,reports+={safe, "first_area(text(^/\\* Generated file, do not edit! \\*/$, begin-3))"}
--config=MC3A2.D4.10,reports+={safe, "all_area(all_loc(file(^zephyr/build/zephyr/include/generated/autoconf\\.h$)))"}
+-config=MC3A2.D4.10,reports+={safe, "all_area(all_loc(file(^build/zephyr/include/generated/autoconf\\.h$)))"}
 -doc_end
 
 -doc_begin="Including multiple times a .c file is safe because every function or data item

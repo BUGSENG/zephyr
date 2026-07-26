@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_INSTRUMENTATION_FILES, "^zephyr/include/zephyr/instrumentation/.*$"}
--file_tag+={ZEPHYR_SUBSYS_INSTRUMENTATION_FILES, "^zephyr/subsys/instrumentation/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_INSTRUMENTATION_FILES, "^include/zephyr/instrumentation/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_INSTRUMENTATION_FILES, "^subsys/instrumentation/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_INSTRUMENTATION component definition."
 -config=B.INDEPENDENCE,component_entities+=

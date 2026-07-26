@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_MIDI2_FILES, "^zephyr/lib/midi2/.*$"}
+-file_tag+={ZEPHYR_LIB_MIDI2_FILES, "^lib/midi2/.*$"}
 
 -doc_begin="The ZEPHYR_LIB_MIDI2 component definition."
 -config=B.INDEPENDENCE,component_entities+=

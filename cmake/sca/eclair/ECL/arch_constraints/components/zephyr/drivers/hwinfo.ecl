@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_HWINFO_FILES, "^zephyr/include/zephyr/drivers/hwinfo\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_HWINFO_FILES, "^zephyr/drivers/hwinfo/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_HWINFO_FILES, "^include/zephyr/drivers/hwinfo\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_HWINFO_FILES, "^drivers/hwinfo/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_HWINFO_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/hwinfo.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_HWINFO component definition."

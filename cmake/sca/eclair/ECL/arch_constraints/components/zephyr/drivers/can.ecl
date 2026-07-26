@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_CAN_FILES, "^zephyr/include/zephyr/drivers/can\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_CAN_FILES, "^zephyr/drivers/can/.*$"}
--file_tag+={ZEPHYR_DRIVERS_CAN_FILES, "^zephyr/include/zephyr/drivers/can/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CAN_FILES, "^include/zephyr/drivers/can\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_CAN_FILES, "^drivers/can/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CAN_FILES, "^include/zephyr/drivers/can/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_CAN_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/can.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_CAN component definition."

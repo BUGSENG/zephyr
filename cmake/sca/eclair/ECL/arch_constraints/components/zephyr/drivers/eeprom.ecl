@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_EEPROM_FILES, "^zephyr/include/zephyr/drivers/eeprom\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_EEPROM_FILES, "^zephyr/drivers/eeprom/.*$"}
--file_tag+={ZEPHYR_DRIVERS_EEPROM_FILES, "^zephyr/include/zephyr/drivers/eeprom/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_EEPROM_FILES, "^include/zephyr/drivers/eeprom\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_EEPROM_FILES, "^drivers/eeprom/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_EEPROM_FILES, "^include/zephyr/drivers/eeprom/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_EEPROM_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/eeprom.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_EEPROM component definition."

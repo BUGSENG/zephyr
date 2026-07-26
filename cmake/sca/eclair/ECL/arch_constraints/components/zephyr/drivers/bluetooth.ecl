@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_BLUETOOTH_FILES, "^zephyr/include/zephyr/drivers/bluetooth\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_BLUETOOTH_FILES, "^zephyr/drivers/bluetooth/.*$"}
--file_tag+={ZEPHYR_DRIVERS_BLUETOOTH_FILES, "^zephyr/include/zephyr/drivers/bluetooth/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_BLUETOOTH_FILES, "^include/zephyr/drivers/bluetooth\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_BLUETOOTH_FILES, "^drivers/bluetooth/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_BLUETOOTH_FILES, "^include/zephyr/drivers/bluetooth/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_BLUETOOTH component definition."
 -config=B.INDEPENDENCE,component_entities+=

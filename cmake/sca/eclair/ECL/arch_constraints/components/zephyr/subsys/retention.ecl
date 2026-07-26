@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_RETENTION_FILES, "^zephyr/subsys/retention/.*$"}
--file_tag+={ZEPHYR_SUBSYS_RETENTION_FILES, "^zephyr/include/zephyr/retention/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_RETENTION_FILES, "^subsys/retention/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_RETENTION_FILES, "^include/zephyr/retention/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_RETENTION component definition."
 -config=B.INDEPENDENCE,component_entities+=

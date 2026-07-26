@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_AMBIQ_FILES, "^zephyr/modules/hal_ambiq/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_AMBIQ_FILES, "^modules/hal_ambiq/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_AMBIQ component definition."
 -config=B.INDEPENDENCE,component_entities+=

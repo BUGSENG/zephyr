@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_DHARA_FILES, "^zephyr/modules/dhara/.*$"}
+-file_tag+={ZEPHYR_MODULES_DHARA_FILES, "^modules/dhara/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_DHARA component definition."
 -config=B.INDEPENDENCE,component_entities+=

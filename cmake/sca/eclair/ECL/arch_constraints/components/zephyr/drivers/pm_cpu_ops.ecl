@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_PM_CPU_OPS_FILES, "^zephyr/include/zephyr/drivers/pm_cpu_ops\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_PM_CPU_OPS_FILES, "^zephyr/drivers/pm_cpu_ops/.*$"}
--file_tag+={ZEPHYR_DRIVERS_PM_CPU_OPS_FILES, "^zephyr/include/zephyr/drivers/pm_cpu_ops/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PM_CPU_OPS_FILES, "^include/zephyr/drivers/pm_cpu_ops\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_PM_CPU_OPS_FILES, "^drivers/pm_cpu_ops/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PM_CPU_OPS_FILES, "^include/zephyr/drivers/pm_cpu_ops/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_PM_CPU_OPS component definition."
 -config=B.INDEPENDENCE,component_entities+=

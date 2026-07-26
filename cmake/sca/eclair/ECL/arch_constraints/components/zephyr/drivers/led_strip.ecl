@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_LED_STRIP_FILES, "^zephyr/include/zephyr/drivers/led_strip\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_LED_STRIP_FILES, "^zephyr/drivers/led_strip/.*$"}
--file_tag+={ZEPHYR_DRIVERS_LED_STRIP_FILES, "^zephyr/include/zephyr/drivers/led_strip/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_LED_STRIP_FILES, "^include/zephyr/drivers/led_strip\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_LED_STRIP_FILES, "^drivers/led_strip/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_LED_STRIP_FILES, "^include/zephyr/drivers/led_strip/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_LED_STRIP component definition."
 -config=B.INDEPENDENCE,component_entities+=

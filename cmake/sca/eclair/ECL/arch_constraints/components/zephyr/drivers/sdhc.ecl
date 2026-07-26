@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_SDHC_FILES, "^zephyr/include/zephyr/drivers/sdhc\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_SDHC_FILES, "^zephyr/drivers/sdhc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SDHC_FILES, "^include/zephyr/drivers/sdhc\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_SDHC_FILES, "^drivers/sdhc/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_SDHC_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/sdhc.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_SDHC component definition."

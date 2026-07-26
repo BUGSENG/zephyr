@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_KERNEL_VERSION_FILES, "^zephyr/kernel/version\\.c$"}
--file_tag+={ZEPHYR_KERNEL_VERSION_FILES, "^zephyr/include/zephyr/kernel_version\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_VERSION_FILES, "^kernel/version\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_VERSION_FILES, "^include/zephyr/kernel_version\\.h$"}
 -file_tag+={ZEPHYR_KERNEL_VERSION_FILES, "^.*/build/zephyr/include/generated/zephyr/version\\.h$"}
 
 -doc_begin="The ZEPHYR_KERNEL_VERSION component definition."

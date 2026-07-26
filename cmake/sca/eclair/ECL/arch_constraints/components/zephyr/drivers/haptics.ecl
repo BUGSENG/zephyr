@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_HAPTICS_FILES, "^zephyr/include/zephyr/drivers/haptics\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_HAPTICS_FILES, "^zephyr/drivers/haptics/.*$"}
--file_tag+={ZEPHYR_DRIVERS_HAPTICS_FILES, "^zephyr/include/zephyr/drivers/haptics/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_HAPTICS_FILES, "^include/zephyr/drivers/haptics\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_HAPTICS_FILES, "^drivers/haptics/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_HAPTICS_FILES, "^include/zephyr/drivers/haptics/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_HAPTICS_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/haptics.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_HAPTICS component definition."

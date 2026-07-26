@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_MM_FILES, "^zephyr/drivers/mm/.*$"}
--file_tag+={ZEPHYR_DRIVERS_MM_FILES, "^zephyr/include/zephyr/drivers/mm/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MM_FILES, "^drivers/mm/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MM_FILES, "^include/zephyr/drivers/mm/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_MM component definition."
 -config=B.INDEPENDENCE,component_entities+=

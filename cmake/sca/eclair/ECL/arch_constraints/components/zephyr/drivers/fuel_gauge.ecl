@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_FUEL_GAUGE_FILES, "^zephyr/include/zephyr/drivers/fuel_gauge\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_FUEL_GAUGE_FILES, "^zephyr/drivers/fuel_gauge/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FUEL_GAUGE_FILES, "^include/zephyr/drivers/fuel_gauge\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_FUEL_GAUGE_FILES, "^drivers/fuel_gauge/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_FUEL_GAUGE_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/fuel_gauge.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_FUEL_GAUGE component definition."

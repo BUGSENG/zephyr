@@ -1,8 +1,8 @@
--file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^zephyr/include/zephyr/sys/util.*\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^zephyr/lib/utils/utf8\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^zephyr/lib/utils/hex\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^zephyr/lib/utils/bitmask\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^zephyr/lib/utils/dec\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^include/zephyr/sys/util.*\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^lib/utils/utf8\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^lib/utils/hex\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^lib/utils/bitmask\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_UTIL_FILES, "^lib/utils/dec\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_UTIL component definition."
 -config=B.INDEPENDENCE,component_entities+=

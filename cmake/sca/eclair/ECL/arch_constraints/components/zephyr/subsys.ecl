@@ -1,6 +1,6 @@
 eval_file_glob(join_paths(ecls_dir,"components/zephyr/subsys/*.ecl"))
 
--file_tag+={ZEPHYR_SUBSYS_GENERIC_FILES, "^zephyr/subsys/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_GENERIC_FILES, "^subsys/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

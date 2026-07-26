@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_TRACING_FILES, "^zephyr/subsys/tracing/.*$"}
--file_tag+={ZEPHYR_SUBSYS_TRACING_FILES, "^zephyr/include/zephyr/tracing/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_TRACING_FILES, "^subsys/tracing/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_TRACING_FILES, "^include/zephyr/tracing/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_TRACING component definition."
 -config=B.INDEPENDENCE,component_entities+=

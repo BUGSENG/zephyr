@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_ARCH_COMMON_FILES, "^zephyr/arch/common/.*\\.[ch]$"}
--file_tag+={ZEPHYR_ARCH_COMMON_FILES, "^zephyr/include/zephyr/arch/common/.*\\.[ch]$"}
+-file_tag+={ZEPHYR_ARCH_COMMON_FILES, "^arch/common/.*\\.[ch]$"}
+-file_tag+={ZEPHYR_ARCH_COMMON_FILES, "^include/zephyr/arch/common/.*\\.[ch]$"}
 
 -doc_begin="The ZEPHYR_ARCH_COMMON component definition."
 -config=B.INDEPENDENCE,component_entities+=

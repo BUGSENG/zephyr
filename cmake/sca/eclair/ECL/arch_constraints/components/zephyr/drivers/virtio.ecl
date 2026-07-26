@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_VIRTIO_FILES, "^zephyr/include/zephyr/drivers/virtio\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_VIRTIO_FILES, "^zephyr/drivers/virtio/.*$"}
--file_tag+={ZEPHYR_DRIVERS_VIRTIO_FILES, "^zephyr/include/zephyr/drivers/virtio/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_VIRTIO_FILES, "^include/zephyr/drivers/virtio\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_VIRTIO_FILES, "^drivers/virtio/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_VIRTIO_FILES, "^include/zephyr/drivers/virtio/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_VIRTIO component definition."
 -config=B.INDEPENDENCE,component_entities+=

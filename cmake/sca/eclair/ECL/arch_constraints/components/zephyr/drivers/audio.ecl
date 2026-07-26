@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_AUDIO_FILES, "^zephyr/drivers/audio/.*$"}
--file_tag+={ZEPHYR_DRIVERS_AUDIO_FILES, "^zephyr/include/zephyr/audio/.*$"}
--file_tag+={ZEPHYR_DRIVERS_AUDIO_FILES, "^zephyr/include/zephyr/drivers/mic_privacy/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_AUDIO_FILES, "^drivers/audio/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_AUDIO_FILES, "^include/zephyr/audio/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_AUDIO_FILES, "^include/zephyr/drivers/mic_privacy/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_AUDIO component definition."
 -config=B.INDEPENDENCE,component_entities+=

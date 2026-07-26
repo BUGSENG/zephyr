@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_UTILS_GETOPT_FILES, "^zephyr/lib/utils/getopt/.*$"}
--file_tag+={ZEPHYR_LIB_UTILS_GETOPT_FILES, "^zephyr/include/zephyr/sys/sys_getopt\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GETOPT_FILES, "^lib/utils/getopt/.*$"}
+-file_tag+={ZEPHYR_LIB_UTILS_GETOPT_FILES, "^include/zephyr/sys/sys_getopt\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_GETOPT component definition."
 -config=B.INDEPENDENCE,component_entities+=

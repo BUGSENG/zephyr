@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_USB_FILES, "^zephyr/drivers/usb/.*$"}
--file_tag+={ZEPHYR_DRIVERS_USB_FILES, "^zephyr/include/zephyr/drivers/usb/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_USB_FILES, "^drivers/usb/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_USB_FILES, "^include/zephyr/drivers/usb/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_USB_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/usb_bc12\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_USB component definition."

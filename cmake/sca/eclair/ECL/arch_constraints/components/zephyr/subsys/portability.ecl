@@ -1,7 +1,7 @@
 eval_file_glob(join_paths(ecls_dir,"components/zephyr/subsys/portability/*.ecl"))
 
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_GENERIC_FILES, "^zephyr/subsys/portability/.*$"}
--file_tag+={ZEPHYR_SUBSYS_PORTABILITY_GENERIC_FILES, "^zephyr/include/zephyr/portability/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_GENERIC_FILES, "^subsys/portability/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_PORTABILITY_GENERIC_FILES, "^include/zephyr/portability/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_PORTABILITY_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

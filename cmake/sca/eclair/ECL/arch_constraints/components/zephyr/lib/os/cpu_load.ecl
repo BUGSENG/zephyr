@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_OS_CPU_LOAD_FILES, "^zephyr/include/zephyr/sys/cpu_load\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_CPU_LOAD_FILES, "^zephyr/lib/os/cpu_load/.*$"}
+-file_tag+={ZEPHYR_LIB_OS_CPU_LOAD_FILES, "^include/zephyr/sys/cpu_load\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_CPU_LOAD_FILES, "^lib/os/cpu_load/.*$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_CPU_LOAD component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_I2C_FILES, "^zephyr/include/zephyr/drivers/i2c.*\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_I2C_FILES, "^zephyr/drivers/i2c/.*$"}
--file_tag+={ZEPHYR_DRIVERS_I2C_FILES, "^zephyr/include/zephyr/drivers/i2c/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_I2C_FILES, "^include/zephyr/drivers/i2c.*\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_I2C_FILES, "^drivers/i2c/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_I2C_FILES, "^include/zephyr/drivers/i2c/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_I2C_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/i2c.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_I2C component definition."

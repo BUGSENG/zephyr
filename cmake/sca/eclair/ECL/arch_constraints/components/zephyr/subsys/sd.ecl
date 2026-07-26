@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_SD_FILES, "^zephyr/subsys/sd/.*$"}
--file_tag+={ZEPHYR_SUBSYS_SD_FILES, "^zephyr/include/zephyr/sd/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SD_FILES, "^subsys/sd/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SD_FILES, "^include/zephyr/sd/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_SD component definition."
 -config=B.INDEPENDENCE,component_entities+=

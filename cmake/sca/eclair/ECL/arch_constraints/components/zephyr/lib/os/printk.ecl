@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_LIB_OS_PRINTK_FILES, "^zephyr/include/zephyr/sys/printk\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_PRINTK_FILES, "^zephyr/include/zephyr/sys/printk-hooks\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_PRINTK_FILES, "^zephyr/lib/os/printk\\.c$"}
+-file_tag+={ZEPHYR_LIB_OS_PRINTK_FILES, "^include/zephyr/sys/printk\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_PRINTK_FILES, "^include/zephyr/sys/printk-hooks\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_PRINTK_FILES, "^lib/os/printk\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_PRINTK component definition."
 -config=B.INDEPENDENCE,component_entities+=

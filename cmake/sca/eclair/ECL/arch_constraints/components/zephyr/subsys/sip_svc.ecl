@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_SIP_SVC_FILES, "^zephyr/subsys/sip_svc/.*$"}
--file_tag+={ZEPHYR_SUBSYS_SIP_SVC_FILES, "^zephyr/include/zephyr/sip_svc/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SIP_SVC_FILES, "^subsys/sip_svc/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_SIP_SVC_FILES, "^include/zephyr/sip_svc/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_SIP_SVC component definition."
 -config=B.INDEPENDENCE,component_entities+=

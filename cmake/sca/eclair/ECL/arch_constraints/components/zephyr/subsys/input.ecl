@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_INPUT_FILES, "^zephyr/subsys/input/.*$"}
--file_tag+={ZEPHYR_SUBSYS_INPUT_FILES, "^zephyr/include/zephyr/input/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_INPUT_FILES, "^subsys/input/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_INPUT_FILES, "^include/zephyr/input/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_INPUT component definition."
 -config=B.INDEPENDENCE,component_entities+=

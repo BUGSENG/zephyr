@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_DISPLAY_FILES, "^zephyr/include/zephyr/drivers/display\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_DISPLAY_FILES, "^zephyr/include/zephyr/drivers/mb_display\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_DISPLAY_FILES, "^zephyr/drivers/display/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DISPLAY_FILES, "^include/zephyr/drivers/display\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_DISPLAY_FILES, "^include/zephyr/drivers/mb_display\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_DISPLAY_FILES, "^drivers/display/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_DISPLAY component definition."
 -config=B.INDEPENDENCE,component_entities+=

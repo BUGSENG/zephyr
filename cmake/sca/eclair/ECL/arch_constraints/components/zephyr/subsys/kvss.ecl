@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_KVSS_FILES, "^zephyr/subsys/kvss/.*$"}
--file_tag+={ZEPHYR_SUBSYS_KVSS_FILES, "^zephyr/include/zephyr/kvss/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_KVSS_FILES, "^subsys/kvss/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_KVSS_FILES, "^include/zephyr/kvss/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_KVSS component definition."
 -config=B.INDEPENDENCE,component_entities+=

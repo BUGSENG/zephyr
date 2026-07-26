@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_LIB_UTILS_TIMEUTIL_FILES, "^zephyr/include/zephyr/sys/timeutil\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_TIMEUTIL_FILES, "^zephyr/lib/utils/timeutil\\.c$"}
--file_tag+={ZEPHYR_LIB_UTILS_TIMEUTIL_FILES, "^zephyr/include/zephyr/sys/time_units\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_TIMEUTIL_FILES, "^include/zephyr/sys/timeutil\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_TIMEUTIL_FILES, "^lib/utils/timeutil\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_TIMEUTIL_FILES, "^include/zephyr/sys/time_units\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_TIMEUTIL component definition."
 -config=B.INDEPENDENCE,component_entities+=

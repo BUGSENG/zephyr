@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_TFLITE_MICRO_FILES, "^zephyr/modules/tflite-micro/.*$"}
+-file_tag+={ZEPHYR_MODULES_TFLITE_MICRO_FILES, "^modules/tflite-micro/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_TFLITE_MICRO component definition."
 -config=B.INDEPENDENCE,component_entities+=

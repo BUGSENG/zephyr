@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_WATCHDOG_FILES, "^zephyr/include/zephyr/drivers/watchdog\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_WATCHDOG_FILES, "^zephyr/drivers/watchdog/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_WATCHDOG_FILES, "^include/zephyr/drivers/watchdog\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_WATCHDOG_FILES, "^drivers/watchdog/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_WATCHDOG_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/watchdog.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_WATCHDOG component definition."

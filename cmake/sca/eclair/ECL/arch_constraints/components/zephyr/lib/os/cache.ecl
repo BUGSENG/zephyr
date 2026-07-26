@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_OS_CACHE_FILES, "^zephyr/include/zephyr/cache\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_CACHE_FILES, "^include/zephyr/cache\\.h$"}
 -file_tag+={ZEPHYR_LIB_OS_CACHE_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/cache.*\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_CACHE component definition."

@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_SUBSYS_DEMAND_PAGING_FILES, "^zephyr/subsys/demand_paging/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DEMAND_PAGING_FILES, "^subsys/demand_paging/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_DEMAND_PAGING component definition."
 -config=B.INDEPENDENCE,component_entities+=

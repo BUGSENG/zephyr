@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_VIRTUALIZATION_FILES, "^zephyr/drivers/virtualization/.*$"}
--file_tag+={ZEPHYR_DRIVERS_VIRTUALIZATION_FILES, "^zephyr/include/zephyr/drivers/virtualization/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_VIRTUALIZATION_FILES, "^drivers/virtualization/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_VIRTUALIZATION_FILES, "^include/zephyr/drivers/virtualization/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_VIRTUALIZATION_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/ivshmem\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_VIRTUALIZATION component definition."

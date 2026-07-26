@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_FB_FILES, "^zephyr/subsys/fb/.*$"}
--file_tag+={ZEPHYR_SUBSYS_FB_FILES, "^zephyr/include/zephyr/display/cfb\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_FB_FILES, "^subsys/fb/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_FB_FILES, "^include/zephyr/display/cfb\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_FB component definition."
 -config=B.INDEPENDENCE,component_entities+=

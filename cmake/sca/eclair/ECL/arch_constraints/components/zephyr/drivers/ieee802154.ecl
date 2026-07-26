@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_IEEE802154_FILES, "^zephyr/drivers/ieee802154/.*$"}
--file_tag+={ZEPHYR_DRIVERS_IEEE802154_FILES, "^zephyr/include/zephyr/drivers/ieee802154/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_IEEE802154_FILES, "^drivers/ieee802154/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_IEEE802154_FILES, "^include/zephyr/drivers/ieee802154/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_IEEE802154 component definition."
 -config=B.INDEPENDENCE,component_entities+=

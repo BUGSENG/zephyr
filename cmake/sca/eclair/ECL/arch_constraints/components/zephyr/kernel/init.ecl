@@ -1,7 +1,7 @@
--file_tag+={ZEPHYR_KERNEL_INIT_FILES, "^zephyr/include/zephyr/init\\.h$"}
--file_tag+={ZEPHYR_KERNEL_INIT_FILES, "^zephyr/kernel/init\\.c$"}
--file_tag+={ZEPHYR_KERNEL_INIT_FILES, "^zephyr/kernel/banner\\.c$"}
--file_tag+={ZEPHYR_KERNEL_INIT_FILES, "^zephyr/kernel/boot_args\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_INIT_FILES, "^include/zephyr/init\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_INIT_FILES, "^kernel/init\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_INIT_FILES, "^kernel/banner\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_INIT_FILES, "^kernel/boot_args\\.c$"}
 
 -doc_begin="The ZEPHYR_KERNEL_INIT component definition."
 -config=B.INDEPENDENCE,component_entities+=

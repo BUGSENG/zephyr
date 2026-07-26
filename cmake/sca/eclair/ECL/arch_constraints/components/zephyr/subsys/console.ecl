@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_CONSOLE_FILES, "^zephyr/subsys/console/.*$"}
--file_tag+={ZEPHYR_SUBSYS_CONSOLE_FILES, "^zephyr/include/zephyr/console/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_CONSOLE_FILES, "^subsys/console/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_CONSOLE_FILES, "^include/zephyr/console/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_CONSOLE component definition."
 -config=B.INDEPENDENCE,component_entities+=

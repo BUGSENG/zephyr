@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_FPGA_FILES, "^zephyr/include/zephyr/drivers/fpga\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_FPGA_FILES, "^zephyr/drivers/fpga/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_FPGA_FILES, "^include/zephyr/drivers/fpga\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_FPGA_FILES, "^drivers/fpga/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_FPGA component definition."
 -config=B.INDEPENDENCE,component_entities+=

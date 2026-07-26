@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_KERNEL_ARCH_INTERFACE_FILES, "^zephyr/kernel/include/kernel_arch_interface\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_ARCH_INTERFACE_FILES, "^kernel/include/kernel_arch_interface\\.h$"}
 
 -doc_begin="The ZEPHYR_KERNEL_ARCH_INTERFACE component definition."
 -config=B.INDEPENDENCE,component_entities+=

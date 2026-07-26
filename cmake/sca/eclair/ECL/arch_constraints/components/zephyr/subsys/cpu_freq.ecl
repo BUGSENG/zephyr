@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_CPU_FREQ_FILES, "^zephyr/include/zephyr/cpu_freq/.*$"}
--file_tag+={ZEPHYR_SUBSYS_CPU_FREQ_FILES, "^zephyr/subsys/cpu_freq/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_CPU_FREQ_FILES, "^include/zephyr/cpu_freq/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_CPU_FREQ_FILES, "^subsys/cpu_freq/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_CPU_FREQ component definition."
 -config=B.INDEPENDENCE,component_entities+=

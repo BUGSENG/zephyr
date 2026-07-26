@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_RTIO_FILES, "^zephyr/subsys/rtio/.*$"}
--file_tag+={ZEPHYR_SUBSYS_RTIO_FILES, "^zephyr/include/zephyr/rtio/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_RTIO_FILES, "^subsys/rtio/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_RTIO_FILES, "^include/zephyr/rtio/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_RTIO component definition."
 -config=B.INDEPENDENCE,component_entities+=

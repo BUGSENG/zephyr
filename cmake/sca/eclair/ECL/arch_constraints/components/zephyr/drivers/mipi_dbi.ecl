@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_MIPI_DBI_FILES, "^zephyr/include/zephyr/drivers/mipi_dbi\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_MIPI_DBI_FILES, "^zephyr/drivers/mipi_dbi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_MIPI_DBI_FILES, "^include/zephyr/drivers/mipi_dbi\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_MIPI_DBI_FILES, "^drivers/mipi_dbi/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_MIPI_DBI component definition."
 -config=B.INDEPENDENCE,component_entities+=

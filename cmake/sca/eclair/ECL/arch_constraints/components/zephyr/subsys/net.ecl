@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_NET_FILES, "^zephyr/subsys/net/.*$"}
--file_tag+={ZEPHYR_SUBSYS_NET_FILES, "^zephyr/include/zephyr/net/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_NET_FILES, "^subsys/net/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_NET_FILES, "^include/zephyr/net/.*$"}
 -file_tag+={ZEPHYR_SUBSYS_NET_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/net_.*\\.h$"}
 -file_tag+={ZEPHYR_SUBSYS_NET_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/socket.*\\.h$"}
 -file_tag+={ZEPHYR_SUBSYS_NET_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/ethernet\\.h$"}

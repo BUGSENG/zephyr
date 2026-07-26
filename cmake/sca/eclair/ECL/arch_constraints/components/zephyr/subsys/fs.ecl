@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_FS_FILES, "^zephyr/subsys/fs/.*$"}
--file_tag+={ZEPHYR_SUBSYS_FS_FILES, "^zephyr/include/zephyr/fs/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_FS_FILES, "^subsys/fs/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_FS_FILES, "^include/zephyr/fs/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_FS component definition."
 -config=B.INDEPENDENCE,component_entities+=

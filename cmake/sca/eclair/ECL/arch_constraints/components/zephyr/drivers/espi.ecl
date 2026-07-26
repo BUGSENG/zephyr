@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_ESPI_FILES, "^zephyr/include/zephyr/drivers/espi.*\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_ESPI_FILES, "^zephyr/drivers/espi/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_ESPI_FILES, "^include/zephyr/drivers/espi.*\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_ESPI_FILES, "^drivers/espi/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_ESPI_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/espi.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_ESPI component definition."

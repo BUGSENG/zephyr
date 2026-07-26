@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_W1_FILES, "^zephyr/include/zephyr/drivers/w1\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_W1_FILES, "^zephyr/drivers/w1/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_W1_FILES, "^include/zephyr/drivers/w1\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_W1_FILES, "^drivers/w1/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_W1_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/w1.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_W1 component definition."

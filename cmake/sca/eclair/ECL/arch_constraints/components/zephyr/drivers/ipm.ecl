@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_IPM_FILES, "^zephyr/include/zephyr/drivers/ipm\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_IPM_FILES, "^zephyr/drivers/ipm/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_IPM_FILES, "^include/zephyr/drivers/ipm\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_IPM_FILES, "^drivers/ipm/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_IPM_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/ipm.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_IPM component definition."

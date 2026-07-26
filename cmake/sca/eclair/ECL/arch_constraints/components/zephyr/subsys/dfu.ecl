@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_DFU_FILES, "^zephyr/include/zephyr/dfu/.*$"}
--file_tag+={ZEPHYR_SUBSYS_DFU_FILES, "^zephyr/subsys/dfu/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DFU_FILES, "^include/zephyr/dfu/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DFU_FILES, "^subsys/dfu/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_DFU component definition."
 -config=B.INDEPENDENCE,component_entities+=

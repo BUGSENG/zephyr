@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_LIB_OS_ZVFS_FILES, "^zephyr/include/zephyr/zvfs/.*$"}
--file_tag+={ZEPHYR_LIB_OS_ZVFS_FILES, "^zephyr/lib/os/zvfs/.*$"}
--file_tag+={ZEPHYR_LIB_OS_ZVFS_FILES, "^zephyr/include/zephyr/sys/fdtable\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_ZVFS_FILES, "^include/zephyr/zvfs/.*$"}
+-file_tag+={ZEPHYR_LIB_OS_ZVFS_FILES, "^lib/os/zvfs/.*$"}
+-file_tag+={ZEPHYR_LIB_OS_ZVFS_FILES, "^include/zephyr/sys/fdtable\\.h$"}
 -file_tag+={ZEPHYR_LIB_OS_ZVFS_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/fdtable\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_ZVFS component definition."

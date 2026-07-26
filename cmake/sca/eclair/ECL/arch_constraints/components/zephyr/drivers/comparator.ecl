@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_COMPARATOR_FILES, "^zephyr/include/zephyr/drivers/comparator\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_COMPARATOR_FILES, "^zephyr/drivers/comparator/.*$"}
--file_tag+={ZEPHYR_DRIVERS_COMPARATOR_FILES, "^zephyr/include/zephyr/drivers/comparator/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_COMPARATOR_FILES, "^include/zephyr/drivers/comparator\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_COMPARATOR_FILES, "^drivers/comparator/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_COMPARATOR_FILES, "^include/zephyr/drivers/comparator/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_COMPARATOR_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/comparator.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_COMPARATOR component definition."

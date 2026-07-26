@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_CANBUS_FILES, "^zephyr/subsys/canbus/.*$"}
--file_tag+={ZEPHYR_SUBSYS_CANBUS_FILES, "^zephyr/include/zephyr/canbus/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_CANBUS_FILES, "^subsys/canbus/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_CANBUS_FILES, "^include/zephyr/canbus/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_CANBUS component definition."
 -config=B.INDEPENDENCE,component_entities+=

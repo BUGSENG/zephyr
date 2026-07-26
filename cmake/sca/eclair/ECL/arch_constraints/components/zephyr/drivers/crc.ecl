@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_CRC_FILES, "^zephyr/include/zephyr/drivers/crc\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_CRC_FILES, "^zephyr/drivers/crc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CRC_FILES, "^include/zephyr/drivers/crc\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_CRC_FILES, "^drivers/crc/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_CRC_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/crc.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_CRC component definition."

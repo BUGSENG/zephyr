@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_AFBR_FILES, "^zephyr/modules/hal_afbr/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_AFBR_FILES, "^modules/hal_afbr/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_AFBR component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_PECI_FILES, "^zephyr/include/zephyr/drivers/peci\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_PECI_FILES, "^zephyr/drivers/peci/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_PECI_FILES, "^include/zephyr/drivers/peci\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_PECI_FILES, "^drivers/peci/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_PECI_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/peci.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_PECI component definition."

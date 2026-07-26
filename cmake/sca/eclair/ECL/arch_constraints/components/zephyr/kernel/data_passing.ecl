@@ -1,8 +1,8 @@
--file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^zephyr/kernel/queue\\.c$"}
--file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^zephyr/kernel/stack\\.c$"}
--file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^zephyr/kernel/msg_q\\.c$"}
--file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^zephyr/kernel/mailbox\\.c$"}
--file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^zephyr/kernel/pipe\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^kernel/queue\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^kernel/stack\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^kernel/msg_q\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^kernel/mailbox\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_DATA_PASSING_FILES, "^kernel/pipe\\.c$"}
 
 -doc_begin="The ZEPHYR_KERNEL_DATA_PASSING component definition."
 -config=B.INDEPENDENCE,component_entities+=

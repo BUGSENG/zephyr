@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_SUBSYS_USB_FILES, "^zephyr/subsys/usb/.*$"}
--file_tag+={ZEPHYR_SUBSYS_USB_FILES, "^zephyr/include/zephyr/usb/.*$"}
--file_tag+={ZEPHYR_SUBSYS_USB_FILES, "^zephyr/include/zephyr/usb_c/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_USB_FILES, "^subsys/usb/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_USB_FILES, "^include/zephyr/usb/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_USB_FILES, "^include/zephyr/usb_c/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_USB component definition."
 -config=B.INDEPENDENCE,component_entities+=

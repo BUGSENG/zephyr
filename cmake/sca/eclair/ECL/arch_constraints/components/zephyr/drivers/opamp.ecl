@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_OPAMP_FILES, "^zephyr/include/zephyr/drivers/opamp\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_OPAMP_FILES, "^zephyr/drivers/opamp/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_OPAMP_FILES, "^include/zephyr/drivers/opamp\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_OPAMP_FILES, "^drivers/opamp/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_OPAMP_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/opamp.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_OPAMP component definition."

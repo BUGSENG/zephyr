@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_OS_REBOOT_FILES, "^zephyr/include/zephyr/sys/reboot\\.h$"}
--file_tag+={ZEPHYR_LIB_OS_REBOOT_FILES, "^zephyr/lib/os/reboot\\.c$"}
+-file_tag+={ZEPHYR_LIB_OS_REBOOT_FILES, "^include/zephyr/sys/reboot\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_REBOOT_FILES, "^lib/os/reboot\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_REBOOT component definition."
 -config=B.INDEPENDENCE,component_entities+=

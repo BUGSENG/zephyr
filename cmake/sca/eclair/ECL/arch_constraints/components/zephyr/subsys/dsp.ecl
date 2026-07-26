@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_DSP_FILES, "^zephyr/subsys/dsp/.*$"}
--file_tag+={ZEPHYR_SUBSYS_DSP_FILES, "^zephyr/include/zephyr/dsp/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DSP_FILES, "^subsys/dsp/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_DSP_FILES, "^include/zephyr/dsp/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_DSP component definition."
 -config=B.INDEPENDENCE,component_entities+=

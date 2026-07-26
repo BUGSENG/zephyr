@@ -1,7 +1,7 @@
 eval_file_glob(join_paths(ecls_dir,"components/zephyr/drivers/*.ecl"))
 
--file_tag+={ZEPHYR_DRIVERS_GENERIC_FILES, "^zephyr/include/zephyr/drivers/.*$"}
--file_tag+={ZEPHYR_DRIVERS_GENERIC_FILES, "^zephyr/drivers/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_GENERIC_FILES, "^include/zephyr/drivers/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_GENERIC_FILES, "^drivers/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

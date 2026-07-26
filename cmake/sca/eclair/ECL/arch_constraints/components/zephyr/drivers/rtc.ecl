@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_RTC_FILES, "^zephyr/include/zephyr/drivers/rtc\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_RTC_FILES, "^zephyr/drivers/rtc/.*$"}
--file_tag+={ZEPHYR_DRIVERS_RTC_FILES, "^zephyr/include/zephyr/drivers/rtc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_RTC_FILES, "^include/zephyr/drivers/rtc\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_RTC_FILES, "^drivers/rtc/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_RTC_FILES, "^include/zephyr/drivers/rtc/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_RTC_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/rtc.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_RTC component definition."

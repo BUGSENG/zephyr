@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_TIMING_FILES, "^zephyr/subsys/timing/.*$"}
--file_tag+={ZEPHYR_SUBSYS_TIMING_FILES, "^zephyr/include/zephyr/timing/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_TIMING_FILES, "^subsys/timing/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_TIMING_FILES, "^include/zephyr/timing/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_TIMING component definition."
 -config=B.INDEPENDENCE,component_entities+=

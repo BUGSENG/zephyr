@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_UTILS_BASE64_FILES, "^zephyr/include/zephyr/sys/base64\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_BASE64_FILES, "^zephyr/lib/utils/base64\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_BASE64_FILES, "^include/zephyr/sys/base64\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_BASE64_FILES, "^lib/utils/base64\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_BASE64 component definition."
 -config=B.INDEPENDENCE,component_entities+=

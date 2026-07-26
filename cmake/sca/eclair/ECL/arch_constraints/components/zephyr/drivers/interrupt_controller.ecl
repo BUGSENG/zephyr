@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_FILES, "^zephyr/drivers/interrupt_controller/.*$"}
--file_tag+={ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_FILES, "^zephyr/include/zephyr/drivers/interrupt_controller/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_FILES, "^drivers/interrupt_controller/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_FILES, "^include/zephyr/drivers/interrupt_controller/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER component definition."
 -config=B.INDEPENDENCE,component_entities+=

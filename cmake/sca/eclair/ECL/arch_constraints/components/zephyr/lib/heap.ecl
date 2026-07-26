@@ -1,8 +1,8 @@
--file_tag+={ZEPHYR_LIB_HEAP_FILES, "^zephyr/lib/heap/.*$"}
--file_tag+={ZEPHYR_LIB_HEAP_FILES, "^zephyr/include/zephyr/multi_heap/.*$"}
--file_tag+={ZEPHYR_LIB_HEAP_FILES, "^zephyr/include/zephyr/sys/multi_heap\\.h$"}
--file_tag+={ZEPHYR_LIB_HEAP_FILES, "^zephyr/include/zephyr/sys/sys_heap\\.h$"}
--file_tag+={ZEPHYR_LIB_HEAP_FILES, "^zephyr/include/zephyr/sys/heap_listener\\.h$"}
+-file_tag+={ZEPHYR_LIB_HEAP_FILES, "^lib/heap/.*$"}
+-file_tag+={ZEPHYR_LIB_HEAP_FILES, "^include/zephyr/multi_heap/.*$"}
+-file_tag+={ZEPHYR_LIB_HEAP_FILES, "^include/zephyr/sys/multi_heap\\.h$"}
+-file_tag+={ZEPHYR_LIB_HEAP_FILES, "^include/zephyr/sys/sys_heap\\.h$"}
+-file_tag+={ZEPHYR_LIB_HEAP_FILES, "^include/zephyr/sys/heap_listener\\.h$"}
 -file_tag+={ZEPHYR_LIB_HEAP_FILES, "^.*/build/zephyr/include/generated/zephyr/heap_constants\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_HEAP component definition."

@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_REALTEK_FILES, "^zephyr/modules/hal_realtek/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_REALTEK_FILES, "^modules/hal_realtek/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_REALTEK component definition."
 -config=B.INDEPENDENCE,component_entities+=

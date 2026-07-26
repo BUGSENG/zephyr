@@ -1,7 +1,7 @@
--file_tag+={ZEPHYR_LIB_UTILS_MATH_FILES, "^zephyr/include/zephyr/sys/math_extras\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_MATH_FILES, "^zephyr/include/zephyr/sys/math_extras_impl\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_MATH_FILES, "^zephyr/include/zephyr/math/.*$"}
--file_tag+={ZEPHYR_LIB_UTILS_MATH_FILES, "^zephyr/include/zephyr/math/interpolation\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_MATH_FILES, "^include/zephyr/sys/math_extras\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_MATH_FILES, "^include/zephyr/sys/math_extras_impl\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_MATH_FILES, "^include/zephyr/math/.*$"}
+-file_tag+={ZEPHYR_LIB_UTILS_MATH_FILES, "^include/zephyr/math/interpolation\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_MATH component definition."
 -config=B.INDEPENDENCE,component_entities+=

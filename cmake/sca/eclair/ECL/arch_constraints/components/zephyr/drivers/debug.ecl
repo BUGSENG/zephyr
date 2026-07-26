@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_DEBUG_FILES, "^zephyr/drivers/debug/.*$"}
--file_tag+={ZEPHYR_DRIVERS_DEBUG_FILES, "^zephyr/include/zephyr/drivers/debug/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DEBUG_FILES, "^drivers/debug/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DEBUG_FILES, "^include/zephyr/drivers/debug/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_DEBUG component definition."
 -config=B.INDEPENDENCE,component_entities+=

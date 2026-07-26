@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_GNSS_FILES, "^zephyr/subsys/gnss/.*$"}
--file_tag+={ZEPHYR_SUBSYS_GNSS_FILES, "^zephyr/include/zephyr/gnss/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_GNSS_FILES, "^subsys/gnss/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_GNSS_FILES, "^include/zephyr/gnss/.*$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_GNSS component definition."
 -config=B.INDEPENDENCE,component_entities+=

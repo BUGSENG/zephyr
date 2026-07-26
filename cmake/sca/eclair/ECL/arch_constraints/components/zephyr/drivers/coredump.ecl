@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_COREDUMP_FILES, "^zephyr/include/zephyr/drivers/coredump\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_COREDUMP_FILES, "^zephyr/drivers/coredump/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_COREDUMP_FILES, "^include/zephyr/drivers/coredump\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_COREDUMP_FILES, "^drivers/coredump/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_COREDUMP component definition."
 -config=B.INDEPENDENCE,component_entities+=

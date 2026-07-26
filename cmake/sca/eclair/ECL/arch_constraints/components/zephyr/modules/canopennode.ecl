@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_CANOPENNODE_FILES, "^zephyr/modules/canopennode/.*$"}
+-file_tag+={ZEPHYR_MODULES_CANOPENNODE_FILES, "^modules/canopennode/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_CANOPENNODE component definition."
 -config=B.INDEPENDENCE,component_entities+=

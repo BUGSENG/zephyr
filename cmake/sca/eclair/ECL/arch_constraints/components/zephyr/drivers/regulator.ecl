@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DRIVERS_REGULATOR_FILES, "^zephyr/include/zephyr/drivers/regulator\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_REGULATOR_FILES, "^zephyr/drivers/regulator/.*$"}
--file_tag+={ZEPHYR_DRIVERS_REGULATOR_FILES, "^zephyr/include/zephyr/drivers/regulator/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_REGULATOR_FILES, "^include/zephyr/drivers/regulator\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_REGULATOR_FILES, "^drivers/regulator/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_REGULATOR_FILES, "^include/zephyr/drivers/regulator/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_REGULATOR component definition."
 -config=B.INDEPENDENCE,component_entities+=

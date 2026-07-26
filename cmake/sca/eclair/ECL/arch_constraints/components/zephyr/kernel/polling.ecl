@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_KERNEL_POLLING_FILES, "^zephyr/kernel/poll\\.c$"}
+-file_tag+={ZEPHYR_KERNEL_POLLING_FILES, "^kernel/poll\\.c$"}
 
 -doc_begin="The ZEPHYR_KERNEL_POLLING component definition."
 -config=B.INDEPENDENCE,component_entities+=

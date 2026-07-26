@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_NANOPB_FILES, "^zephyr/modules/nanopb/.*$"}
+-file_tag+={ZEPHYR_MODULES_NANOPB_FILES, "^modules/nanopb/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_NANOPB component definition."
 -config=B.INDEPENDENCE,component_entities+=

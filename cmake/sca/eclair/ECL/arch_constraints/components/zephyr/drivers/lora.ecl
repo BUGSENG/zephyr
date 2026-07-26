@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_LORA_FILES, "^zephyr/include/zephyr/drivers/lora\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_LORA_FILES, "^zephyr/drivers/lora/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_LORA_FILES, "^include/zephyr/drivers/lora\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_LORA_FILES, "^drivers/lora/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_LORA component definition."
 -config=B.INDEPENDENCE,component_entities+=

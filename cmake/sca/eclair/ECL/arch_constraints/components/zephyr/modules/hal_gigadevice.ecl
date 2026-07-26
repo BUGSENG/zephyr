@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_GIGADEVICE_FILES, "^zephyr/modules/hal_gigadevice/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_GIGADEVICE_FILES, "^modules/hal_gigadevice/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_GIGADEVICE component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_STEPPER_FILES, "^zephyr/drivers/stepper/.*$"}
--file_tag+={ZEPHYR_DRIVERS_STEPPER_FILES, "^zephyr/include/zephyr/drivers/stepper/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_STEPPER_FILES, "^drivers/stepper/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_STEPPER_FILES, "^include/zephyr/drivers/stepper/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_STEPPER_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/stepper.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_STEPPER component definition."

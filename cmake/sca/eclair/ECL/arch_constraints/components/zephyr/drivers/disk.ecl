@@ -1,7 +1,7 @@
--file_tag+={ZEPHYR_DRIVERS_DISK_FILES, "^zephyr/include/zephyr/drivers/disk\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_DISK_FILES, "^zephyr/drivers/disk/.*$"}
--file_tag+={ZEPHYR_DRIVERS_DISK_FILES, "^zephyr/include/zephyr/drivers/disk/.*$"}
--file_tag+={ZEPHYR_DRIVERS_DISK_FILES, "^zephyr/include/zephyr/drivers/loopback_disk\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_DISK_FILES, "^include/zephyr/drivers/disk\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_DISK_FILES, "^drivers/disk/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DISK_FILES, "^include/zephyr/drivers/disk/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_DISK_FILES, "^include/zephyr/drivers/loopback_disk\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_DISK component definition."
 -config=B.INDEPENDENCE,component_entities+=

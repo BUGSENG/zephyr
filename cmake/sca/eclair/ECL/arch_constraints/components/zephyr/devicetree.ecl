@@ -1,6 +1,6 @@
--file_tag+={ZEPHYR_DEVICETREE_FILES, "^zephyr/include/zephyr/devicetree\\.h$"}
--file_tag+={ZEPHYR_DEVICETREE_FILES, "^zephyr/include/zephyr/devicetree/.*$"}
--file_tag+={ZEPHYR_DEVICETREE_FILES, "^zephyr/include/zephyr/dt-bindings/.*$"}
+-file_tag+={ZEPHYR_DEVICETREE_FILES, "^include/zephyr/devicetree\\.h$"}
+-file_tag+={ZEPHYR_DEVICETREE_FILES, "^include/zephyr/devicetree/.*$"}
+-file_tag+={ZEPHYR_DEVICETREE_FILES, "^include/zephyr/dt-bindings/.*$"}
 -file_tag+={ZEPHYR_DEVICETREE_FILES, "^.*/build/zephyr/include/generated/zephyr/devicetree_generated\\.h$"}
 
 -doc_begin="The ZEPHYR_DEVICETREE component definition."

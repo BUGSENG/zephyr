@@ -1,7 +1,7 @@
--file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^zephyr/drivers/serial/.*$"}
--file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^zephyr/include/zephyr/drivers/serial/.*$"}
--file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^zephyr/include/zephyr/drivers/uart/.*$"}
--file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^zephyr/include/zephyr/drivers/uart.*\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^drivers/serial/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^include/zephyr/drivers/serial/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^include/zephyr/drivers/uart/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^include/zephyr/drivers/uart.*\\.h$"}
 -file_tag+={ZEPHYR_DRIVERS_SERIAL_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/uart\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_SERIAL component definition."

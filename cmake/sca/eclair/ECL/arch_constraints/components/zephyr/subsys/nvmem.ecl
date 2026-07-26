@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_NVMEM_FILES, "^zephyr/subsys/nvmem/.*$"}
--file_tag+={ZEPHYR_SUBSYS_NVMEM_FILES, "^zephyr/include/zephyr/nvmem\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_NVMEM_FILES, "^subsys/nvmem/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_NVMEM_FILES, "^include/zephyr/nvmem\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_NVMEM component definition."
 -config=B.INDEPENDENCE,component_entities+=

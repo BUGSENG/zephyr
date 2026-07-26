@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_KERNEL_INTERRUPTS_FILES, "^zephyr/include/zephyr/irq.*$"}
--file_tag+={ZEPHYR_KERNEL_INTERRUPTS_FILES, "^zephyr/kernel/irq.*$"}
+-file_tag+={ZEPHYR_KERNEL_INTERRUPTS_FILES, "^include/zephyr/irq.*$"}
+-file_tag+={ZEPHYR_KERNEL_INTERRUPTS_FILES, "^kernel/irq.*$"}
 
 -doc_begin="The ZEPHYR_KERNEL_INTERRUPTS component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_CRC_FILES, "^zephyr/subsys/crc/.*$"}
--file_tag+={ZEPHYR_SUBSYS_CRC_FILES, "^zephyr/include/zephyr/sys/crc\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_CRC_FILES, "^subsys/crc/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_CRC_FILES, "^include/zephyr/sys/crc\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_CRC component definition."
 -config=B.INDEPENDENCE,component_entities+=

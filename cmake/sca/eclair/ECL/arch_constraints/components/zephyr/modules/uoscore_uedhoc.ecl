@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_UOSCORE_UEDHOC_FILES, "^zephyr/modules/uoscore-uedhoc/.*$"}
+-file_tag+={ZEPHYR_MODULES_UOSCORE_UEDHOC_FILES, "^modules/uoscore-uedhoc/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_UOSCORE_UEDHOC component definition."
 -config=B.INDEPENDENCE,component_entities+=

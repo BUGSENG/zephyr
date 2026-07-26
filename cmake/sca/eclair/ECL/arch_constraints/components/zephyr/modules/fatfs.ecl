@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_FATFS_FILES, "^zephyr/modules/fatfs/.*$"}
+-file_tag+={ZEPHYR_MODULES_FATFS_FILES, "^modules/fatfs/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_FATFS component definition."
 -config=B.INDEPENDENCE,component_entities+=

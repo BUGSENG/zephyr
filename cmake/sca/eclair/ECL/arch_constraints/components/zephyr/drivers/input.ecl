@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_DRIVERS_INPUT_FILES, "^zephyr/drivers/input/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_INPUT_FILES, "^drivers/input/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_INPUT_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/input.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_INPUT component definition."

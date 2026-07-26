@@ -1,5 +1,5 @@
 -file_tag+={ZEPHYR_KERNEL_API_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/kernel\\.h$"}
--file_tag+={ZEPHYR_KERNEL_API_FILES, "^zephyr/include/zephyr/kernel\\.h$"}
+-file_tag+={ZEPHYR_KERNEL_API_FILES, "^include/zephyr/kernel\\.h$"}
 
 -doc_begin="The ZEPHYR_KERNEL_API component definition."
 -config=B.INDEPENDENCE,component_entities+=

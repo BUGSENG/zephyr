@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LIB_OS_SPECULATION_FILES, "^zephyr/include/zephyr/sys/speculation\\.h$"}
+-file_tag+={ZEPHYR_LIB_OS_SPECULATION_FILES, "^include/zephyr/sys/speculation\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_OS_SPECULATION component definition."
 -config=B.INDEPENDENCE,component_entities+=

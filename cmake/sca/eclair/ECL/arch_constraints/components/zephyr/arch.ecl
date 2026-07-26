@@ -1,10 +1,10 @@
 eval_file_glob(join_paths(ecls_dir,"components/zephyr/arch/*.ecl"))
 
--file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^zephyr/arch/.*$"}
--file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^zephyr/include/zephyr/arch/.*$"}
--file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^zephyr/include/zephyr/sys/sys_io\\.h$"}
--file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^zephyr/include/zephyr/sys/mem_manage\\.h$"}
--file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^zephyr/include/zephyr/sw_isr_table\\.h$"}
+-file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^arch/.*$"}
+-file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^include/zephyr/arch/.*$"}
+-file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^include/zephyr/sys/sys_io\\.h$"}
+-file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^include/zephyr/sys/mem_manage\\.h$"}
+-file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^include/zephyr/sw_isr_table\\.h$"}
 -file_tag+={ZEPHYR_ARCH_GENERIC_FILES, "^.*/build/zephyr/isr_tables\\.c$"}
 
 -doc_begin="The ZEPHYR_ARCH_GENERIC component definition."

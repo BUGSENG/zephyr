@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_LIBSBC_FILES, "^zephyr/modules/libsbc/.*$"}
+-file_tag+={ZEPHYR_MODULES_LIBSBC_FILES, "^modules/libsbc/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_LIBSBC component definition."
 -config=B.INDEPENDENCE,component_entities+=

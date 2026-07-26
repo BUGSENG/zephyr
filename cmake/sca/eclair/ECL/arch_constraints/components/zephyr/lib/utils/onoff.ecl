@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_UTILS_ONOFF_FILES, "^zephyr/include/zephyr/sys/onoff\\.h$"}
--file_tag+={ZEPHYR_LIB_UTILS_ONOFF_FILES, "^zephyr/lib/utils/onoff\\.c$"}
+-file_tag+={ZEPHYR_LIB_UTILS_ONOFF_FILES, "^include/zephyr/sys/onoff\\.h$"}
+-file_tag+={ZEPHYR_LIB_UTILS_ONOFF_FILES, "^lib/utils/onoff\\.c$"}
 
 -doc_begin="The ZEPHYR_LIB_UTILS_ONOFF component definition."
 -config=B.INDEPENDENCE,component_entities+=

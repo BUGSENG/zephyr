@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_LIB_MEM_BLOCKS_FILES, "^zephyr/lib/mem_blocks/.*$"}
--file_tag+={ZEPHYR_LIB_MEM_BLOCKS_FILES, "^zephyr/include/zephyr/sys/mem_blocks\\.h$"}
+-file_tag+={ZEPHYR_LIB_MEM_BLOCKS_FILES, "^lib/mem_blocks/.*$"}
+-file_tag+={ZEPHYR_LIB_MEM_BLOCKS_FILES, "^include/zephyr/sys/mem_blocks\\.h$"}
 
 -doc_begin="The ZEPHYR_LIB_MEM_BLOCKS component definition."
 -config=B.INDEPENDENCE,component_entities+=

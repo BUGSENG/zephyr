@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_LINKER_FILES, "^zephyr/include/zephyr/linker/.*$"}
+-file_tag+={ZEPHYR_LINKER_FILES, "^include/zephyr/linker/.*$"}
 
 -doc_begin="The ZEPHYR_LINKER component definition."
 -config=B.INDEPENDENCE,component_entities+=

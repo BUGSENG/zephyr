@@ -40,4 +40,4 @@ Declarations in these files not necessarily have to be referenced."
 
 -doc="The following declarations are in generated files: not in all configuration they are implemented.
     Changing the generators could be dangerous and the advantages in enforcing the rule do not outweigh these dangers."
--config=MC3A2.R8.6,declarations+={safe, "loc(top(file(^zephyr/build/zephyr/include/generated/.*$)))"}
+-config=MC3A2.R8.6,declarations+={safe, "loc(top(file(^build/zephyr/include/generated/.*$)))"}

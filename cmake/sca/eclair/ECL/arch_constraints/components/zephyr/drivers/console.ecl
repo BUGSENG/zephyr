@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_CONSOLE_FILES, "^zephyr/drivers/console/.*$"}
--file_tag+={ZEPHYR_DRIVERS_CONSOLE_FILES, "^zephyr/include/zephyr/drivers/console/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CONSOLE_FILES, "^drivers/console/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_CONSOLE_FILES, "^include/zephyr/drivers/console/.*$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_CONSOLE component definition."
 -config=B.INDEPENDENCE,component_entities+=

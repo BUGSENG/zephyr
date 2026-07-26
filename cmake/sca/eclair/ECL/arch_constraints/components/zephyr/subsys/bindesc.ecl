@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_BINDESC_FILES, "^zephyr/subsys/bindesc/.*$"}
--file_tag+={ZEPHYR_SUBSYS_BINDESC_FILES, "^zephyr/include/zephyr/bindesc\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_BINDESC_FILES, "^subsys/bindesc/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_BINDESC_FILES, "^include/zephyr/bindesc\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_BINDESC component definition."
 -config=B.INDEPENDENCE,component_entities+=

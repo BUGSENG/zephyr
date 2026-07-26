@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_ENTROPY_FILES, "^zephyr/include/zephyr/drivers/entropy\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_ENTROPY_FILES, "^zephyr/drivers/entropy/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_ENTROPY_FILES, "^include/zephyr/drivers/entropy\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_ENTROPY_FILES, "^drivers/entropy/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_ENTROPY_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/entropy.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_ENTROPY component definition."

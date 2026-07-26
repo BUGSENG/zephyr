@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_SENT_FILES, "^zephyr/drivers/sent/.*$"}
--file_tag+={ZEPHYR_DRIVERS_SENT_FILES, "^zephyr/include/zephyr/drivers/sent/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SENT_FILES, "^drivers/sent/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_SENT_FILES, "^include/zephyr/drivers/sent/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_SENT_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/sent\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_SENT component definition."

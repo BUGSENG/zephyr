@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_DRIVERS_OTP_FILES, "^zephyr/include/zephyr/drivers/otp\\.h$"}
--file_tag+={ZEPHYR_DRIVERS_OTP_FILES, "^zephyr/drivers/otp/.*$"}
+-file_tag+={ZEPHYR_DRIVERS_OTP_FILES, "^include/zephyr/drivers/otp\\.h$"}
+-file_tag+={ZEPHYR_DRIVERS_OTP_FILES, "^drivers/otp/.*$"}
 -file_tag+={ZEPHYR_DRIVERS_OTP_FILES, "^.*/build/zephyr/include/generated/zephyr/syscalls/otp.*\\.h$"}
 
 -doc_begin="The ZEPHYR_DRIVERS_OTP component definition."

@@ -1,5 +1,5 @@
--file_tag+={ZEPHYR_SUBSYS_JWT_FILES, "^zephyr/subsys/jwt/.*$"}
--file_tag+={ZEPHYR_SUBSYS_JWT_FILES, "^zephyr/include/zephyr/data/jwt\\.h$"}
+-file_tag+={ZEPHYR_SUBSYS_JWT_FILES, "^subsys/jwt/.*$"}
+-file_tag+={ZEPHYR_SUBSYS_JWT_FILES, "^include/zephyr/data/jwt\\.h$"}
 
 -doc_begin="The ZEPHYR_SUBSYS_JWT component definition."
 -config=B.INDEPENDENCE,component_entities+=
