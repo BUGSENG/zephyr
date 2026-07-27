@@ -18,3 +18,5 @@ defun(eval_file_glob(path),
 -doc_end
 
 eval_file(join_paths(ecls_dir,"components.ecl"))
+
+eval_file(join_paths(ecls_dir,"arch_constraints_architecture.ecl"))
