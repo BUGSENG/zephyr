@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_LORAMAC_NODE_FILES, "^modules/loramac-node/.*$"}
+-file_tag+={ZEPHYR_MODULES_LORAMAC_NODE_FILES, "^.*/modules/loramac-node/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_LORAMAC_NODE component definition."
 -config=B.INDEPENDENCE,component_entities+=

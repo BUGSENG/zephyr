@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_OPENTHREAD_FILES, "^modules/openthread/.*$"}
+-file_tag+={ZEPHYR_MODULES_OPENTHREAD_FILES, "^.*/modules/openthread/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_OPENTHREAD component definition."
 -config=B.INDEPENDENCE,component_entities+=

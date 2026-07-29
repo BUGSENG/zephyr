@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_CMSIS_6_FILES, "^modules/cmsis_6/.*$"}
+-file_tag+={ZEPHYR_MODULES_CMSIS_6_FILES, "^.*/modules/cmsis_6/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_CMSIS_6 component definition."
 -config=B.INDEPENDENCE,component_entities+=

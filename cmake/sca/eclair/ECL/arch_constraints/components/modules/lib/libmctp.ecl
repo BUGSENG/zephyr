@@ -1,4 +1,4 @@
--file_tag+={MODULES_LIB_LIBMCTP_FILES, "^modules/lib/libmctp/.*$"}
+-file_tag+={MODULES_LIB_LIBMCTP_FILES, "^.*/modules/lib/libmctp/.*$"}
 
 -doc_begin="The MODULES_LIB_LIBMCTP component definition."
 -config=B.INDEPENDENCE,component_entities+=

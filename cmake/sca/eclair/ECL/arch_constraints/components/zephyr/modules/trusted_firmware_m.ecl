@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_TRUSTED_FIRMWARE_M_FILES, "^modules/trusted-firmware-m/.*$"}
+-file_tag+={ZEPHYR_MODULES_TRUSTED_FIRMWARE_M_FILES, "^.*/modules/trusted-firmware-m/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_TRUSTED_FIRMWARE_M component definition."
 -config=B.INDEPENDENCE,component_entities+=

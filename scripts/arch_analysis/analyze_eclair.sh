@@ -29,6 +29,7 @@ FULL_JSON_OUTPUT="../../build/sca/eclair/report_full_json"
         -DECLAIR_RULESET_USER=ON \
         -DECLAIR_USER_RULESET_NAME=arch_constraints \
         -DECLAIR_RULESET_FIRST_ANALYSIS=OFF \
+	-DECLAIR_FULL_TXT_FIRST_AREA=OFF \
         -DECLAIR_USER_RULESET_PATH="${PWD}/cmake/sca/eclair/ECL"
 )
 

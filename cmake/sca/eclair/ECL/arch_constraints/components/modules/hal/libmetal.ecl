@@ -1,4 +1,4 @@
--file_tag+={MODULES_HAL_LIBMETAL_FILES, "^modules/hal/libmetal/.*$"}
+-file_tag+={MODULES_HAL_LIBMETAL_FILES, "^.*/modules/hal/libmetal/.*$"}
 -file_tag+={MODULES_HAL_LIBMETAL_FILES, "^.*/modules/libmetal/.*$"}
 
 -doc_begin="The MODULES_HAL_LIBMETAL component definition."

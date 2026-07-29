@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_LIBLC3_FILES, "^modules/liblc3/.*$"}
+-file_tag+={ZEPHYR_MODULES_LIBLC3_FILES, "^.*/modules/liblc3/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_LIBLC3 component definition."
 -config=B.INDEPENDENCE,component_entities+=

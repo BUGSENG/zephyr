@@ -1,4 +1,4 @@
--file_tag+={MODULES_HAL_NXP_FILES, "^modules/hal/nxp/.*$"}
+-file_tag+={MODULES_HAL_NXP_FILES, "^.*/modules/hal/nxp/.*$"}
 
 -doc_begin="The MODULES_HAL_NXP component definition."
 -config=B.INDEPENDENCE,component_entities+=

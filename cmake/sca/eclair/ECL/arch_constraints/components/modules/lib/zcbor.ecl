@@ -1,4 +1,4 @@
--file_tag+={MODULES_LIB_ZCBOR_FILES, "^modules/lib/zcbor/.*$"}
+-file_tag+={MODULES_LIB_ZCBOR_FILES, "^.*/modules/lib/zcbor/.*$"}
 
 -doc_begin="The MODULES_LIB_ZCBOR component definition."
 -config=B.INDEPENDENCE,component_entities+=

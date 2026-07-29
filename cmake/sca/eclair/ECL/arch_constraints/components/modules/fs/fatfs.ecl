@@ -1,4 +1,4 @@
--file_tag+={MODULES_FS_FATFS_FILES, "^modules/fs/fatfs/.*$"}
+-file_tag+={MODULES_FS_FATFS_FILES, "^.*/modules/fs/fatfs/.*$"}
 
 -doc_begin="The MODULES_FS_FATFS component definition."
 -config=B.INDEPENDENCE,component_entities+=

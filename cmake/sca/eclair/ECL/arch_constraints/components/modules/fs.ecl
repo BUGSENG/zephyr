@@ -1,6 +1,6 @@
 eval_file_glob(join_paths(ecls_dir,"components/modules/fs/*.ecl"))
 
--file_tag+={MODULES_FS_GENERIC_FILES, "^modules/fs/.*$"}
+-file_tag+={MODULES_FS_GENERIC_FILES, "^.*/modules/fs/.*$"}
 
 -doc_begin="The MODULES_FS_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

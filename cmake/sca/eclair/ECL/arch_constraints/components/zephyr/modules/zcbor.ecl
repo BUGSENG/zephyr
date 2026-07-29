@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_ZCBOR_FILES, "^modules/zcbor/.*$"}
+-file_tag+={ZEPHYR_MODULES_ZCBOR_FILES, "^.*/modules/zcbor/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_ZCBOR component definition."
 -config=B.INDEPENDENCE,component_entities+=

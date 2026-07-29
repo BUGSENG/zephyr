@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_ETHOS_U_FILES, "^modules/hal_ethos_u/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_ETHOS_U_FILES, "^.*/modules/hal_ethos_u/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_ETHOS_U component definition."
 -config=B.INDEPENDENCE,component_entities+=

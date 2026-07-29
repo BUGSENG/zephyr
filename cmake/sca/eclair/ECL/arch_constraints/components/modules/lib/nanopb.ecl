@@ -1,4 +1,4 @@
--file_tag+={MODULES_LIB_NANOPB_FILES, "^modules/lib/nanopb/.*$"}
+-file_tag+={MODULES_LIB_NANOPB_FILES, "^.*/modules/lib/nanopb/.*$"}
 
 -doc_begin="The MODULES_LIB_NANOPB component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,6 +1,6 @@
 eval_file_glob(join_paths(ecls_dir,"components/modules/hal/*.ecl"))
 
--file_tag+={MODULES_HAL_GENERIC_FILES, "^modules/hal/.*$"}
+-file_tag+={MODULES_HAL_GENERIC_FILES, "^.*/modules/hal/.*$"}
 
 -doc_begin="The MODULES_HAL_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

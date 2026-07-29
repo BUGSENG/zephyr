@@ -1,4 +1,4 @@
--file_tag+={MODULES_LIB_CMSIS_DSP_FILES, "^modules/lib/cmsis-dsp/.*$"}
+-file_tag+={MODULES_LIB_CMSIS_DSP_FILES, "^.*/modules/lib/cmsis-dsp/.*$"}
 
 -doc_begin="The MODULES_LIB_CMSIS_DSP component definition."
 -config=B.INDEPENDENCE,component_entities+=

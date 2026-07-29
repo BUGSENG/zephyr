@@ -1,4 +1,4 @@
--file_tag+={MODULES_LIB_GUI_FILES, "^modules/lib/gui/.*$"}
+-file_tag+={MODULES_LIB_GUI_FILES, "^.*/modules/lib/gui/.*$"}
 
 -doc_begin="The MODULES_LIB_GUI component definition."
 -config=B.INDEPENDENCE,component_entities+=

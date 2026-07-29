@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_LORA_BASICS_MODEM_FILES, "^modules/lora-basics-modem/.*$"}
+-file_tag+={ZEPHYR_MODULES_LORA_BASICS_MODEM_FILES, "^.*/modules/lora-basics-modem/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_LORA_BASICS_MODEM component definition."
 -config=B.INDEPENDENCE,component_entities+=

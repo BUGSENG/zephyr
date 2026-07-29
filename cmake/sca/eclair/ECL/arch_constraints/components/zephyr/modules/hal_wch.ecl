@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_WCH_FILES, "^modules/hal_wch/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_WCH_FILES, "^.*/modules/hal_wch/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_WCH component definition."
 -config=B.INDEPENDENCE,component_entities+=

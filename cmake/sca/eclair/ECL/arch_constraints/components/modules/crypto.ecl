@@ -1,6 +1,6 @@
 eval_file_glob(join_paths(ecls_dir,"components/modules/crypto/*.ecl"))
 
--file_tag+={MODULES_CRYPTO_GENERIC_FILES, "^modules/crypto/.*$"}
+-file_tag+={MODULES_CRYPTO_GENERIC_FILES, "^.*/modules/crypto/.*$"}
 
 -doc_begin="The MODULES_CRYPTO_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

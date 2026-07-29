@@ -1,4 +1,4 @@
--file_tag+={MODULES_CRYPTO_MBEDTLS_FILES, "^modules/crypto/mbedtls/.*$"}
+-file_tag+={MODULES_CRYPTO_MBEDTLS_FILES, "^.*/modules/crypto/mbedtls/.*$"}
 
 -doc_begin="The MODULES_CRYPTO_MBEDTLS component definition."
 -config=B.INDEPENDENCE,component_entities+=

@@ -1,6 +1,6 @@
 eval_file_glob(join_paths(ecls_dir,"components/modules/lib/*.ecl"))
 
--file_tag+={MODULES_LIB_GENERIC_FILES, "^modules/lib/.*$"}
+-file_tag+={MODULES_LIB_GENERIC_FILES, "^.*/modules/lib/.*$"}
 
 -doc_begin="The MODULES_LIB_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

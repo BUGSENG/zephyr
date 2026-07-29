@@ -1,4 +1,4 @@
--file_tag+={MODULES_LIB_LIBSBC_FILES, "^modules/lib/libsbc/.*$"}
+-file_tag+={MODULES_LIB_LIBSBC_FILES, "^.*/modules/lib/libsbc/.*$"}
 
 -doc_begin="The MODULES_LIB_LIBSBC component definition."
 -config=B.INDEPENDENCE,component_entities+=

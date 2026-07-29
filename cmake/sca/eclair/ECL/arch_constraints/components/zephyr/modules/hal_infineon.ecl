@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_INFINEON_FILES, "^modules/hal_infineon/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_INFINEON_FILES, "^.*/modules/hal_infineon/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_INFINEON component definition."
 -config=B.INDEPENDENCE,component_entities+=

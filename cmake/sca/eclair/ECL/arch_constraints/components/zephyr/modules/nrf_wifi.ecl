@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_NRF_WIFI_FILES, "^modules/nrf_wifi/.*$"}
+-file_tag+={ZEPHYR_MODULES_NRF_WIFI_FILES, "^.*/modules/nrf_wifi/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_NRF_WIFI component definition."
 -config=B.INDEPENDENCE,component_entities+=

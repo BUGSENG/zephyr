@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_PERCEPIO_FILES, "^modules/percepio/.*$"}
+-file_tag+={ZEPHYR_MODULES_PERCEPIO_FILES, "^.*/modules/percepio/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_PERCEPIO component definition."
 -config=B.INDEPENDENCE,component_entities+=

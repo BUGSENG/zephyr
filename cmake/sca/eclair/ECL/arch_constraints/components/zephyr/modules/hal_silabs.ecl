@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_SILABS_FILES, "^modules/hal_silabs/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_SILABS_FILES, "^.*/modules/hal_silabs/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_SILABS component definition."
 -config=B.INDEPENDENCE,component_entities+=

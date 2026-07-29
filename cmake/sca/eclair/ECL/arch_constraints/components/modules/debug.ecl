@@ -1,6 +1,6 @@
 eval_file_glob(join_paths(ecls_dir,"components/modules/debug/*.ecl"))
 
--file_tag+={MODULES_DEBUG_GENERIC_FILES, "^modules/debug/.*$"}
+-file_tag+={MODULES_DEBUG_GENERIC_FILES, "^.*/modules/debug/.*$"}
 
 -doc_begin="The MODULES_DEBUG_GENERIC component definition."
 -config=B.INDEPENDENCE,component_entities+=

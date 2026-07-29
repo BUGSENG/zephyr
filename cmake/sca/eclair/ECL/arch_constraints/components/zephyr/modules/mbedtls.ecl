@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_MBEDTLS_FILES, "^modules/mbedtls/.*$"}
+-file_tag+={ZEPHYR_MODULES_MBEDTLS_FILES, "^.*/modules/mbedtls/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_MBEDTLS component definition."
 -config=B.INDEPENDENCE,component_entities+=

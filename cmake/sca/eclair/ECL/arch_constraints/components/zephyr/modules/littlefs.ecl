@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_LITTLEFS_FILES, "^modules/littlefs/.*$"}
+-file_tag+={ZEPHYR_MODULES_LITTLEFS_FILES, "^.*/modules/littlefs/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_LITTLEFS component definition."
 -config=B.INDEPENDENCE,component_entities+=

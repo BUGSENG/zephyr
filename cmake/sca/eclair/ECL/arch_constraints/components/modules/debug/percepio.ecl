@@ -1,4 +1,4 @@
--file_tag+={MODULES_DEBUG_PERCEPIO_FILES, "^modules/debug/percepio/.*$"}
+-file_tag+={MODULES_DEBUG_PERCEPIO_FILES, "^.*/modules/debug/percepio/.*$"}
 
 -doc_begin="The MODULES_DEBUG_PERCEPIO component definition."
 -config=B.INDEPENDENCE,component_entities+=

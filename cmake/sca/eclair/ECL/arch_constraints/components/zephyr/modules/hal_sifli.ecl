@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_SIFLI_FILES, "^modules/hal_sifli/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_SIFLI_FILES, "^.*/modules/hal_sifli/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_SIFLI component definition."
 -config=B.INDEPENDENCE,component_entities+=

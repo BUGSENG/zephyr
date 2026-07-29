@@ -1,4 +1,4 @@
--file_tag+={MODULES_HAL_CMSIS_FILES, "^modules/hal/cmsis/CMSIS/.*$"}
+-file_tag+={MODULES_HAL_CMSIS_FILES, "^.*/modules/hal/cmsis/CMSIS/.*$"}
 
 -doc_begin="The MODULES_HAL_CMSIS component definition."
 -config=B.INDEPENDENCE,component_entities+=

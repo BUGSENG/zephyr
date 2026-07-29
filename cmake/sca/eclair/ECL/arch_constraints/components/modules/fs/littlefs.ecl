@@ -1,4 +1,4 @@
--file_tag+={MODULES_FS_LITTLEFS_FILES, "^modules/fs/littlefs/.*$"}
+-file_tag+={MODULES_FS_LITTLEFS_FILES, "^.*/modules/fs/littlefs/.*$"}
 
 -doc_begin="The MODULES_FS_LITTLEFS component definition."
 -config=B.INDEPENDENCE,component_entities+=

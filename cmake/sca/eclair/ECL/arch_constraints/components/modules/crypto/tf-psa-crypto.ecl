@@ -1,4 +1,4 @@
--file_tag+={MODULES_CRYPTO_TF_PSA_CRYPTO_FILES, "^modules/crypto/tf-psa-crypto/.*$"}
+-file_tag+={MODULES_CRYPTO_TF_PSA_CRYPTO_FILES, "^.*/modules/crypto/tf-psa-crypto/.*$"}
 
 -doc_begin="The MODULES_CRYPTO_TF_PSA_CRYPTO component definition."
 -config=B.INDEPENDENCE,component_entities+=

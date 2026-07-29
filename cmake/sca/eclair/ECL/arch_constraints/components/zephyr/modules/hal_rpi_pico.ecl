@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_RPI_PICO_FILES, "^modules/hal_rpi_pico/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_RPI_PICO_FILES, "^.*/modules/hal_rpi_pico/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_RPI_PICO component definition."
 -config=B.INDEPENDENCE,component_entities+=

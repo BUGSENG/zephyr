@@ -1,4 +1,4 @@
--file_tag+={MODULES_CRYPTO_MLDSA_NATIVE_FILES, "^modules/crypto/mldsa-native/.*$"}
+-file_tag+={MODULES_CRYPTO_MLDSA_NATIVE_FILES, "^.*/modules/crypto/mldsa-native/.*$"}
 
 -doc_begin="The MODULES_CRYPTO_MLDSA_NATIVE component definition."
 -config=B.INDEPENDENCE,component_entities+=

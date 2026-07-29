@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_SEGGER_FILES, "^modules/segger/.*$"}
+-file_tag+={ZEPHYR_MODULES_SEGGER_FILES, "^.*/modules/segger/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_SEGGER component definition."
 -config=B.INDEPENDENCE,component_entities+=

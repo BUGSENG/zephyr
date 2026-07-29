@@ -1,4 +1,4 @@
--file_tag+={ZEPHYR_MODULES_HAL_ESPRESSIF_FILES, "^modules/hal_espressif/.*$"}
+-file_tag+={ZEPHYR_MODULES_HAL_ESPRESSIF_FILES, "^.*/modules/hal_espressif/.*$"}
 
 -doc_begin="The ZEPHYR_MODULES_HAL_ESPRESSIF component definition."
 -config=B.INDEPENDENCE,component_entities+=

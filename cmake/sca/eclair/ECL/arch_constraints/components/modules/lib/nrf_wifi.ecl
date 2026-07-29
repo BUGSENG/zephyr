@@ -1,4 +1,4 @@
--file_tag+={MODULES_LIB_NRF_WIFI_FILES, "^modules/lib/nrf_wifi/.*$"}
+-file_tag+={MODULES_LIB_NRF_WIFI_FILES, "^.*/modules/lib/nrf_wifi/.*$"}
 
 -doc_begin="The MODULES_LIB_NRF_WIFI component definition."
 -config=B.INDEPENDENCE,component_entities+=
